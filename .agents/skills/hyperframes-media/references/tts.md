@@ -2,6 +2,8 @@
 
 `npx hyperframes tts` auto-detects a provider from env vars; explicit override via `--provider`.
 
+> **Run the Preflight first — no credential is not a green light to silently use the local voice.** Before generating a voiceover, complete the sign-in **Preflight** (see `../SKILL.md` → Preflight): run `npx hyperframes auth status`, recommend signing in, and **STOP for the user's choice** (sign in for HeyGen voices, or continue offline with local Kokoro). This applies to a one-off "generate a voiceover" request just as much as inside a full workflow.
+
 ## Provider chain
 
 | Order | Provider          | Env trigger                                 | Voice IDs                                   | Word timestamps                           | Audio format         |
@@ -35,10 +37,10 @@ wins: `$HEYGEN_API_KEY` → `$HYPERFRAMES_API_KEY` → a project `.env` (auto-lo
 walks up ≤5 dirs) → `~/.heygen/credentials` (shared with heygen-cli;
 `$HEYGEN_CONFIG_DIR` overrides the dir). An OAuth login is sent as
 `Authorization: Bearer`; an API key as `X-Api-Key`. If the only credential is an
-expired OAuth token it stops with a hint to run `hyperframes auth refresh`.
+expired OAuth token it stops with a hint to run `npx hyperframes auth refresh`.
 
 ```bash
-# Only needed if you haven't run `hyperframes auth login`:
+# Only needed if you haven't run `npx hyperframes auth login`:
 export HEYGEN_API_KEY=...   # or put it in a project .env
 
 # Synthesize + capture word timestamps in one call (skips a Whisper pass)
@@ -49,7 +51,7 @@ node skills/hyperframes-media/scripts/heygen-tts.mjs ./script.txt -o narration.w
 node skills/hyperframes-media/scripts/heygen-tts.mjs --list   # public starfish voices
 ```
 
-- **Voice:** `--voice <id>` must be a **starfish** voice_id (`--list`, or `GET /v3/voices?engine=starfish`). v2-catalog ids are rejected with HTTP 400. Omit `--voice` and the script auto-picks the first English public starfish voice.
+- **Voice:** `--voice <id>` must be a **starfish** voice_id (`--list`, or `GET /v3/voices?engine=starfish`). v2-catalog ids are rejected with HTTP 400. Omit `--voice` (English) and it defaults to **Marcia** (`05f19352e8f74b0392a8f411eba40de1`, a fixed default so the choice is deterministic). Non-English with no `--voice` falls back to the first matching catalog voice.
 - **Output:** `.wav` → transcoded to 44.1k mono via ffmpeg; `.mp3` → raw bytes (no ffmpeg needed).
 - **Words:** `--words <path>` writes the flat `[{id,text,start,end}]` shape below, drop-in for the captions pipeline. HeyGen's `<start>`/`<end>` boundary sentinels are filtered out and ids are re-contiguous.
 - **Non-English:** `--lang <code>` (anything but `en`) is sent as the request `language`.
@@ -62,6 +64,27 @@ node skills/hyperframes-media/scripts/heygen-tts.mjs --list   # public starfish 
 | Drop-in cloud TTS, big voice catalog                      | **ElevenLabs**                                      |
 | Offline, no API key, fast iteration                       | **Kokoro**                                          |
 | Non-English multilingual with deterministic phonemization | **Kokoro** (`ef_dora`, `jf_alpha`, `zf_xiaobei`, …) |
+
+## Expressive narration contract
+
+Before generating narration, write a compact voice-performance plan:
+
+- `performance_intent` - who the narrator is and how they should feel
+- `pacing_profile` - contemplative, conversational, energetic, technical, or custom
+- `energy_curve` - how the read changes across the piece
+- `pause_policy` - where silence should happen and why
+- section-level cues - `pace`, `energy`, `emphasis_words`, `pause_before_seconds`,
+  `pause_after_seconds`, and optional provider-ready text
+
+Do not rely on a vague instruction like "make it natural." Put the direction in
+the text or provider settings:
+
+- Use short sentences and purposeful punctuation.
+- Use `<break time="0.4s"/>` to `<break time="1.0s"/>` for important pauses when
+  the chosen provider supports SSML-style break tags.
+- Generate a sample from the most performance-sensitive section before batching.
+- If the sample sounds monotone, rushed, or ignores pauses, revise the plan or
+  provider settings before generating the rest.
 
 ## ffmpeg requirement
 

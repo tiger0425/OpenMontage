@@ -13,11 +13,21 @@
   <a href="#pipelines">Pipelines</a> &nbsp;·&nbsp;
   <a href="#how-it-works">How It Works</a> &nbsp;·&nbsp;
   <a href="docs/PROVIDERS.md">Providers</a> &nbsp;·&nbsp;
+  <a href="docs/PR_REVIEW_GUIDE.md">Review Guide</a> &nbsp;·&nbsp;
   <a href="AGENT_GUIDE.md">Agent Guide</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue.svg" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/trending">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/repo-of-the-day-dark.svg">
+      <img alt="🏆 #1 Repository of the Day on GitHub Trending" src=".github/assets/repo-of-the-day-light.svg" height="60">
+    </picture>
+  </a>
 </p>
 
 <p align="center"><strong>Follow The Build</strong></p>
@@ -47,6 +57,12 @@ Turn your AI coding assistant into a full video production studio. Describe what
 > **"THE LAST BANANA"** — a 60-second Pixar-style animated short about a lonely banana who finds friendship with a kiwi. 6 Kling v3-generated motion clips (via fal.ai), Google Chirp3-HD narration, royalty-free piano music, TikTok-style word-level captions, and Remotion composition. Total cost: **$1.33**.
 
 <div align="center">
+  <video src="https://github.com/user-attachments/assets/e03b5d1f-1199-4093-9f31-a43aa9da2c68" width="100%" controls></video>
+</div>
+
+> **"The Library at Alexandria"** — a 70-second history elegy on what humanity lost in a single night. Five hand-authored scenes — an illuminated manuscript page, cascading scroll-tags, a Burning Counter ticking 700,000 → 0 inside a candle's flame, a charred vellum fragment with surviving Greek, and an empty void — set to OpenAI 'ash' narration and a free Pixabay strings score. Total cost: **$0.02**. Built through OpenMontage's atelier (bespoke) composition mode — every scene crafted from scratch, no shared components.
+
+<div align="center">
   <video src="https://github.com/user-attachments/assets/8a6d2cc3-7ad2-46f5-922f-a8e3e5848d9f" width="100%" controls></video>
 </div>
 
@@ -63,12 +79,6 @@ Turn your AI coding assistant into a full video production studio. Describe what
 </div>
 
 > **"Mori no Seishin"** — a Ghibli-style anime animation of a forest spirit's journey through ancient woods. 12 FLUX-generated images with parallax crossfade, drift and pan camera motion, firefly and petal particles, cinematic vignette lighting, and ambient forest soundtrack. Total cost: **$0.15**. Still images brought to life through Remotion's animation engine.
-
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/9cf633d9-c264-4961-bfd0-b1db188654aa" width="100%" controls></video>
-</div>
-
-> **"Into the Abyss"** — a deep ocean exploration rendered in anime style. Bioluminescent gardens, coral cathedrals, and creatures of light — 12 FLUX-generated images with sparkle and mist particle overlays, light-ray effects, smooth camera motion, and ambient oceanic soundtrack. Total cost: **$0.15**. Zero video generation APIs needed.
 
 <p align="center">
   <a href="https://www.youtube.com/@OpenMontage?sub_confirmation=1"><strong>Subscribe to @OpenMontage on YouTube</strong></a> to see new videos as they ship — every video includes the full prompt, pipeline, tools used, and cost so you can reproduce it yourself.
@@ -132,7 +142,9 @@ Or if you want the real-footage path:
 
 That's it. The agent researches your topic with live web search, generates AI images, writes and narrates the script with voice direction, finds royalty-free background music automatically, burns in word-level subtitles, and renders the final video. Before you see anything, the system runs a multi-point self-review — ffprobe validation, frame sampling, audio level analysis, delivery promise verification, and subtitle checks. Every provider selection is scored across 7 dimensions with an auditable decision log. Every creative decision gets your approval.
 
-> **No `make`?** Run manually: `pip install -r requirements.txt && cd remotion-composer && npm install && cd .. && pip install piper-tts && cp .env.example .env`
+> **No `make`?** macOS/Linux: `python3 -m venv .venv && source .venv/bin/activate && python -m pip install -r requirements.txt && cd remotion-composer && npm install && cd .. && python -m pip install piper-tts && cp .env.example .env`
+>
+> Windows PowerShell: `py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1; python -m pip install -r requirements.txt; cd remotion-composer; npm install; cd ..; python -m pip install piper-tts; Copy-Item .env.example .env`
 >
 > **Windows:** If `npm install` fails with `ERR_INVALID_ARG_TYPE`, use `npx --yes npm install` instead.
 
@@ -171,7 +183,7 @@ SUNO_API_KEY=your-key          # Full songs, instrumentals, any genre
 
 # Voice & images:
 ELEVENLABS_API_KEY=your-key    # Premium TTS, AI music, sound effects
-OPENAI_API_KEY=your-key        # OpenAI TTS, DALL-E 3 images
+OPENAI_API_KEY=your-key        # OpenAI TTS, GPT Image 2 images
 XAI_API_KEY=your-key           # xAI Grok image edits/generation + Grok video generation
 GOOGLE_API_KEY=your-key        # Google Imagen images, Google TTS (700+ voices)
 
@@ -435,7 +447,7 @@ Each tool declares which Layer 3 skills it relies on. The agent reads Layer 1 to
 | **FLUX** | Cloud API | State-of-the-art quality |
 | **Google Imagen** | Cloud API | Imagen 4 — high-quality, multiple aspect ratios |
 | **Grok Imagine Image** | Cloud API | Strong image edits, style transfer, and multi-image compositing |
-| **DALL-E 3** | Cloud API | OpenAI's image model |
+| **GPT Image 2** | Cloud API | OpenAI's image model |
 | **Recraft** | Cloud API | Design-focused generation |
 | **Local Diffusion** | Local GPU | Stable Diffusion, free |
 | **Pexels** | Stock | Free stock images |
@@ -655,6 +667,18 @@ make test
 
 ---
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=calesthio%2FOpenMontage&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=calesthio/OpenMontage&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=calesthio/OpenMontage&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/image?repos=calesthio/OpenMontage&type=date&legend=top-left" />
+  </picture>
+</a>
+
+---
+
 ## License
 
 [GNU AGPLv3](LICENSE)
@@ -663,4 +687,6 @@ make test
 
 **OpenMontage** — Production-grade video with real quality enforcement, orchestrated by your AI assistant.
 
-If this project looks useful to you, a star would really mean a lot — it helps others discover it too.
+If this project looks useful to you, a ⭐ would really mean a lot — it helps others discover it too.
+
+If you'd like to go further, [sponsor the project](https://github.com/sponsors/calesthio) — OpenMontage is built nights and weekends, and your support makes that sustainable.
