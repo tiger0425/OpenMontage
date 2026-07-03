@@ -611,6 +611,37 @@ piper --download-dir ~/.piper/models --model en_US-lessac-medium
 
 ---
 
+### VoxCPM TTS — Offline GPU Text-to-Speech
+
+> **Completely offline, GPU-accelerated high-quality TTS.** Supports voice cloning from reference audio and voice design from text descriptions.
+
+**Tool:** `voxcpm_tts`
+**Runtime:** Local GPU (CUDA required)
+**Env var:** `VOXCPM_MODEL` (optional — model selection)
+
+#### Setup
+
+```bash
+# Install via pip (GPU environment required)
+pip install voxcpm
+
+# First run downloads the model automatically
+```
+
+#### Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| **Plain TTS** | High-quality text-to-speech |
+| **Voice Cloning** | Clone a voice from short reference audio |
+| **Voice Design** | Shape a voice from a text description (age, gender, timbre, style) |
+| **Multi-language** | Supports multiple languages |
+| **Offline** | Fully local, no network required |
+
+**VRAM requirement:** ~8-10GB
+
+---
+
 ### Local Video Generation (GPU Required)
 
 > **Free AI video generation.** Requires an NVIDIA GPU with sufficient VRAM.
@@ -722,6 +753,7 @@ These tools require only FFmpeg or Python packages — no GPU, no API key.
 | **Pexels** | `PEXELS_API_KEY` | `pexels_image`, `pexels_video` | Free |
 | **Pixabay** | `PIXABAY_API_KEY` | `pixabay_image`, `pixabay_video` | Free |
 | **Piper** | — (install only) | `piper_tts` | Free |
+| **VoxCPM** | — (install only) | `voxcpm_tts` | Free |
 | **Google** | `GOOGLE_API_KEY` | `google_tts`, `google_imagen` | Free tier + paid |
 | **ElevenLabs** | `ELEVENLABS_API_KEY` | `elevenlabs_tts`, `music_gen` | Free tier + paid |
 | **fal.ai** | `FAL_KEY` | `flux_image`, `recraft_image`, `kling_video`, `veo_video`, `minimax_video` | Pay-as-you-go |
@@ -745,7 +777,7 @@ How many providers cover each capability:
 |-----------|----------------|-----------------|--------------|
 | **Image Generation** | FLUX, Grok, Google Imagen, DALL-E 3, Recraft | Local Diffusion | Pexels, Pixabay (stock) |
 | **Video Generation** | Grok, Kling, Runway, Veo, Higgsfield, MiniMax, HeyGen | WAN, Hunyuan, CogVideo, LTX | Pexels, Pixabay (stock) |
-| **Text-to-Speech** | ElevenLabs, Google TTS, OpenAI | Piper | Piper, Google free tier, ElevenLabs free tier |
+| **Text-to-Speech** | ElevenLabs, Google TTS, OpenAI | Piper, VoxCPM | Piper, Google free tier, ElevenLabs free tier |
 | **Music Generation** | ElevenLabs, Suno | — | ElevenLabs free tier |
 | **Post-Production** | — | FFmpeg (compose, stitch, trim, mix, enhance, grade) | All free |
 | **Analysis** | — | WhisperX, Scene Detect, Frame Sampler, CLIP/BLIP-2 | All free |

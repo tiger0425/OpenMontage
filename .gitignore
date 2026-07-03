@@ -56,6 +56,9 @@ internal/
 # Agent skills lock (local install tracking)
 skills-lock.json
 
+# Sisyphus/oh-my-opencode agent working state (drafts, plans, session continuation)
+.omo/
+
 # Generated images (logo drafts — final logo lives in assets/)
 logo_*.png
 generated_image.png

@@ -999,8 +999,8 @@ class HyperFramesCompose(BaseTool):
     :root {{
       {vars_css}
     }}
-    body {{ margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-body); }}
-    [data-composition-id="root"] {{
+    body {{ margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: system-ui, sans-serif; }}
+    #root {{
       position: relative;
       width: {width}px;
       height: {height}px;
@@ -1009,13 +1009,13 @@ class HyperFramesCompose(BaseTool):
     .clip {{ position: absolute; inset: 0; }}
     .clip.video-clip, .clip.image-clip {{ object-fit: cover; width: 100%; height: 100%; }}
     .clip.text-card {{ display: flex; align-items: center; justify-content: center; padding: 120px 160px; box-sizing: border-box; text-align: center; }}
-    .clip.text-card h1 {{ font-family: var(--font-heading); font-weight: 700; font-size: 96px; line-height: 1.1; margin: 0; color: var(--color-fg); }}
+    .clip.text-card h1 {{ font-weight: 700; font-size: 96px; line-height: 1.1; margin: 0; color: var(--color-fg); }}
     .clip.text-card .subtitle {{ font-size: 36px; margin-top: 24px; color: var(--color-accent); }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 </head>
 <body>
-  <div data-composition-id="root" data-start="0" data-duration="{self._f(total_duration)}" data-width="{width}" data-height="{height}">
+  <div id="root" data-composition-id="root" data-start="0" data-duration="{self._f(total_duration)}" data-width="{width}" data-height="{height}">
     {"".join(clip_html)}
     {"".join(audio_html)}
     <script>

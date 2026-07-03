@@ -9,7 +9,11 @@ For raw HyperFrames knowledge (authoring contract, `data-*` attributes, GSAP
 timeline rules, CLI flags, registry blocks, website-to-video), read the Layer 3
 skills:
 
-- `.agents/skills/hyperframes/` — composition authoring contract + GSAP rules
+- `.agents/skills/hyperframes/` — entry skill: capability map + video routing
+- `.agents/skills/hyperframes-core/` — composition authoring contract (data-*, tracks, clips, sub-compositions)
+- `.agents/skills/hyperframes-animation/` — GSAP/Lottie/Three.js/CSS adapters, blueprints, rules, transitions
+- `.agents/skills/hyperframes-creative/` — DESIGN.md, palettes, typography, narration, beat planning
+- `.agents/skills/hyperframes-media/` — TTS, background music, transcription, captions
 - `.agents/skills/hyperframes-cli/` — init, lint, validate, preview, render
 - `.agents/skills/hyperframes-registry/` — `hyperframes add` + block wiring
 - `.agents/skills/website-to-hyperframes/` — capture-to-video workflow

@@ -88,7 +88,7 @@ class CheckpointValidationError(ValueError):
 
 @lru_cache(maxsize=1)
 def _load_checkpoint_schema() -> dict[str, Any]:
-    with open(CHECKPOINT_SCHEMA_PATH) as f:
+    with open(CHECKPOINT_SCHEMA_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

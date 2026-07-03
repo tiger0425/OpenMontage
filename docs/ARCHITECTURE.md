@@ -152,7 +152,7 @@ Selectors route based on: user preference when explicitly set, then scored ranki
 
 **Analysis (4):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand (CLIP/BLIP-2)
 
-**Audio (8):** elevenlabs_tts, google_tts, openai_tts, piper_tts, tts_selector, music_gen, audio_mixer, audio_enhance
+**Audio (13):** elevenlabs_tts, google_tts, openai_tts, piper_tts, doubao_tts, voxcpm_tts, tts_selector, music_gen, freesound_music, pixabay_music, suno_music, audio_mixer, audio_enhance
 
 **Avatar (2):** talking_head (SadTalker/MuseTalk), lip_sync (Wav2Lip)
 

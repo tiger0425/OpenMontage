@@ -29,6 +29,7 @@ from tools.tool_registry import ToolRegistry
 from tools.audio.elevenlabs_tts import ElevenLabsTTS
 from tools.audio.openai_tts import OpenAITTS
 from tools.audio.piper_tts import PiperTTS
+from tools.audio.minimax_tts import MiniMaxTTS
 from tools.audio.tts_selector import TTSSelector
 
 
@@ -126,9 +127,11 @@ class TestCapabilityMetadata:
         reg.register(ElevenLabsTTS())
         reg.register(OpenAITTS())
         reg.register(PiperTTS())
+        reg.register(MiniMaxTTS())
         reg.register(TTSSelector())
         assert {tool.name for tool in reg.get_by_capability("tts")} == {
             "elevenlabs_tts",
+            "minimax_tts",
             "openai_tts",
             "piper_tts",
             "tts_selector",
@@ -140,10 +143,11 @@ class TestCapabilityMetadata:
         reg.register(ElevenLabsTTS())
         reg.register(OpenAITTS())
         reg.register(PiperTTS())
+        reg.register(MiniMaxTTS())
         catalog = reg.capability_catalog()
         assert "tts" in catalog
         providers = {item["provider"] for item in catalog["tts"] if item["provider"] != "selector"}
-        assert providers == {"elevenlabs", "google_tts", "openai", "piper"}
+        assert providers == {"doubao", "elevenlabs", "google_tts", "minimax", "openai", "piper", "voxcpm"}
 
 
 # ---- Animated Explainer Pipeline ----

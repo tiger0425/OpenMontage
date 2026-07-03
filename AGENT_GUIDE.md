@@ -637,7 +637,7 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 
 | Category | Skills |
 |---|---|
-| **Composition runtime** | `remotion`, `remotion-best-practices`, `synthetic-screen-recording` (fake terminal/UI demos via Remotion TerminalScene) |
+| **Composition runtime** | **Remotion:** `remotion`, `remotion-best-practices`, `synthetic-screen-recording` (fake terminal/UI demos via Remotion TerminalScene)<br>**HyperFrames:** `hyperframes` (entry/router), `hyperframes-core` (composition contract), `hyperframes-animation` (GSAP/Lottie/Three.js adapters, blueprints, rules, transitions), `hyperframes-creative` (DESIGN.md, palettes, typography), `hyperframes-media` (TTS, BGM, transcription), `hyperframes-cli` (init/lint/validate/render), `hyperframes-registry` (blocks), `website-to-hyperframes` (site→video) |
 | **Animation knowledge (generic)** | `gsap-core`, `gsap-timeline`, `gsap-plugins` (SplitText / MorphSVG / DrawSVG / MotionPath / Flip / CustomEase), `gsap-utils`, `gsap-react`, `gsap-performance`, `gsap-scrolltrigger`, `gsap-frameworks`, `framer-motion` (Disney 12 principles), `lottie-bodymovin` (Lottie export) |
 | **Character animation** | `character-rigging`, `svg-character-animation`, `pose-library-design`, `canvas-procedural-animation`, `character-animation-qa` |
 | **Image generation** | `bfl-api`, `flux-best-practices` |
