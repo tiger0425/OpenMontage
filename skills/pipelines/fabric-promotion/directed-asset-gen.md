@@ -25,21 +25,21 @@
 
 ```python
 # 加载 STAGE 2 产出的 frame_blueprint
-frame_bp = json.load("artifacts/frame_blueprint.json")
-asset_manifest.assets = []
-asset_manifest.linked_frame_index = {}
+with open("artifacts/frame_blueprint.json", encoding="utf-8") as f:
+    frame_bp = json.load(f)
+asset_manifest = {"assets": [], "linked_frame_index": {}}
 
 # 按 frame_id 顺序生成，每一帧从 frame spec 取所有参数（不让 agent 改）
-for frame in frame_bp.frames:
-    if frame.asset_kind == "garment_image":
+for frame in frame_bp["frames"]:
+    if frame["asset_kind"] == "garment_image":
         _generate_garment_image(frame)
-    elif frame.asset_kind == "garment_video":
+    elif frame["asset_kind"] == "garment_video":
         _generate_garment_video(frame)
-    elif frame.asset_kind == "fabric_macro_video":
+    elif frame["asset_kind"] == "fabric_macro_video":
         _generate_fabric_macro_video(frame)
-    elif frame.asset_kind == "narration_wav":
+    elif frame["asset_kind"] == "narration_wav":
         _generate_tts(frame)
-    elif frame.asset_kind == "cover_base_image":
+    elif frame["asset_kind"] == "cover_base_image":
         _generate_cover_image(frame)
 
 # 最后写入 asset_manifest.json，每条都引用 frame.frame_id
@@ -49,28 +49,28 @@ for frame in frame_bp.frames:
 "agent 脑补构图"导致最终素材与设计脱节的根因。
 
 ### Step 2: TTS 配音 + 词级时间戳
-对 frame_blueprint 中所有 `asset_kind = "narration_wav"` 的帧，按顺序生成 wav +
-配套 json 时间戳。旁白文本取自 STAGE 2 的 `script.json` sections（不再从 brief 推断）。
+对 frame_blueprint 中所有 `asset_kind = "narration_wav"` 的帧，按顺序生成 wav。旁白文本取自 STAGE 2 的 `script.json` sections（不再从 brief 推断）。
 
 ```python
-script = json.load("artifacts/script.json")
-# 按 script.sections[].id 与 tts_frame.tts_segment_id 对齐
-for tts_frame in [f for f in frame_bp.frames if f.asset_kind == "narration_wav"]:
+with open("artifacts/script.json", encoding="utf-8") as f:
+    script = json.load(f)
+# 按 script["sections"][].id 与 tts_frame["tts_segment_id"] 对齐
+for tts_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "narration_wav"]:
     seg_text = next(
-        (s.text for s in script.sections if s.id == tts_frame.tts_segment_id),
+        (s["text"] for s in script["sections"] if s["id"] == tts_frame["tts_segment_id"]),
         ""
     )
-    result = tts_selector.execute({
+    result = voxcpm_tts.execute({
       "text": seg_text,
-      "voice_profile": <brief.voice_profile>,
-      "preferred_provider": "voxcpm", # 【强制】遵照 provider-lockdown 规则 2
-      "return_word_timestamps": true
+      "voice_description": brief["voice_description"],  # 用统一的 voice_description 保证多段音色一致
+      "seed": 42,                                         # 固定 seed，保证多段音色一致
+      "output_path": f"assets/tts/{tts_frame['frame_id']}.wav"
     })
-    # asset_manifest 记录 tts_frame.frame_id → wav 路径 + json 路径
+    # asset_manifest 记录 tts_frame.frame_id → wav 路径
 ```
 
-- 多段一致音色：优先 `voxcpm_tts`（同一 voice_id 多段不漂移）
-- 调用前读 `tts_selector` 的 `agent_skills` 对应 Layer 3 skill
+- 多段一致音色：固定 `voxcpm_tts`，同一 voice_description + 固定 seed 保证不漂移
+- 调用前读 `.agents/skills/voxcpm-tts/SKILL.md`
 
 ### Step 3: 成衣图（img2img）
 **【核心红线】：严禁使用通用提示词。必须从 `frame_blueprint.composition_rule` +
@@ -88,22 +88,22 @@ for tts_frame in [f for f in frame_bp.frames if f.asset_kind == "narration_wav"]
 范例（v3.0 改写成从 frame_blueprint 取值，不再从 brief.design_system / beat_plan 直接取）：
 ```python
 # v3.0：frame = 当前帧从 frame_blueprint 取的 spec dict
-image_selector.execute({
-  "mode": "img2img",
-  "preferred_provider": "google_imagen", # 【强制】遵照 provider-lockdown 规则 1
-  "init_image": frame.init_image_path,
-  "prompt": "A high-end editorial photograph of {frame.garment_concept_ref}. "
-            "{frame.composition_rule}. "
-            "{frame.prompt_injection_from_design_system}. "
-            "Fabric: {brief.fabric_description}.",
-  "aspect_ratio": frame.aspect_ratio,           # 来自 frame_blueprint
-  "strength": frame.img2img_strength,           # 来自 frame_blueprint（可能已 cus 上次 retrospective）
-  "preserve_fabric_texture": True
+# 固定使用 google_imagen 工具，模型 gemini-3.1-flash-lite-image
+tool = registry.get("google_imagen")
+result = tool.execute({
+    "prompt": f"A high-end editorial photograph of {frame['garment_concept_ref']}. "
+              f"{frame['composition_rule']}. "
+              f"{frame['prompt_injection_from_design_system']}. "
+              f"Fabric: {brief['fabric_description']}.",
+    "image_path": frame["init_image_path"],       # 面料原图路径，用于 img2img
+    "aspect_ratio": frame["aspect_ratio"],        # 来自 frame_blueprint
+    "model": "gemini-3.1-flash-lite-image",       # 固定模型，不走 selector
+    "output_path": f"assets/images/{frame['frame_id']}.png"
 })
 # 产出落到 assets/images/<frame.frame_id>.png
 # asset_manifest 记录 linked_frame_id = frame.frame_id
 ```
-调用前读 `image_selector` 的 `agent_skills`（如 FLUX / GPT Image prompt 工程）。
+调用前读 `.agents/skills/flux-best-practices/SKILL.md` 和 `bfl-api` 相关 prompt 工程技能。
 
 ### Step 4: 成衣视频（image_to_video）
 对 frame_blueprint 中所有 `asset_kind = "garment_video"` 的帧生成动作视频。
@@ -124,22 +124,23 @@ image_selector.execute({
 **视频提示词只能描述：动作 (Motion)、摄影机轨迹 (Camera)、和光影流转 (Lighting)。**
 
 ```python
-# v3.0：从 frame_blueprint 取所有参数
-comfyui_video.execute({    # 通过 video_selector 路由到此 provider
-  "operation": "image_to_video",
-  "reference_image_path": <成衣图路径>,    # 从 asset_manifest 中相关 frame_id 的 image asset 引
-  "workflow_path": frame.comfyui_workflow or "tools/_comfyui/workflows/ltx23_i2v.json",
-  "output_node": "38",  # 【必须】亲自在 JSON 里查找到的 SaveVideo 节点 ID (LTX23 是 38)
-  "workflow_overrides": {
-      # 【强制提示词法则】：纯动作描述，绝不提面料花色！
-      # 注意：frame.motion_rule 已排除色彩/纹理/长相描述（由 STAGE 2 验证）
-      "90": {"text": f"Subtle garment motion. {frame.motion_rule}"},
-      "59": {"image": "<UPLOADED_IMAGE>"}, # 图片加载节点 ID
-      "92": {"value": <frame.width or 1024>},
-      "93": {"value": <frame.height or 1024>},
-      "94": {"steps": frame.comfyui_steps},
-      "89": {"strength": frame.comfyui_denoise_strength}
-  }
+# v3.0：从 frame_blueprint 取所有参数，直接调用 comfyui_video
+tool = registry.get("comfyui_video")
+result = tool.execute({
+    "operation": "image_to_video",
+    "reference_image_path": "<成衣图路径>",  # 从 asset_manifest 中相关 frame_id 的 image asset 引
+    "workflow_path": frame["comfyui_workflow"] or "tools/_comfyui/workflows/ltx23_i2v.json",
+    "output_node": "38",  # 【必须】亲自在 JSON 里查找到的 SaveVideo 节点 ID (LTX23 是 38)
+    "workflow_overrides": {
+        # 【强制提示词法则】：纯动作描述，绝不提面料花色！
+        # 注意：frame["motion_rule"] 已排除色彩/纹理/长相描述（由 STAGE 2 验证）
+        "90": {"text": f"Subtle garment motion. {frame['motion_rule']}"},
+        "59": {"image": "<UPLOADED_IMAGE>"},  # 图片加载节点 ID
+        "92": {"value": frame.get("width", 1024)},
+        "93": {"value": frame.get("height", 1024)},
+        "94": {"steps": frame["comfyui_steps"]},
+        "89": {"strength": frame["comfyui_denoise_strength"]}
+    }
 })
 # 产出落到 assets/video/<frame.frame_id>.mp4
 # asset_manifest 记录 linked_frame_id = frame.frame_id
@@ -154,6 +155,22 @@ comfyui_video.execute({    # 通过 video_selector 路由到此 provider
 对 frame_blueprint 中所有 `asset_kind = "cover_base_image"` 的帧生成。**v3.0 几个爽爽换言：** 封面的 aspect_ratio 与文案模板不再写在此 skill —— 全部从 STAGE 2 的
 `frame_blueprint.<cover frame>` 取。本 step 仅产图。
 
+```python
+# 固定使用 google_imagen，模型 gemini-3.1-flash-lite-image
+tool = registry.get("google_imagen")
+for cover_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "cover_base_image"]:
+    result = tool.execute({
+        "prompt": f"A high-end editorial cover image. "
+                  f"{cover_frame['composition_rule']}. "
+                  f"{cover_frame['prompt_injection_from_design_system']}. "
+                  f"Fabric: {brief['fabric_description']}.",
+        "image_path": cover_frame["init_image_path"],  # 面料原图或成衣图
+        "aspect_ratio": cover_frame["aspect_ratio"],
+        "model": "gemini-3.1-flash-lite-image",
+        "output_path": f"assets/images/{cover_frame['frame_id']}.png"
+    })
+```
+
 ### Step 7: 写 asset_manifest
 每条 asset 记录（v3.0 核心改造）：
 - `path`（项目内路径）
@@ -164,19 +181,20 @@ comfyui_video.execute({    # 通过 video_selector 路由到此 provider
 - `parameters_used`（v3.0 新增：实际用的 strength / steps / aspect_ratio 等，便于 STAGE 6 retrospective 追踪 / 调参）
 
 ## Layer 3 Skills 必读
-- `image_selector.agent_skills`（FLUX / GPT Image prompt 工程）
+- `.agents/skills/flux-best-practices/SKILL.md` 和 `bfl-api`（Google Imagen prompt 工程）
 - `.agents/skills/comfyui/SKILL.md`
-- `tts_selector.agent_skills`（voxcpm 则读 `.agents/skills/voxcpm-tts/SKILL.md`）
+- `.agents/skills/comfyui-auto-recovery/SKILL.md`
+- `.agents/skills/voxcpm-tts/SKILL.md`
 
 ## Reviewer Self-Review
 - [ ] **CRITICAL**: 所有 generation 均为 img2img
-- [ ] 成衣图 / 封面图均以面料原图 / 成衣图为 init_image
-- [ ] 配音 wav + json 时间戳成对存在
-- [ ] **v3.0 CRITICAL**: 每条 asset_manifest 条目含 `linked_frame_id` 与
-      `parameters_used`，引用 STAGE 2 frame_blueprint 的 frame_id
-- [ ] 调用前读 image_selector / video_selector / tts_selector 的 Layer 3 skill
+- [ ] 成衣图 / 封面图均以面料原图 / 成衣图为 image_path
+- [ ] 配音 wav 已生成
+- [ ] **v3.0 CRITICAL**: 每条 asset_manifest 条目含 `linked_frame_id` 与 `parameters_used`，引用 STAGE 2 frame_blueprint 的 frame_id
+- [ ] 调用前读 `flux-best-practices` / `comfyui` / `voxcpm-tts` 对应 Layer 3 skill
 - [ ] Layer 3 skill 已在写 prompt 前读过
-- [ ] 未出现直接 import 底层 provider（GoogleImagen / ComfyUI 直接调用）的违规代码
+- [ ] 未出现调用 `image_selector` / `video_selector` / `tts_selector` 的违规行为
+- [ ] 未出现直接 import 底层 provider（GoogleImagen / ComfyUI 直接 import）的违规代码
 
 ## Output
 Schema-valid `asset_manifest` artifact，所有条目含 `img2img_source` 与
