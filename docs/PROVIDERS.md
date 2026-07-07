@@ -14,14 +14,16 @@ Everything you need to know about every provider in OpenMontage — setup instru
 | 2 | **$0** | Google API key | TTS with 700+ voices (1M chars/month free) + $300 new account credit |
 | 3 | **$0** | ElevenLabs | Premium TTS + music + SFX (10K chars/month free) |
 | 4 | **$0** | Piper (local install) | Fully offline TTS — no API key, no cost, no network |
-| 5 | **~$0.03/image** | fal.ai | FLUX images + Kling/Veo/MiniMax video + Recraft — broad single-key image + video coverage |
+| 5 | **~$0.03/image** | fal.ai | FLUX images + Kling/Veo/MiniMax/Seedance video + Recraft — broad single-key coverage |
 | 6 | **~$0.05/image** | OpenAI | GPT Image 2 images + OpenAI TTS |
 | 7 | **~$0.04/image** | Google Imagen | Imagen 4 images (shares the Google API key) |
-| 8 | **$12/month** | Runway | Gen-4 video — highest quality AI video |
-| 9 | **pay-as-you-go** | HeyGen | Avatar videos, multi-model video gateway |
-| 10 | **pay-as-you-go** | Suno | Full song generation with vocals and lyrics |
-| 11 | **$0 + GPU** | Local video gen | WAN 2.1, Hunyuan, CogVideo, LTX — free, offline |
-| 12 | **$0 + GPU** | Local Diffusion | Stable Diffusion images — free, offline |
+| 8 | **pay-as-you-go** | MiniMax | Image gen, TTS, music, and direct video — one token plan |
+| 9 | **$12/month** | Runway | Gen-4 video — highest quality AI video |
+| 10 | **pay-as-you-go** | HeyGen | Avatar videos, multi-model video gateway |
+| 11 | **pay-as-you-go** | Suno | Full song generation with vocals and lyrics |
+| 12 | **$0 + GPU** | ComfyUI | Self-hosted FLUX 2 + WAN 2.2 on your GPU, no API cost |
+| 13 | **$0 + GPU** | Local video gen | WAN 2.1, Hunyuan, CogVideo, LTX — free, offline |
+| 14 | **$0 + GPU** | Local Diffusion | Stable Diffusion images — free, offline |
 
 ### Environment Variable Summary
 
@@ -43,16 +45,25 @@ DOUBAO_SPEECH_API_KEY=       # Volcengine Doubao Speech TTS (strong Mandarin nar
 DOUBAO_SPEECH_VOICE_TYPE=    # Default Doubao speaker/voice type
 
 # MULTI-MODEL GATEWAY (one key, 6+ tools)
-FAL_KEY=                     # FLUX, Recraft, Kling, Veo, MiniMax video
+FAL_KEY=                     # FLUX, Recraft, Kling, Veo, MiniMax video, Seedance
+
+# IMAGE + VIDEO + TTS + MUSIC (Token Plan)
+MINIMAX_API_KEY=             # MiniMax image, TTS, music, direct video
 
 # VIDEO
-HEYGEN_API_KEY=              # HeyGen avatar video gateway
+HEYGEN_API_KEY=              # HeyGen avatar + multi-model gateway
 RUNWAY_API_KEY=              # Runway Gen-4 video (direct)
 SUNO_API_KEY=                # Suno music generation
+
+# STOCK MEDIA
+UNSPLASH_ACCESS_KEY=         # Unsplash stock images (free developer key)
 
 # LOCAL (no keys needed — just GPU + install)
 VIDEO_GEN_LOCAL_ENABLED=     # Set to "true" for local video gen
 VIDEO_GEN_LOCAL_MODEL=       # wan2.1-1.3b, wan2.1-14b, hunyuan-1.5, ltx2-local, cogvideo-5b
+
+# COMFYUI (self-hosted, free)
+COMFYUI_SERVER_URL=          # ComfyUI API endpoint (default http://localhost:8188)
 ```
 
 ---
@@ -428,6 +439,90 @@ Google TTS offers 700+ voices across 50+ languages. Voice names follow the patte
 
 ---
 
+### MiniMax — Image, Video, TTS, Music (Token Plan)
+
+> **One API key for four capabilities.** MiniMax covers image generation, text-to-speech, music, and video generation through a single token plan.
+
+**Tools unlocked:** `minimax_image`, `minimax_video_direct`, `minimax_video` (fal.ai gateway), `minimax_tts`, `minimax_music`
+**Env var:** `MINIMAX_API_KEY`
+
+#### Setup
+
+1. Go to [platform.minimaxi.com](https://platform.minimaxi.com) and sign up
+2. Top up your token plan (pay-as-you-go, no subscription)
+3. Navigate to User Center → Basic Information → Interface Keys
+4. Create a Token Plan API key
+5. Add to `.env`: `MINIMAX_API_KEY=your-key-here`
+
+#### Tools
+
+| Tool | Env Var | Gateway | Capability |
+|------|---------|---------|------------|
+| `minimax_image` | `MINIMAX_API_KEY` | Direct (api.minimaxi.com) | Image generation |
+| `minimax_tts` | `MINIMAX_API_KEY` | Direct (api.minimaxi.com) | Text-to-speech with emotion control |
+| `minimax_music` | `MINIMAX_API_KEY` | Direct (api.minimaxi.com) | Music generation (instrumental + vocals) |
+| `minimax_video_direct` | `MINIMAX_API_KEY` | Direct (api.minimaxi.com) | Video generation (MiniMax-Hailuo) |
+| `minimax_video` | `FAL_KEY` | fal.ai gateway | Video generation via fal.ai routing |
+
+The direct tools (`minimax_*` except `minimax_video`) use your `MINIMAX_API_KEY` and draw from your MiniMax token plan. `minimax_video` routes through fal.ai using `FAL_KEY`.
+
+#### Pricing
+
+MiniMax uses a token-based billing system. Approximate consumption:
+
+| Capability | Cost |
+|------------|------|
+| Image generation | ~$0.02–0.05/image (varies by size) |
+| TTS | ~$0.003/1K characters |
+| Music | ~$0.05–0.10/track |
+| Video (direct) | ~$0.05/second (billed separately from image/TTS/music tokens) |
+
+**Free tier:** None — requires token plan top-up ($5 minimum).
+
+---
+
+### Seedance (ByteDance) — Cinematic Video
+
+> **Premium cinematic video generation with native audio.** ByteDance Seedance 2.0 produces high-quality clips with synchronized speech, camera control, and lip-sync from quoted dialogue.
+
+**Tools unlocked:** `seedance_video` (fal.ai), `seedance_replicate` (Replicate)
+**Env vars:** `FAL_KEY` (for `seedance_video`), `REPLICATE_API_TOKEN` (for `seedance_replicate`)
+
+#### Setup
+
+**Via fal.ai (recommended):**
+1. Get a `FAL_KEY` from [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys)
+2. Add to `.env`: `FAL_KEY=your-key-here`
+
+**Via Replicate:**
+1. Get a `REPLICATE_API_TOKEN` from [replicate.com/account/api-tokens](https://replicate.com/account/api-tokens)
+2. Add to `.env`: `REPLICATE_API_TOKEN=your-token-here`
+
+Both gateways access the same Seedance 2.0 model family. The scoring engine deduplicates by `provider=seedance`.
+
+#### Capabilities
+
+| Feature | Supported |
+|---------|-----------|
+| Text-to-video | Yes |
+| Image-to-video | Yes |
+| Native audio (speech, SFX) | Yes |
+| Multi-shot cuts in one generation | Yes |
+| Director-level camera control | Yes |
+| Lip-sync from quoted dialogue | Yes |
+| Reference conditioning (up to 9 images + 3 clips) | Yes |
+| Character consistency across shots | Yes |
+
+#### Pricing
+
+| Gateway | Model | Price |
+|---------|-------|-------|
+| fal.ai | Seedance 2.0 | ~$0.10–0.30/clip (varies by length and quality) |
+| Replicate | seedance-2.0 | ~$0.10–0.25/clip |
+| Replicate | seedance-2.0-fast | ~$0.05–0.15/clip |
+
+---
+
 ### Suno — AI Music Generation
 
 > **Full songs with vocals and lyrics.** Any genre, up to 8 minutes. Instrumentals or vocal tracks.
@@ -438,10 +533,11 @@ Google TTS offers 700+ voices across 50+ languages. Voice names follow the patte
 #### Setup
 
 1. Go to [suno.com](https://suno.com) and create a Suno account
-2. For API access, go to [sunoapi.org](https://sunoapi.org) and create an account
-3. Navigate to the dashboard and copy your API key
-4. Add credits (1 credit = $0.005 USD)
-5. Add to `.env`: `SUNO_API_KEY=your-key-here`
+2. Subscribe to a plan for API access (see pricing below)
+3. Navigate to your API settings on Suno and copy your key
+4. Add to `.env`: `SUNO_API_KEY=your-key-here`
+
+> **Note:** Suno does not currently offer an official self-serve API. The `SUNO_API_KEY` value may be obtained from third-party API services such as [sunoapi.org](https://sunoapi.org), which are unaffiliated with Suno Inc. Verify service terms before using. This documentation does not endorse any specific third-party provider.
 
 #### Pricing
 
@@ -452,8 +548,6 @@ Google TTS offers 700+ voices across 50+ languages. Voice names follow the patte
 | Free | $0 | 50/day | ~10 songs/day, non-commercial only |
 | Pro | $10/mo | 2,500/mo | Commercial license |
 | Premier | $30/mo | 10,000/mo | Commercial license |
-
-**API (via sunoapi.org):** Pay-as-you-go, 1 credit = $0.005. Each generation produces 2 tracks.
 
 ---
 
@@ -689,6 +783,48 @@ VIDEO_GEN_LOCAL_MODEL=cogvideo-2b      # 6GB+ VRAM (lightest)
 
 ---
 
+### ComfyUI — Self-Hosted Image + Video Generation
+
+> **Run any model through a ComfyUI server on your GPU.** ComfyUI supports models (FLUX 2, WAN 2.2, etc.) that `diffusers` cannot run on newer hardware (Blackwell, DGX Spark) and allows full workflow customization.
+
+**Tools unlocked:** `comfyui_image`, `comfyui_video`
+**Env var:** `COMFYUI_SERVER_URL` (default: `http://localhost:8188`)
+
+#### Setup
+
+1. Install and start ComfyUI on your machine or server (see [github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI))
+2. Download the bundled model checkpoints:
+   - **FLUX 2 Dev NVFP4** for image generation: `flux2-dev-nvfp4.safetensors`, Mistral text encoder, and VAE
+   - **WAN 2.2 14B FP8** for video generation: text encoder, diffusion models (high/low noise), VAE, and LightX2V 4-step LoRAs
+3. Add to `.env` if not running on `localhost:8188`:
+   ```bash
+   COMFYUI_SERVER_URL=http://localhost:8188
+   ```
+
+#### Bundled Workflows
+
+| Workflow | Tool | Model | VRAM |
+|----------|------|-------|------|
+| `flux2-txt2img.json` | `comfyui_image` | FLUX 2 Dev NVFP4 | ~8 GB |
+| `wan22-t2v-4step.json` | `comfyui_video` | WAN 2.2 14B FP8 T2V | ~16 GB |
+| `wan22-i2v-4step.json` | `comfyui_video` | WAN 2.2 14B FP8 I2V | ~16 GB |
+
+#### Custom Workflows
+
+Both tools accept `workflow_json`, `workflow_path`, and `output_node` parameters for custom workflows. This enables:
+
+- Lower-VRAM models (WAN 2.1 1.3B, LTX-Video)
+- Community workflows with different schedulers, LoRAs, or controlnets
+- New model checkpoints without code changes
+
+See `.agents/skills/comfyui/SKILL.md` for usage guidance.
+
+#### Pricing
+
+**Free.** ComfyUI runs on your own hardware. No API costs. GPU electricity cost only.
+
+---
+
 ### Local Diffusion — Offline Image Generation (GPU Required)
 
 > **Free Stable Diffusion image generation.** No API cost, fully offline.
@@ -756,17 +892,22 @@ These tools require only FFmpeg or Python packages — no GPU, no API key.
 |----------|---------|---------------|------|
 | **Pexels** | `PEXELS_API_KEY` | `pexels_image`, `pexels_video` | Free |
 | **Pixabay** | `PIXABAY_API_KEY` | `pixabay_image`, `pixabay_video` | Free |
+| **Unsplash** | `UNSPLASH_ACCESS_KEY` | Unsplash image search (via `stock_sources/unsplash.py`) | Free |
 | **Piper** | — (install only) | `piper_tts` | Free |
 | **VoxCPM** | — (install only) | `voxcpm_tts` | Free |
 | **Google** | `GOOGLE_API_KEY` | `google_tts`, `google_imagen` | Free tier + paid |
+| **Doubao Speech** | `DOUBAO_SPEECH_API_KEY` | `doubao_tts` | Pay-as-you-go |
 | **ElevenLabs** | `ELEVENLABS_API_KEY` | `elevenlabs_tts`, `music_gen` | Free tier + paid |
-| **fal.ai** | `FAL_KEY` | `flux_image`, `recraft_image`, `kling_video`, `veo_video`, `minimax_video` | Pay-as-you-go |
+| **fal.ai** | `FAL_KEY` | `flux_image`, `recraft_image`, `kling_video`, `veo_video`, `minimax_video`, `seedance_video` | Pay-as-you-go |
+| **MiniMax** | `MINIMAX_API_KEY` | `minimax_image`, `minimax_tts`, `minimax_music`, `minimax_video_direct` | Token plan (pay-as-you-go) |
+| **Seedance (Replicate)** | `REPLICATE_API_TOKEN` | `seedance_replicate` | Pay-as-you-go |
 | **OpenAI** | `OPENAI_API_KEY` | `openai_tts`, `openai_image` | Paid only |
 | **xAI** | `XAI_API_KEY` | `grok_image`, `grok_video` | Paid only |
 | **Runway** | `RUNWAY_API_KEY` | `runway_video` | Free trial + paid |
 | **Higgsfield** | `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` | `higgsfield_video` | Subscription ($15-84/mo) |
 | **HeyGen** | `HEYGEN_API_KEY` | `heygen_video` | Pay-as-you-go |
 | **Suno** | `SUNO_API_KEY` | `suno_music` | Pay-as-you-go |
+| **ComfyUI** | `COMFYUI_SERVER_URL` | `comfyui_image`, `comfyui_video` | Free (self-hosted GPU) |
 | **Local GPU** | `VIDEO_GEN_LOCAL_ENABLED` | `wan_video`, `hunyuan_video`, `cogvideo_video`, `ltx_video_local` | Free (GPU required) |
 | **Local Diffusion** | — (install only) | `local_diffusion` | Free (GPU required) |
 | **Modal** | `MODAL_LTX2_ENDPOINT_URL` | `ltx_video_modal` | Self-hosted cloud |
@@ -779,10 +920,10 @@ How many providers cover each capability:
 
 | Capability | Cloud Providers | Local Providers | Free Options |
 |-----------|----------------|-----------------|--------------|
-| **Image Generation** | FLUX, Grok, Google Imagen, GPT Image 2, Recraft | Local Diffusion | Pexels, Pixabay (stock) |
-| **Video Generation** | Grok, Kling, Runway, Veo, Higgsfield, MiniMax, HeyGen | WAN, Hunyuan, CogVideo, LTX | Pexels, Pixabay (stock) |
-| **Text-to-Speech** | ElevenLabs, Google TTS, OpenAI | Piper, VoxCPM | Piper, Google free tier, ElevenLabs free tier |
-| **Music Generation** | ElevenLabs, Suno | — | ElevenLabs free tier |
+| **Image Generation** | FLUX, Grok, Google Imagen, GPT Image 2, Recraft, MiniMax | Local Diffusion, ComfyUI | Pexels, Pixabay, Unsplash (stock) |
+| **Video Generation** | Grok, Kling, Runway, Veo, Higgsfield, MiniMax, Seedance, HeyGen | WAN, Hunyuan, CogVideo, LTX, ComfyUI | Pexels, Pixabay (stock) |
+| **Text-to-Speech** | ElevenLabs, Google TTS, OpenAI, MiniMax, Doubao | Piper, VoxCPM | Piper, Google free tier, ElevenLabs free tier |
+| **Music Generation** | ElevenLabs, Suno, MiniMax | — | ElevenLabs free tier |
 | **Post-Production** | — | FFmpeg (compose, stitch, trim, mix, enhance, grade) | All free |
 | **Analysis** | — | WhisperX, Scene Detect, Frame Sampler, CLIP/BLIP-2 | All free |
 | **Enhancement** | — | Upscale, BG Remove, Face Enhance, Face Restore | All free |

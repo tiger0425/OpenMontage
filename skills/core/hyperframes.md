@@ -442,6 +442,7 @@ the `deterministicFonts.ts` mapping table. Safe bets: `Outfit`,
 | `animation` | Wave 1 — HyperFrames is a first-class option for motion-graphics-heavy briefs |
 | `animated-explainer` | Wave 1 — HyperFrames viable when the concept is HTML/GSAP-native; Remotion remains default for data-chart-heavy explainers |
 | `screen-demo` | Wave 1 — HyperFrames viable for synthetic product UI; `TerminalScene` (Remotion) remains preferred for terminal-specific demos |
+| `fabric-promotion-directed` | Wave 1 — HyperFrames-first; OpenMontage 仅管 img2img 素材生成与平台文案，视觉合成全委托 HyperFrames `product-launch-video` |
 | `cinematic` | Wave 2 |
 | `hybrid` | Wave 2 |
 | `documentary-montage` | Wave 2 |

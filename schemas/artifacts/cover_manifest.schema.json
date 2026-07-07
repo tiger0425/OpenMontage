@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/cover_manifest",
+  "title": "Cover Manifest",
+  "description": "Cover image paths and provenance produced alongside the Publish Copy Director stage.",
+  "type": "object",
+  "required": ["version", "covers"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "covers": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "bilibili": {
+          "type": "object",
+          "required": ["path", "resolution"],
+          "properties": {
+            "path": { "type": "string", "description": "Relative path to cover image within renders/" },
+            "resolution": { "type": "string", "const": "1920x1080" },
+            "aspect_ratio": { "type": "string", "const": "16:9" },
+            "main_image_source": { "type": "string", "description": "Project-internal asset used as img2img init_image" },
+            "text_overlay_applied": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        },
+        "xiaohongshu": {
+          "type": "object",
+          "required": ["path", "resolution"],
+          "properties": {
+            "path": { "type": "string", "description": "Relative path to cover image within renders/" },
+            "resolution": { "type": "string", "const": "1080x1440" },
+            "aspect_ratio": { "type": "string", "const": "3:4" },
+            "main_image_source": { "type": "string", "description": "Project-internal asset used as img2img init_image" },
+            "text_overlay_applied": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "resolution": { "type": "string" },
+          "aspect_ratio": { "type": "string" },
+          "main_image_source": { "type": "string" },
+          "text_overlay_applied": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "all_assets_from_project_internal": {
+      "type": "boolean",
+      "default": true,
+      "description": "CRITICAL constraint: all cover assets must come from project-internal assets/ directory, no external images."
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

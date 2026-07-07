@@ -50,6 +50,18 @@
               "review_notes": { "type": "string" }
             },
             "additionalProperties": false
+          },
+          "img2img_source": {
+            "type": "string",
+            "description": "Path to the init_image used for img2img generation. Required by pipelines that enforce img2img (e.g. fabric-promotion). Null/absent for non-img2img assets."
+          },
+          "linked_concept_id": {
+            "type": ["string", "integer"],
+            "description": "Identifier linking this asset to a concept/act in the brief (e.g. concept A/B/C, or 0 for fabric macro / cover base). Used by fabric-promotion and similar pipelines that tie assets to specific brief concepts."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Pipeline-specific sub-classification complementing 'type' and 'subtype'. Examples for fabric-promotion: narration_wav, narration_timestamps, garment_image, garment_video, fabric_macro_video, cover_base_image."
           }
         },
         "additionalProperties": false

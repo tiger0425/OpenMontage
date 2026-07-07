@@ -165,6 +165,10 @@ class ComfyUIVideo(BaseTool):
                 "type": "string",
                 "description": "Optional path to a ComfyUI workflow JSON file. Requires output_node.",
             },
+            "workflow_overrides": {
+                "type": "object",
+                "description": "Optional node overrides for custom workflows (e.g. {'3': {'text': '...'}}). Use <UPLOADED_IMAGE> to inject reference_image_path.",
+            },
             "output_node": {
                 "type": "string",
                 "description": "ComfyUI output node ID for custom workflow_json/workflow_path.",
@@ -307,6 +311,24 @@ class ComfyUIVideo(BaseTool):
         try:
             if custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
+                
+                # Upload reference image if provided
+                ref_path = inputs.get("reference_image_path")
+                uploaded_image_name = None
+                if ref_path:
+                    upload_name = f"om_custom_{output_path.stem}.png"
+                    uploaded_image_name = self._client.upload_image(Path(ref_path), upload_name)
+                
+                overrides = inputs.get("workflow_overrides", {})
+                if overrides:
+                    # Automatically substitute <UPLOADED_IMAGE> placeholder
+                    if uploaded_image_name:
+                        for node_id, node_data in overrides.items():
+                            for k, v in node_data.items():
+                                if v == "<UPLOADED_IMAGE>":
+                                    overrides[node_id][k] = uploaded_image_name
+                    workflow = ComfyUIClient.patch_workflow(workflow, overrides)
+                
                 output_node = str(inputs["output_node"])
             elif operation == "image_to_video":
                 workflow, output_node = self._build_i2v(inputs, seed, output_path)

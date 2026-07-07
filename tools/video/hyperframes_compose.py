@@ -235,7 +235,7 @@ class HyperFramesCompose(BaseTool):
             return None
         try:
             out = subprocess.run(
-                [node, "--version"], capture_output=True, text=True, timeout=5
+                [node, "--version"], capture_output=True, text=True, encoding="utf-8", timeout=5
             )
             if out.returncode != 0:
                 return None
@@ -273,6 +273,7 @@ class HyperFramesCompose(BaseTool):
                 [npm, "view", cls._NPM_PACKAGE, "version"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=5,
             )
         except subprocess.TimeoutExpired:
@@ -1140,6 +1141,7 @@ class HyperFramesCompose(BaseTool):
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=timeout,
                 cwd=str(cwd) if cwd else None,
                 check=False,

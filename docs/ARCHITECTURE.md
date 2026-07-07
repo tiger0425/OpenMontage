@@ -1,6 +1,6 @@
 # OpenMontage Architecture
 
-> Last updated: 2026-03-28 | Derived from code exploration, not prior documentation.
+> Last updated: 2026-07-04 | Derived from code exploration, not prior documentation.
 
 OpenMontage is an **agent-orchestrated video production platform**. An LLM coding assistant (Claude Code, Cursor, Copilot, etc.) acts as the orchestrator — reading pipeline manifests, following skill instructions, calling Python tools, and checkpointing state. There is no runtime Python orchestrator; the agent _is_ the control plane.
 
@@ -38,20 +38,34 @@ OpenMontage/
 │   ├── pipeline_loader.py  # YAML manifest loading & validation
 │   ├── media_profiles.py   # Platform-specific render profiles (YouTube, TikTok, etc.)
 │   ├── env_loader.py       # .env variable management
-│   └── providers/          # (Reserved for future provider abstractions)
+│   ├── scoring.py          # Scored provider selection engine (7 dimensions)
+│   ├── corpus.py           # Corpus management for stock footage search
+│   ├── clip_embedder.py    # CLIP embedding for semantic search
+│   ├── delivery_promise.py # Quality gate: delivery promise validation
+│   ├── slideshow_risk.py   # Slideshow risk scoring (6 dimensions)
+│   ├── source_media_review.py
+│   ├── playbook_generator.py
+│   ├── hyperframes_style_bridge.py
+│   ├── shot_prompt_builder.py
+│   ├── variation_checker.py
+│   ├── verify_scene_pacing.py
+│   └── providers/          # Provider abstractions
 │
-├── tools/                  # 57+ Python tool implementations
+├── tools/                  # 94 Python tool implementations (and growing)
 │   ├── base_tool.py        # Abstract base class — the tool contract
 │   ├── tool_registry.py    # Auto-discovery singleton registry
 │   ├── cost_tracker.py     # Budget governance (estimate → reserve → reconcile)
 │   ├── analysis/           # Transcription, scene detection, frame sampling, video understanding
-│   ├── audio/              # TTS (ElevenLabs, OpenAI, Piper), music gen, mixing, enhancement
+│   ├── audio/              # TTS (ElevenLabs, OpenAI, Piper, MiniMax, Doubao, VoxCPM), music, mixing, enhancement
 │   ├── avatar/             # Talking head animation, lip sync
-│   ├── enhancement/        # Upscale, bg removal, face enhance/restore, color grading
-│   ├── graphics/           # Image gen (FLUX, GPT Image, Recraft, local diffusion), stock, diagrams, code snippets, math animation
+│   ├── capture/            # Screen recording, capture selector
+│   ├── character/          # SVG rigs, pose libraries, action timelines (cartoon animation pipeline)
+│   ├── enhancement/        # Upscale, bg removal, face enhance/restore, color grading, green screen
+│   ├── graphics/           # Image gen (FLUX, Imagen, Grok, GPT Image, Recraft, MiniMax, ComfyUI, local diffusion), stock, diagrams
 │   ├── publishers/         # (Reserved)
-│   ├── subtitle/           # SRT/VTT generation from timestamps
-│   └── video/              # 13 video gen providers, composition, stitching, trimming
+│   ├── subtitle/           # SRT/VTT generation, caption burn-in
+│   ├── video/              # 16 video gen providers, composition, stitching, trimming, reframe
+│   └── _comfyui/           # ComfyUI adapter (shared client + workflow templates)
 │
 ├── pipeline_defs/          # YAML pipeline manifests
 ├── schemas/                # JSON Schema definitions for validation
@@ -67,7 +81,7 @@ OpenMontage/
 │   ├── meta/               # reviewer, checkpoint-protocol, skill-creator
 │   └── pipelines/          # Per-pipeline stage-director skills
 │
-├── .agents/skills/         # Layer 3: external technology skills (FFmpeg, HyperFrames, GSAP, etc.)
+├── .agents/skills/         # Layer 3: external technology skills (~80 skills: FFmpeg, HyperFrames, GSAP, etc.)
 ├── styles/                 # Visual style playbooks (YAML) + loader
 ├── remotion-composer/      # Node.js/React — Remotion video composition renderer
 ├── tests/                  # Contract tests, QA integration tests, eval harness
@@ -150,19 +164,34 @@ Selectors route based on: user preference when explicitly set, then scored ranki
 
 ### Tool Inventory by Category
 
-**Analysis (4):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand (CLIP/BLIP-2)
+**Analysis (11):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand, video_analyzer, visual_qa, composition_validator, face_tracker, audio_energy, audio_probe, transcript_fetcher
 
-**Audio (13):** elevenlabs_tts, google_tts, openai_tts, piper_tts, doubao_tts, voxcpm_tts, tts_selector, music_gen, freesound_music, pixabay_music, suno_music, audio_mixer, audio_enhance
+**Audio (16):**
+- *TTS (8):* elevenlabs_tts, google_tts, openai_tts, piper_tts, doubao_tts, voxcpm_tts, minimax_tts, tts_selector
+- *Music (6):* music_gen, suno_music, minimax_music, freesound_music, pixabay_music, music_library
+- *Processing (2):* audio_mixer, audio_enhance
 
 **Avatar (2):** talking_head (SadTalker/MuseTalk), lip_sync (Wav2Lip)
 
-**Enhancement (5):** upscale (Real-ESRGAN), bg_remove (rembg/U2Net), face_enhance, face_restore (CodeFormer/GFPGAN), color_grade (FFmpeg LUTs)
+**Character Animation (6):** character_spec_generator, svg_rig_builder, pose_library_builder, action_timeline_compiler, character_rig_renderer, character_animation_reviewer
 
-**Graphics (13):** flux_image, grok_image, google_imagen, openai_image, recraft_image, local_diffusion, pexels_image, pixabay_image, image_selector, code_snippet, diagram_gen, math_animate (ManimCE), image_gen (deprecated)
+**Screen Capture (3):** screen_recorder, screen_capture_selector, cap_recorder
 
-**Subtitle (1):** subtitle_gen
+**Enhancement (6):** upscale (Real-ESRGAN), bg_remove (rembg/U2Net), face_enhance, face_restore (CodeFormer/GFPGAN), eye_enhance, color_grade (FFmpeg LUTs)
 
-**Video (18):** grok_video, heygen_video, higgsfield_video, veo_video, kling_video, runway_video, minimax_video, wan_video, hunyuan_video, cogvideo_video, ltx_video_local, ltx_video_modal, pexels_video, pixabay_video, video_selector, video_compose (FFmpeg), video_stitch, video_trimmer
+**Image Generation (12):** flux_image, grok_image, google_imagen, openai_image, recraft_image, local_diffusion, minimax_image, comfyui_image, pexels_image, pixabay_image, image_selector, image_gen (deprecated)
+
+**Graphics (3):** code_snippet, diagram_gen, math_animate (ManimCE)
+
+**Subtitle (2):** subtitle_gen, remotion_caption_burn
+
+**Video Generation (19):** grok_video, heygen_video, higgsfield_video, veo_video, kling_video, runway_video, minimax_video, minimax_video_direct, seedance_video, seedance_replicate, wan_video, hunyuan_video, cogvideo_video, ltx_video_local, ltx_video_modal, pexels_video, pixabay_video, comfyui_video, video_selector
+
+**Video Post-Production (8):** video_compose (FFmpeg), hyperframes_compose, video_stitch, video_trimmer, auto_reframe, green_screen_composite, green_screen_processor, silence_cutter
+
+**Publish (1):** export_bundle
+
+**Source & Corpus (4):** video_downloader, clip_search, direct_clip_search, corpus_builder
 
 ---
 
@@ -215,6 +244,7 @@ stages:
 | `podcast-repurpose` | hybrid | Podcast highlights to video |
 | `screen-demo` | screen_recording | Software screen recordings and walkthroughs |
 | `talking-head` | talking_head | Footage-led speaker videos |
+| `documentary-montage` | hybrid | Thematic montage from free stock footage and open archives |
 | `framework-smoke` | custom | Minimal smoke test for framework validation |
 
 ### Standard Stage Progression
@@ -320,7 +350,7 @@ reconcile(entry_id, $)     # records actual spend
 ## 3-Layer Knowledge Architecture
 
 ```
-Layer 3: .agents/skills/          External technology knowledge (47 skills)
+Layer 3: .agents/skills/          External technology knowledge (~80 skills)
          "How the technology works"    FFmpeg, ElevenLabs API, FLUX, Remotion, Three.js, etc.
               ^
               | agent_skills[] references
@@ -355,6 +385,7 @@ budget:
   total_usd: 10.00
   reserve_pct: 0.10
   single_action_approval_usd: 0.50
+  require_approval_for_new_paid_tool: true
 
 checkpoint:
   policy: guided
@@ -385,16 +416,28 @@ All config is validated via Pydantic models in `lib/config_model.py`.
 | `ELEVENLABS_API_KEY` | elevenlabs_tts, music_gen | TTS, music, sound effects |
 | `OPENAI_API_KEY` | openai_tts, openai_image | TTS fallback, GPT Image 2 |
 | `XAI_API_KEY` | grok_image, grok_video | Grok image editing/generation, Grok video generation |
-| `FAL_KEY` | flux_image, kling_video, veo_video, minimax_video, recraft_image | fal.ai hosted models (FLUX, Veo, Kling, MiniMax, Recraft) |
-| `HEYGEN_API_KEY` | heygen_video | Multi-provider video generation |
+| `FAL_KEY` | flux_image, kling_video, veo_video, minimax_video, recraft_image, seedance_video | fal.ai hosted models (FLUX, Veo, Kling, MiniMax, Recraft, Seedance) |
+| `MINIMAX_API_KEY` | minimax_tts, minimax_music, minimax_image, minimax_video_direct | MiniMax direct API (TTS, music, image, video) |
+| `HEYGEN_API_KEY` | heygen_video | Multi-provider video generation gateway |
 | `PEXELS_API_KEY` | pexels_image, pexels_video | Stock media |
 | `PIXABAY_API_KEY` | pixabay_image, pixabay_video | Stock media |
+| `UNSPLASH_ACCESS_KEY` | pexels_image | Unsplash stock images (via shared stock interface) |
 | `GOOGLE_API_KEY` | google_imagen, google_tts | Google Imagen images, Google Cloud TTS |
-| `RUNWAY_API_KEY` | runway_video | Runway Gen-3/Gen-4 direct |
+| `GOOGLE_APPLICATION_CREDENTIALS` | google_tts, google_imagen | Path to GCP service-account JSON key (alternative to API key) |
+| `GOOGLE_CLOUD_PROJECT` | google_imagen | GCP project ID (required for Imagen via Vertex AI) |
+| `GOOGLE_CLOUD_LOCATION` | google_imagen | Vertex AI region (default: us-central1) |
+| `DOUBAO_SPEECH_API_KEY` | doubao_tts | Volcengine Doubao Speech TTS |
+| `DOUBAO_SPEECH_VOICE_TYPE` | doubao_tts | Doubao speaker/voice type selection |
+| `SUNO_API_KEY` | suno_music | Suno AI music generation (full songs, any genre) |
+| `RUNWAY_API_KEY` | runway_video | Runway Gen-4 direct API |
 | `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` | higgsfield_video | Higgsfield multi-model video |
-| `MODAL_LTX2_ENDPOINT_URL` | ltx_video_modal | Self-hosted LTX-2 |
+| `MODAL_LTX2_ENDPOINT_URL` | ltx_video_modal | Self-hosted LTX-2 endpoint |
 | `VIDEO_GEN_LOCAL_ENABLED` | local video tools | Enable local GPU generation |
-| `VIDEO_GEN_LOCAL_MODEL` | wan, hunyuan, ltx, cogvideo | Select local model |
+| `VIDEO_GEN_LOCAL_MODEL` | wan, hunyuan, ltx, cogvideo | Select local model (e.g., wan2.1-1.3b, hunyuan-1.5) |
+| `HF_TOKEN` | transcriber | HuggingFace token (enables speaker diarization) |
+| `WAV2LIP_PATH` | lip_sync | Path to cloned Wav2Lip repo |
+| `SADTALKER_PATH` | talking_head | Path to cloned SadTalker repo |
+| `VOXCPM_MODEL` | voxcpm_tts | Optional VoxCPM model override (default: openbmb/VoxCPM2) |
 
 ---
 
@@ -405,6 +448,7 @@ Style playbooks in `styles/` define visual language for pipelines:
 - `clean-professional.yaml` — Corporate, polished look
 - `flat-motion-graphics.yaml` — Modern flat design
 - `minimalist-diagram.yaml` — Technical, minimal diagrams
+- `anime-ghibli.yaml` — Ghibli-inspired animation style
 
 Loaded by `styles/playbook_loader.py`. Each pipeline declares `compatible_playbooks` in its manifest. Validated against `schemas/styles/playbook.schema.json`.
 

@@ -4,7 +4,7 @@
   "title": "Video Brief",
   "description": "Creative brief produced by the Idea Explorer agent.",
   "type": "object",
-  "required": ["version", "title", "hook", "key_points", "tone", "style", "target_platform", "target_duration_seconds"],
+  "required": ["version", "title", "hook", "key_points", "tone", "style", "target_platform", "target_duration_seconds", "design_system", "beat_plan"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "title": { "type": "string", "minLength": 1 },
@@ -21,7 +21,7 @@
     "target_audience": { "type": "string" },
     "target_platform": {
       "type": "string",
-      "enum": ["youtube", "instagram", "tiktok", "linkedin", "generic"]
+      "enum": ["youtube", "instagram", "tiktok", "linkedin", "bilibili", "xiaohongshu", "generic"]
     },
     "target_duration_seconds": { "type": "number", "minimum": 1 },
     "reference_material": {
@@ -42,6 +42,30 @@
       "description": "2-3 angle options for user to choose from"
     },
     "selected_angle": { "type": "string" },
+    "design_system": {
+      "type": "object",
+      "properties": {
+        "background_color": { "type": "string", "description": "Global background color or tone, e.g., '#08050a' or 'dark moody studio background'" },
+        "lighting_style": { "type": "string", "description": "Global lighting constraints, e.g., 'chiaroscuro, strong specular highlights'" },
+        "global_mood": { "type": "string", "description": "Overall vibe, e.g., 'High-end luxury'" }
+      },
+      "required": ["background_color", "lighting_style", "global_mood"],
+      "description": "Visual constraints locked before generating any assets"
+    },
+    "beat_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_name": { "type": "string" },
+          "garment_concept": { "type": "string" },
+          "composition_rule": { "type": "string", "description": "DOM layout rule for HyperFrames (e.g., 'Position asset in left flex column, text in right'). DO NOT bake spatial layout into image prompts." },
+          "motion_rule": { "type": "string", "description": "Camera or subject motion, e.g., 'subtle pan left to match HTML entry'" }
+        },
+        "required": ["scene_name", "composition_rule"]
+      },
+      "description": "Scene-by-scene composition and layout rules"
+    },
     "metadata": { "type": "object" }
   },
   "additionalProperties": false

@@ -1,0 +1,221 @@
+name: fabric-promotion
+version: "1.1"
+description: >
+  Fabric promotion video pipeline: analyze fabric → generate 3 garment images →
+  create model action videos → HyperFrames composite with TTS voiceover + BGM →
+  generate social media covers → write platform publish copy.
+  Key constraint: ALL image and video generation must use img2img (image-to-image)
+  to preserve fabric texture and pattern characteristics.
+category: product-promotion
+stability: production
+default_checkpoint_policy: guided
+
+# No reference video input - starts from user's fabric image
+reference_input:
+  supported: false
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/fabric-promotion/idea-director
+  - pipelines/fabric-promotion/script-director
+  - pipelines/fabric-promotion/scene-plan-director
+  - pipelines/fabric-promotion/assets-director
+  - pipelines/fabric-promotion/edit-director
+  - pipelines/fabric-promotion/compose-director
+  - pipelines/fabric-promotion/cover-director
+  - pipelines/fabric-promotion/publish-copy-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/fabric-promotion/idea-director
+  budget_default_usd: 3.00
+  max_revisions_per_stage: 2
+  max_send_backs: 2
+  max_wall_time_minutes: 60
+
+compatible_playbooks:
+  recommended:
+    - clean-professional
+    - flat-motion-graphics
+  also_works:
+    - anime-ghibli
+    - minimalist-diagram
+  custom_allowed: true
+
+stages:
+  - name: idea
+    skill: pipelines/fabric-promotion/idea-director
+    produces:
+      - brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Fabric analysis is detailed and accurate
+      - 3 garment concepts are clearly differentiated
+      - Visual style matches product/target audience
+      - Duration appropriate for content type
+    success_criteria:
+      - Schema-valid brief artifact
+      - Fabric characteristics documented
+      - 3 garment types specified with style direction
+
+  - name: script
+    skill: pipelines/fabric-promotion/script-director
+    required_artifacts_in:
+      - brief
+    produces:
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Scene structure supports fabric showcase
+      - Timing allows proper display of each garment
+      - Voiceover copy highlights fabric qualities
+    success_criteria:
+      - Schema-valid script artifact
+      - Total duration within target +/-10%
+
+  - name: scene_plan
+    skill: pipelines/fabric-promotion/scene-plan-director
+    required_artifacts_in:
+      - script
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Each scene specifies img2img generation method
+      - Reference images properly linked to preserve fabric
+      - Transitions enhance rather than distract
+    success_criteria:
+      - Schema-valid scene_plan artifact
+      - All scenes have img2img asset paths
+
+  - name: assets
+    skill: pipelines/fabric-promotion/assets-director
+    required_artifacts_in:
+      - scene_plan
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+    tools_available:
+      - tts_selector
+      - image_selector
+      - video_selector
+      - comfyui_video
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "CRITICAL: All generation MUST use img2img mode to preserve fabric texture"
+      - Garment images use fabric reference as input
+      - Video generation uses garment images as reference
+      - Fabric close-up shots maintain pattern integrity
+      - Layer 3 skills read before each generation tool
+    success_criteria:
+      - Schema-valid asset_manifest artifact
+      - All assets reference img2img source images
+      - img2img_sources documented for each generated asset
+
+  - name: edit
+    skill: pipelines/fabric-promotion/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Pacing showcases fabric qualities appropriately
+      - Music enhances product perception
+      - Transitions maintain professional quality
+    success_criteria:
+      - Schema-valid edit_decisions artifact
+      - render_runtime locked as "hyperframes"
+
+  - name: compose
+    skill: pipelines/fabric-promotion/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    produces:
+      - render_report
+    # 实际采用 hyperframes_workspace/index.html（HTML + GSAP）手写合成方式，
+    # 通过 render_hf.py 调用 npx hyperframes render 渲染（30fps，1080×1920 竖版）。
+    # TTS 使用 VoxCPM2 本地 GPU 推理保证多段音色一致；
+    # 背景音乐由 ACEStep 生成并混入。
+    # 渲染完成后自动克隆至 fabric_promo_subtitled.mp4 / final_with_voice.mp4 / fabric_promo_raw.mp4。
+    tools_available:
+      - custom_render_script      # render_hf.py → npx hyperframes render
+      - voxcpm_tts                # 本地 GPU TTS，保证多段音色一致
+      - acestep_music             # ACEStep 背景音乐生成
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Final video preserves fabric texture quality
+      - Text overlays are readable and on-brand
+      - GSAP 转场无黑闪（z-index 交叠 crossfade，保持 100% 不透明度覆盖）
+      - 字体大小、行高符合奢侈品排版规范（幕内内容字 ≥24px）
+      - 配音与画面幕次对齐，音量层次合理
+    success_criteria:
+      - Schema-valid render_report artifact
+      - renders/final.mp4 存在，时长在目标 ±10% 内
+      - 同步克隆至 fabric_promo_subtitled.mp4 / final_with_voice.mp4 / fabric_promo_raw.mp4
+
+  - name: cover
+    skill: pipelines/fabric-promotion/cover-director
+    required_artifacts_in:
+      - asset_manifest
+      - render_report
+    produces:
+      - cover_manifest
+    # 以 assets/garments/ 下成衣图为主图，assets/fabric_source/ 为质感底纹参考，
+    # 以图生图方式生成封面。禁止直接将素材原图照搬到封面，
+    # 需通过生图工具进行风格化处理（强对比、奢侈品调性）。
+    tools_available:
+      - image_selector            # img2img，以面料图/成衣图为底图
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 强对比感视觉风格（暗背景 + 高光质感）
+      - 产品名称大字排版，字体清晰醒目
+      - B站封面横版 16:9（1920×1080）
+      - 小红书封面竖版 3:4（1080×1440）
+      - "CRITICAL: 所有素材来自项目内资产（assets/fabric_source/ 或 assets/garments/），禁止使用外部图片"
+    success_criteria:
+      - renders/bilibili_cover.png 存在（1920×1080）
+      - renders/xiaohongshu_cover.png 存在（1080×1440）
+      - 封面素材 100% 来自项目内 assets/ 目录
+
+  - name: publish_copy
+    skill: pipelines/fabric-promotion/publish-copy-director
+    required_artifacts_in:
+      - brief
+      - render_report
+      - cover_manifest
+    produces:
+      - publish_copy
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - B站标题突出面料核心卖点（稀有性 / 工艺 / 质感）
+      - 简介前三行即含核心关键词（面料名称 + 特性）
+      - 小红书标题 ≤20字，含表情符号，口语化有钩子
+      - 话题标签贴合目标受众（#时尚 #穿搭 #高端面料 等）
+      - 文案不出现虚假宣传词（第一、最好、100% 等绝对化用语）
+    success_criteria:
+      - B站标题 ≤80字，简介 300~500字，标签 ≤10个
+      - 小红书标题 ≤20字，正文 150~300字，话题标签 5~8个

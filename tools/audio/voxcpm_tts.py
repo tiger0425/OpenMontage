@@ -11,6 +11,21 @@ import time
 from pathlib import Path
 from typing import Any
 
+# 模型单例缓存：避免每次调用重新加载 8GB 权重
+# key: model_id (str) -> VoxCPM instance
+_MODEL_CACHE: dict[str, Any] = {}
+
+# 锚点音频缓存：key = (model_id, seed) -> Path
+# VoxCPM2 是自回归扩散模型，不同文本长度消耗随机状态数不同，
+# 仅靠 torch.manual_seed 无法保证多段一致。
+# 解决方案：用固定短文本+固定seed生成一段"声音身份锚点"，
+# 后续所有分段通过 reference_wav_path 声音克隆模式生成，
+# 从而将说话人身份锁定到同一个参考音频上。
+_VOICE_ANCHOR_CACHE: dict[tuple[str, int], Path] = {}
+
+# 生成锚点时使用的固定短文本（足够短以加速，足够清晰以捕获音色）
+_ANCHOR_TEXT = "你好，这是声音身份锚点。"
+
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -26,7 +41,7 @@ from tools.base_tool import (
 
 class VoxCPMTTS(BaseTool):
     name = "voxcpm_tts"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.VOICE
     capability = "tts"
     provider = "voxcpm"
@@ -43,7 +58,7 @@ class VoxCPMTTS(BaseTool):
         "First-run will download the model from Hugging Face (~8 GB).\n"
         "Set VOXCPM_MODEL env var to override the default model (openbmb/VoxCPM2)."
     )
-    agent_skills: list[str] = []
+    agent_skills: list[str] = ["voxcpm-tts"]
 
     capabilities = [
         "text_to_speech",
@@ -81,11 +96,19 @@ class VoxCPMTTS(BaseTool):
             },
             "reference_wav_path": {
                 "type": "string",
-                "description": "Path to a reference WAV for voice cloning.",
+                "description": (
+                    "Path to a reference WAV for voice cloning. "
+                    "When provided, voice identity is anchored to this audio — "
+                    "use the same file across all segments to guarantee consistent timbre."
+                ),
             },
             "voice_description": {
                 "type": "string",
-                "description": "Natural-language voice description for voice design (e.g. 'A warm middle-aged male narrator').",
+                "description": (
+                    "Natural-language voice description for voice design "
+                    "(e.g. '温暖成熟的男性配音员，语调沉稳'). "
+                    "Ignored when reference_wav_path is supplied."
+                ),
             },
             "cfg_value": {
                 "type": "number",
@@ -94,8 +117,22 @@ class VoxCPMTTS(BaseTool):
             },
             "inference_timesteps": {
                 "type": "number",
-                "default": 50,
-                "description": "Number of inference diffusion steps.",
+                "default": 10,
+                "description": (
+                    "Number of inference diffusion steps. "
+                    "Official default is 10; higher values improve quality at the cost of "
+                    "speed (50 steps ≈ 5× slower)."
+                ),
+            },
+            "seed": {
+                "type": "integer",
+                "default": 42,
+                "description": (
+                    "Random seed used when auto-generating the voice anchor. "
+                    "All segments sharing the same seed (and no explicit reference_wav_path) "
+                    "will be cloned from the same auto-generated anchor, ensuring consistent timbre. "
+                    "Set to -1 to skip anchoring and use random voice each time."
+                ),
             },
         },
     }
@@ -109,6 +146,7 @@ class VoxCPMTTS(BaseTool):
         "voice_description",
         "cfg_value",
         "inference_timesteps",
+        "seed",
     ]
     side_effects = ["writes audio file to output_path"]
     fallback_tools = ["piper_tts"]
@@ -167,27 +205,107 @@ class VoxCPMTTS(BaseTool):
         return result
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load_model(self, model_id: str) -> Any:
+        """返回缓存的 VoxCPM 实例，首次调用时加载权重。"""
+        if model_id not in _MODEL_CACHE:
+            from voxcpm import VoxCPM
+            _MODEL_CACHE[model_id] = VoxCPM.from_pretrained(model_id, load_denoiser=False)
+        return _MODEL_CACHE[model_id]
+
+    def _get_or_create_anchor(
+        self, model: Any, model_id: str, seed: int,
+        voice_description: str | None,
+        cfg_value: float, inference_timesteps: int,
+    ) -> tuple[Path, str]:
+        """
+        获取或生成"声音身份锁点"WAV。
+
+        VoxCPM2 是自回归扩散模型，不同文本长度消耗随机状态不同，
+        torch.manual_seed 无法跨段保证音色一致。
+        解决方案：用固定短文本+固定seed生成一段锁点音频，
+        并通过 Ultimate Cloning（prompt_wav_path + prompt_text + reference_wav_path）
+        将说话人身份锁定到同一参考上。
+
+        返回 (anchor_path, anchor_transcript)。
+        """
+        import hashlib
+        import tempfile
+        import torch
+        import scipy.io.wavfile as wavfile
+
+        # 锁点文本：包含 voice_description 前缀（初始化音色风格）
+        anchor_transcript = _ANCHOR_TEXT
+        if voice_description:
+            anchor_text_gen = f"({voice_description}). {_ANCHOR_TEXT}"
+        else:
+            anchor_text_gen = _ANCHOR_TEXT
+
+        desc_hash = hashlib.md5((voice_description or "").encode()).hexdigest()[:6]
+        cache_key = (model_id, seed, desc_hash)
+        if cache_key in _VOICE_ANCHOR_CACHE:
+            return _VOICE_ANCHOR_CACHE[cache_key], anchor_transcript
+
+        safe_model = hashlib.md5(model_id.encode()).hexdigest()[:8]
+        anchor_dir = Path(tempfile.gettempdir()) / "voxcpm_anchors"
+        anchor_dir.mkdir(parents=True, exist_ok=True)
+        anchor_path = anchor_dir / f"anchor_{safe_model}_seed{seed}_desc{desc_hash}.wav"
+
+        if not anchor_path.exists():
+            print(f"[VoxCPM] Generating voice anchor (seed={seed})...")
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            anchor_audio = model.generate(
+                text=anchor_text_gen,
+                cfg_value=cfg_value,
+                inference_timesteps=inference_timesteps,
+            )
+            wavfile.write(str(anchor_path), 48000, anchor_audio)
+            print(f"[VoxCPM] Voice anchor saved: {anchor_path}")
+
+        _VOICE_ANCHOR_CACHE[cache_key] = anchor_path
+        return anchor_path, anchor_transcript
+
+    # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
 
     def _generate(self, inputs: dict[str, Any]) -> ToolResult:
-        # --- lazy imports (no weight loading at module level) ---
-        from voxcpm import VoxCPM
+        import scipy.io.wavfile as wavfile
 
         model_id = os.environ.get("VOXCPM_MODEL", "openbmb/VoxCPM2")
-        model = VoxCPM.from_pretrained(model_id, load_denoiser=False)
+        model = self._load_model(model_id)
 
         text: str = inputs["text"]
         output_path = Path(inputs.get("output_path", "voxcpm_output.wav"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        reference_wav_path = inputs.get("reference_wav_path")
-        voice_description = inputs.get("voice_description")
-        cfg_value = inputs.get("cfg_value", 3.0)
-        inference_timesteps = inputs.get("inference_timesteps", 50)
+        reference_wav_path: str | None = inputs.get("reference_wav_path")
+        voice_description: str | None = inputs.get("voice_description")
+        cfg_value: float = float(inputs.get("cfg_value", 3.0))
+        inference_timesteps: int = int(inputs.get("inference_timesteps", 10))
+        seed: int = int(inputs.get("seed", 42))
 
-        # --- voice design: prefix text with parenthesised description ---
-        if voice_description and not reference_wav_path:
+        # ------------------------------------------------------------------
+        # 确定最终使用的 reference_wav_path（音色锚定优先级）
+        # 1. 用户显式传入 reference_wav_path  → 直接使用（完全由用户控制）
+        # 2. seed != -1                        → 自动生成/复用锚点音频，保证多段一致
+        # 3. seed == -1                        → 纯随机（每段音色不同）
+        # ------------------------------------------------------------------
+        effective_reference: str | None = reference_wav_path
+        anchor_used = False
+
+        if not effective_reference and seed != -1:
+            anchor_path, _ = self._get_or_create_anchor(
+                model, model_id, seed, voice_description, cfg_value, inference_timesteps
+            )
+            effective_reference = str(anchor_path)
+            anchor_used = True
+
+        # voice_description 前缀：仅在无 reference 时才追加到 text
+        if voice_description and not effective_reference:
             text = f"({voice_description}). {text}"
 
         # --- generate ---
@@ -196,13 +314,12 @@ class VoxCPMTTS(BaseTool):
             "cfg_value": cfg_value,
             "inference_timesteps": inference_timesteps,
         }
-        if reference_wav_path:
-            generate_kwargs["reference_wav_path"] = reference_wav_path
+        if effective_reference:
+            generate_kwargs["reference_wav_path"] = effective_reference
 
         audio_array = model.generate(**generate_kwargs)
 
-        # --- write 48 kHz WAV via scipy ---
-        import scipy.io.wavfile as wavfile
+        # --- write 48 kHz WAV ---
         wavfile.write(str(output_path), 48000, audio_array)
 
         return ToolResult(
@@ -215,9 +332,12 @@ class VoxCPMTTS(BaseTool):
                 "format": "wav",
                 "sample_rate": 48000,
                 "voice_cloning": bool(reference_wav_path),
-                "voice_design": bool(voice_description and not reference_wav_path),
+                "voice_anchor_used": anchor_used,
+                "voice_design": bool(voice_description and not effective_reference),
                 "cfg_value": cfg_value,
                 "inference_timesteps": inference_timesteps,
+                "seed": seed,
+                "effective_reference": effective_reference,
             },
             artifacts=[str(output_path)],
             model=model_id,
