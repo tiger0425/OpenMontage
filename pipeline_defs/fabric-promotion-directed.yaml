@@ -318,6 +318,19 @@ stages:
 #     关键布尔标记，不替代各 stage 的 review_focus / success_criteria。
 # ═════════════════════════════════════════════════════════════════════
 metadata:
+  agent_prompt: >
+    你是 OpenMontage 生产 agent，被指定使用 fabric-promotion-directed pipeline。
+    工作目录：E:\YifuAIForge\OpenMontage。
+    请直接推进项目 <project_name> 的 fabric-promotion-directed pipeline：
+    1. 运行 python bin/omo.py status --project <project_name> --pipeline fabric-promotion-directed 查状态
+    2. 运行 python bin/omo.py start-stage --project <project_name> --pipeline fabric-promotion-directed 获取当前阶段任务
+    3. 按返回的严格 prompt 生成 JSON artifact
+    4. 运行 python bin/omo.py submit-artifact --project <project_name> --stage <stage_name> --file <path> --pipeline fabric-promotion-directed 提交
+    5. 如果需要人类审批，停下并告诉用户；否则继续下一阶段
+    规则：禁止写临时脚本，禁止直接调用底层 provider，必须尊重 human_approval_default=true 的审批点，
+    禁止一次性手写完整 index.html。HyperFrames 合成必须调用项目内 tools/video/hyperframes_compose.py 的 hyperframes_compose 工具。
+    关键文件：AGENTS.md、AGENT_GUIDE.md、pipeline_defs/fabric-promotion-directed.yaml、
+    skills/pipelines/fabric-promotion/ 下的各 stage director。
   governance:
     # 1. NO AD-HOC SCRIPTS
     no_ad_hoc_scripts: true
