@@ -129,7 +129,7 @@ for frame in frame_blueprint.frames:
 - visual_design.json 的 lighting_style / global_mood 选择
 - TTS voice_id（voxcpm 的具体 voice）
 - comfyui workflow_path（ltx23_i2v 等）
-- OpenMontage profile 选择（bilibili → youtube_landscape / xiaohongshu → tiktok_vertical）
+- OpenMontage profile 选择（bilibili → youtube_landscape / xiaohongshu → tiktok）
 
 理由必填，避免下次 agent 再争论一次。
 

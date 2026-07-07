@@ -35,14 +35,18 @@
 ```python
 import json
 from pathlib import Path
-from lib.artifact_validator import validate_artifact
+from schemas.artifacts import validate_artifact
 
-brief = json.load("artifacts/brief.json")
-scene_plan = json.load("artifacts/scene_plan.json")
-script = json.load("artifacts/script.json")
-visual_design = json.load("artifacts/visual_design.json")
-frame_bp = json.load("artifacts/frame_blueprint.json")
-asset_manifest = json.load("artifacts/asset_manifest.json")
+def _load_json(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+brief = _load_json("artifacts/brief.json")
+scene_plan = _load_json("artifacts/scene_plan.json")
+script = _load_json("artifacts/script.json")
+visual_design = _load_json("artifacts/visual_design.json")
+frame_bp = _load_json("artifacts/frame_blueprint.json")
+asset_manifest = _load_json("artifacts/asset_manifest.json")
 
 assert brief["metadata"]["render_runtime_selection"]["selected"] == "hyperframes", \
     "本 pipeline 仅服务 HyperFrames runtime；若要切换，回 idea stage 重批"
@@ -56,13 +60,14 @@ missing = [f["frame_id"] for f in frame_bp["frames"] if f["frame_id"] not in lin
 assert not missing, f"asset_manifest 缺帧素材：{missing}"
 
 # 校验 OpenMontage 标准 artifacts
-for path, schema in [
-    ("artifacts/scene_plan.json", "schemas/artifacts/scene_plan.schema.json"),
-    ("artifacts/script.json", "schemas/artifacts/script.schema.json"),
-    ("artifacts/visual_design.json", "schemas/artifacts/visual_design.schema.json"),
-    ("artifacts/asset_manifest.json", "schemas/artifacts/asset_manifest.schema.json"),
+for artifact_name, path in [
+    ("scene_plan", "artifacts/scene_plan.json"),
+    ("script", "artifacts/script.json"),
+    ("visual_design", "artifacts/visual_design.json"),
+    ("asset_manifest", "artifacts/asset_manifest.json"),
 ]:
-    validate_artifact(path, schema)
+    data = _load_json(path)
+    validate_artifact(artifact_name, data)
 
 # 校验 scene_plan 与 script 总时长一致
 sp_total = max(s["end_seconds"] for s in scene_plan["scenes"])
@@ -104,7 +109,7 @@ for i, frame in enumerate(frame_bp["frames"]):
 
     cut = {
         "id": frame["frame_id"],
-        "source": str(Path(primary["path"]).resolve()),
+        "source": primary["id"],  # OpenMontage 工具通过 asset_id 解析路径
         "in_seconds": frame["time_range"]["start"],
         "out_seconds": frame["time_range"]["end"],
         "type": frame["asset_kind"],
@@ -207,7 +212,8 @@ def _animation_from_motion(motion_rules: list) -> str:
 写完 `edit_decisions.json` 后，用 `edit_decisions.schema.json` 校验：
 
 ```python
-validate_artifact("artifacts/edit_decisions.json", "schemas/artifacts/edit_decisions.schema.json")
+ed_data = json.load(open("artifacts/edit_decisions.json", encoding="utf-8"))
+validate_artifact("edit_decisions", ed_data)
 ```
 
 ### 阶段 C：调用 hyperframes_compose 工具
@@ -217,16 +223,17 @@ validate_artifact("artifacts/edit_decisions.json", "schemas/artifacts/edit_decis
 ```python
 from tools.tool_registry import registry
 registry.discover()
-tool = registry.get_tool("hyperframes_compose")
+tool = registry.get("hyperframes_compose")
 
 profile_name = brief.get("target_platform", "xiaohongshu")  # bilibili / xiaohongshu
 # bilibili 横版 16:9，小红书竖版 9:16
 if profile_name == "bilibili":
     profile = "youtube_landscape"
 else:
-    profile = "tiktok_vertical"
+    profile = "tiktok"
 
-playbook = yaml.load(f"styles/{brief.get('style', 'clean-professional')}.yaml")
+import yaml
+playbook = yaml.safe_load(open(f"styles/{brief.get('style', 'clean-professional')}.yaml", encoding="utf-8"))
 
 result = tool.execute({
     "operation": "render",
@@ -328,7 +335,7 @@ loud = subprocess.run(
     "tool": "hyperframes_compose",
     "operation": "render",
     "workspace_path": "hyperframes",
-    "profile": "tiktok_vertical",
+    "profile": "tiktok",
     "quality": "high",
     "strict": true,
     "skip_contrast": false

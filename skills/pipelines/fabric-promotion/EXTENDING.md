@@ -179,7 +179,7 @@ v4.0 不再引用外部 HF skill 的 `frame-presets/`、`blueprints-index.md`、
 1. 检查平台输出规格是否已在 OpenMontage 的 `Platform Output Profiles` 中支持（见 README）。
 2. 在 `visual-planning-director.md` Step 3 的 palette / typography 推荐表中增加平台备注（如竖版 9:16 的字号可能需要放大）。
 3. 在 `publish-copy-director.md` 的平台文案段增加该平台话术模板（标题、标签、正文三段）。
-4. 在 `compose-director.md` 阶段 C 的 `profile` 映射中增加新平台到 OpenMontage media profile 的映射（如 `youtube_shorts` → `tiktok_vertical`）。
+4. 在 `compose-director.md` 阶段 C 的 `profile` 映射中增加新平台到 OpenMontage media profile 的映射（如 `youtube_shorts` → `tiktok`）。
 5. 在 `idea-director.md` 的时长→幕数映射中确认新平台的典型时长已被覆盖。
 6. 更新本文件第 7 节版本号。
 
