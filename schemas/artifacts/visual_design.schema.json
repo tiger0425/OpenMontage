@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/visual_design",
+  "title": "Visual Design",
+  "description": "Visual design system for a fabric promotion video. Defines palette, typography, and motion profile used by the compose stage.",
+  "type": "object",
+  "required": ["version", "palette", "typography", "design_system"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "palette": {
+      "type": "object",
+      "required": ["background", "text", "accent"],
+      "properties": {
+        "background": {
+          "type": "string",
+          "description": "Primary background color as hex (e.g. #F7F5F0)"
+        },
+        "text": {
+          "type": "string",
+          "description": "Primary text color as hex (e.g. #1A1A1A)"
+        },
+        "accent": {
+          "type": "string",
+          "description": "Accent/CTA color as hex (e.g. #D4A574)"
+        },
+        "primary": {
+          "type": "string",
+          "description": "Primary brand color as hex"
+        },
+        "secondary": {
+          "type": "string",
+          "description": "Secondary brand color as hex"
+        }
+      },
+      "additionalProperties": false
+    },
+    "typography": {
+      "type": "object",
+      "required": ["heading", "body"],
+      "properties": {
+        "heading": {
+          "type": "object",
+          "required": ["family", "weight"],
+          "properties": {
+            "family": {
+              "type": "string",
+              "description": "Heading font family (must be HyperFrames-safe)"
+            },
+            "weight": {
+              "type": "string",
+              "description": "Heading font weight (e.g. 700, 800)"
+            },
+            "size": {
+              "type": "string",
+              "description": "Heading font size as CSS length (e.g. 96px)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "body": {
+          "type": "object",
+          "required": ["family", "weight"],
+          "properties": {
+            "family": {
+              "type": "string",
+              "description": "Body font family (must be HyperFrames-safe)"
+            },
+            "weight": {
+              "type": "string",
+              "description": "Body font weight (e.g. 400, 500)"
+            },
+            "size": {
+              "type": "string",
+              "description": "Body font size as CSS length (e.g. 36px)"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "design_system": {
+      "type": "object",
+      "required": ["background_color", "lighting_style", "global_mood"],
+      "properties": {
+        "background_color": {
+          "type": "string",
+          "description": "Overall background treatment (e.g. warm-neutral, cool-grey, pure-black)"
+        },
+        "lighting_style": {
+          "type": "string",
+          "description": "Lighting approach (e.g. soft-studio, natural-window, dramatic-rim)"
+        },
+        "global_mood": {
+          "type": "string",
+          "description": "Emotional tone (e.g. calm, energetic, luxurious, minimalist)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "motion_profile": {
+      "type": "object",
+      "properties": {
+        "pace": {
+          "type": "string",
+          "enum": ["slow", "medium", "fast"],
+          "description": "Overall motion pace"
+        },
+        "easing": {
+          "type": "string",
+          "description": "Primary easing function (e.g. power2.out, expo.out)"
+        },
+        "camera_language": {
+          "type": "string",
+          "description": "Camera/movement vocabulary (e.g. slow-push, gentle-pan, static)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

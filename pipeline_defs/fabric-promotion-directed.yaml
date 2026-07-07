@@ -1,0 +1,346 @@
+# ===========================================================
+# fabric-promotion-directed v4.0
+#
+# 【v4.0 OpenMontage 原生 HyperFrames 合成】：
+#   - v3.2 及之前错误地把 Stage 4 设计成"委托外部 HyperFrames 系统 skill
+#     （product-launch-video）"——引用 <HF_SKILL_DIR>/scripts/build-frame.mjs、
+#     stage-assets.mjs、assemble-index.mjs 等，这些都不是 OpenMontage 的受控工具。
+#   - v4.0 纠正为 OpenMontage 原生路径：Stage 4 调用项目内 tools/video/hyperframes_compose.py
+#     的 hyperframes_compose 工具，传入标准 artifacts（edit_decisions + asset_manifest +
+#     playbook），由工具内部完成 scaffold → lint → validate → render。
+#   - Stage 2 不再产出 HF 原生文件（storyboard.md / SCRIPT.md / frame.md），改为产出
+#     OpenMontage 标准 JSON artifacts：scene_plan、script、visual_design。
+#   - frame_blueprint.json 保留作为本流水线的"素材生成契约"，但不再引用外部 HF grammar。
+#
+# 【工作流（6 stage）】：
+#       1. idea               ─┐
+#                              前期：面料分析 + 3 概念 + render_runtime + 视觉初步意图
+#       2. visual_planning    ─┘
+#                              前期：产出 scene_plan + script + visual_design + frame_blueprint
+#       3. directed_assets    ─┐
+#                              中期：按 frame_blueprint 用 img2img 生产素材 + TTS
+#                                ┘
+#       4. hyperframes_compose─┐
+#                              后期：生成 edit_decisions + 调用 hyperframes_compose tool
+#                              合成（scaffold → lint → validate → render）
+#       5. publish_copy       ─┘
+#                              收尾：B 站/小红书 文案 + 封面
+#       6. retrospective     ─┐
+#                              自我学习：复盘并沉淀 .retrospectives/ 知识库
+#
+# 【强制约束 source-of-truth】：
+#   - 本 YAML 是唯一权威。任何「跨 stage 自由编排」都是违约。
+#   - all 6 stages 声明完整 → Universal Harness CLI (`bin/omo.py start-stage`)
+#     能为每一步拼出 strict prompt。
+#
+# 【AGENTS.md 4 条红线在本 YAML 的落地位置】：
+#   1. NO AD-HOC SCRIPTS    → orchestration.mode = executive-producer + 全 stage 声明
+#   2. USE SELECTORS ONLY   → directed_assets.required_tools 用 image_selector /
+#                             video_selector / tts_selector
+#   3. RESPECT CHECKPOINTS  → idea / visual_planning / publish_copy  human_approval_default = true
+#   4. NO SINGLE-SHOT HTML  → hyperframes_compose 工具内部生成 index.html，director 不手写
+# ===========================================================
+
+name: fabric-promotion-directed
+version: "4.0"
+description: >
+  Fabric promotion pipeline v4.0 — OpenMontage 原生 6 段式工作流：
+  前期（idea + visual_planning）→ 中期（directed_assets，全部 img2img）→
+  后期（hyperframes_compose 调用项目内工具合成）→ 收尾（publish_copy）→
+  自我学习（retrospective）。
+  Key constraint: ALL image and video generation MUST use img2img to
+  preserve fabric texture.
+  Render runtime recommendation: HyperFrames is the natural fit for
+  fabric promotion because CSS/GSAP handles garment typography, motion,
+  and layout well. The final runtime choice is still presented to the user
+  in the idea stage and locked into brief.metadata.render_runtime_selection.
+category: custom
+stability: production
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: false
+
+compatible_playbooks:
+  recommended:
+    - clean-professional
+    - flat-motion-graphics
+  also_works:
+    - minimalist-diagram
+  custom_allowed: true
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/fabric-promotion/idea-director
+  - pipelines/fabric-promotion/visual-planning-director
+  - pipelines/fabric-promotion/directed-asset-gen
+  - pipelines/fabric-promotion/compose-director
+  - pipelines/fabric-promotion/publish-copy-director
+  - pipelines/fabric-promotion/retrospective-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/fabric-promotion/idea-director
+  budget_default_usd: 3.00
+  max_revisions_per_stage: 2
+  max_send_backs: 2
+  max_wall_time_minutes: 90
+
+stages:
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 1: IDEA (面料分析与成衣概念)
+  # ─ 前期第一段：定面料分析、3 个成衣概念、render_runtime、视觉初步意图
+  # ─ 详细规划交给 STAGE 2 visual_planning
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: idea
+    skill: pipelines/fabric-promotion/idea-director
+    produces:
+      - brief
+    tools_available: []
+    optional_tools:
+      - visual_qa
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 面料属性（含纤维、织法、克重、应用季节）描述准确
+      - 3 个成衣概念设计互相可区分（剪影 / 工艺 / 用场）
+      - 目标平台与时长与内容类型匹配
+      - 调性与潜在受众一致
+      - "render_runtime 决策符合 HARD RULE：双 runtime 呈现 + 用户显式批准 + decision_log 完整记录"
+      - "brief.design_system 与 brief.beat_plan 已写为'前期意图'，不深入到镜头级"
+    success_criteria:
+      - Schema-valid brief artifact (schemas/artifacts/brief.schema.json)
+      - 3 个成衣类型与面料选择方向明确
+      - "render_runtime 已锁定并经用户显式批准"
+      - brief.metadata.render_runtime_selection 含 options_considered / selected / rationale
+      - brief.design_system 至少含 background_color / lighting_style 全局基调
+      - brief.beat_plan 至少含 3-5 幕的 composition_rule 一句话
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 2: VISUAL_PLANNING (视觉规划)
+  # ─ 前期第二段：把 brief 的"前期意图"展开为 OpenMontage 标准 artifacts
+  # ─ 产出：scene_plan + script + visual_design + frame_blueprint
+  # ─ scene_plan / script / visual_design 为标准 JSON artifacts
+  # ─ frame_blueprint 为本流水线专用素材生成契约
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: visual_planning
+    skill: pipelines/fabric-promotion/visual-planning-director
+    required_artifacts_in:
+      - brief
+    produces:
+      - scene_plan
+      - script
+      - visual_design
+      - frame_blueprint
+    tools_available: []
+    optional_tools:
+      - visual_qa
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "scene_plan.json 已产出且 schema-valid，含每幕 id / type / description / start_seconds / end_seconds / shot_language / shot_intent / narrative_role"
+      - "script.json 已产出且 schema-valid，narration 为纯文本，含 delivery_cues / energy_curve"
+      - "visual_design.json 已产出且 schema-valid，含 palette / typography / design_system / motion_profile"
+      - "frame_blueprint.json 已产出：每个 frame 含 frame_id / scene_type / composition_rule / motion_rules / cut_in / asset_candidates"
+      - "frame_blueprint 所有 frame_id 全局唯一"
+      - "composition_rule 只描述主体摆放，不描述文字排版（排版由 compose 工具处理）"
+      - "visual_design 字体全部在 HyperFrames-safe 白名单（Outfit/Montserrat/Inter/JetBrains Mono/Poppins/Playfair Display）"
+      - "palette 颜色从面料原图提取，不是模板色"
+      - "用户已在 checkpoint 处显式批准 scene_plan + script + visual_design + frame_blueprint"
+      - "若本启动存在 .retrospectives/latest.md，tunables 已落地到 frame_blueprint 默认值"
+    success_criteria:
+      - "artifacts/scene_plan.json 存在且 schema-valid"
+      - "artifacts/script.json 存在且 schema-valid"
+      - "artifacts/visual_design.json 存在且 schema-valid"
+      - "artifacts/frame_blueprint.json 存在且至少含 [按骨架节奏选定的场数] 帧"
+      - "frame_blueprint 所有 frame_id 唯一"
+      - "用户已在 checkpoint 处显式批准 scene_plan + script + visual_design + frame_blueprint"
+      - "未发现'生图 Prompt 直接描述排版位置'的违规写法"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 3: DIRECTED_ASSETS (img2img 素材生产)
+  # ─ 中期：OpenMontage 唯一不可替代的能力——生图/生视频/TTS
+  # ─ required_artifacts_in 含 scene_plan + frame_blueprint，让素材生成
+  #   按镜头级 spec 执行
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: directed_assets
+    skill: pipelines/fabric-promotion/directed-asset-gen
+    required_artifacts_in:
+      - brief
+      - scene_plan
+      - frame_blueprint
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+      - image_selector
+      - video_selector
+    fallback_tools:
+      - comfyui_video
+    tools_available:
+      - tts_selector
+      - image_selector
+      - video_selector
+      - comfyui_video
+      - voxcpm_tts
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "CRITICAL: ALL generation MUST use img2img to preserve fabric texture"
+      - "每条 asset 条目 reference 指向 frame_blueprint.frame_id"
+      - "成衣图的 aspect_ratio / composition / 主体居中 与 frame_blueprint.composition_rule.match"
+      - "成衣视频的动作 / 摄影机轨迹 / 时长 与 frame_blueprint.motion_rules.match"
+      - "TTS 配音按 script.json sections 文本生成 + 返回 word-level json 时间戳"
+      - "调 image_selector / video_selector / tts_selector 前读对应 Layer 3 skill"
+      - "未出现直接 import comfyui_video / GoogleImagen 的违规调用"
+    success_criteria:
+      - "Schema-valid asset_manifest artifact (schemas/artifacts/asset_manifest.schema.json)"
+      - "每条 asset 条目含 img2img_source 路径"
+      - "每条 asset 条目含 linked_frame_id，指向 frame_blueprint.json 中的某帧"
+      - "成衣图 = image_selector img2img（init_image = 面料原图）"
+      - "成衣视频 / 动效 = video_selector 路由 comfyui_video image_to_video"
+      - "配音 wav 与 json 时间戳已对齐 script.json"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 4: HYPERFRAMES_COMPOSE (OpenMontage 原生合成)
+  # ─ 后期：把 frame_blueprint + asset_manifest + scene_plan + script
+  #   翻译成 edit_decisions，然后调用项目内 hyperframes_compose 工具
+  # ─ 工具内部完成：scaffold workspace → lint → validate → render
+  # ─ director 不手写 index.html，不调用外部 HF skill
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: hyperframes_compose
+    skill: pipelines/fabric-promotion/compose-director
+    required_artifacts_in:
+      - brief
+      - scene_plan
+      - script
+      - visual_design
+      - frame_blueprint
+      - asset_manifest
+    produces:
+      - edit_decisions
+      - render_report
+    required_tools:
+      - video_compose
+    tools_available:
+      - video_compose
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "CRITICAL: 本 stage 不手写任何 HTML，不调用外部 HF skill，只调用项目内 hyperframes_compose 工具"
+      - "edit_decisions.json 已生成且 schema-valid：每个 frame_blueprint frame 对应一个 cut"
+      - "edit_decisions.cuts 的 source 指向 asset_manifest 中实际生成的 asset 路径"
+      - "edit_decisions.render_runtime = 'hyperframes' 且 renderer_family = 'product-reveal'"
+      - "hyperframes_compose.execute 被调用，operation='render'，传入 edit_decisions / asset_manifest / playbook / profile / quality / fps / strict / skip_contrast"
+      - "工具返回成功，renders/final.mp4 存在"
+      - "post-render self-review：ffprobe + 帧抽样 + 音频检查通过"
+    success_criteria:
+      - "artifacts/edit_decisions.json 存在且 schema-valid"
+      - "artifacts/render_report.json 存在且 schema-valid"
+      - "renders/final.mp4 存在且通过 ffprobe"
+      - "render_report.self_review.passed = true"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 5: PUBLISH_COPY (平台文案与封面)
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: publish_copy
+    skill: pipelines/fabric-promotion/publish-copy-director
+    required_artifacts_in:
+      - brief
+      - asset_manifest
+      - render_report
+      - edit_decisions
+    produces:
+      - publish_copy
+      - cover_manifest
+    tools_available:
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "B 站标题（≤80 字）、正文（300~500 字）、标签（≤10 个）"
+      - "小红书标题（≤20 字，可 emoji）、正文（150~300 字）、话题标签（5~8 个）"
+      - "小红书封面 3:4（1080×1440），B 站封面 16:9（1920×1080）"
+      - "封面文字层颜色 / 字体与 visual_design.json palette / typography 一致"
+      - "封面素材 100% 来自项目 assets/ 目录"
+      - "文案无夸张违禁词（如第一 / 最 / 100% 等绝对化或虚假宣称）"
+      - "render_report.renders/final.mp4 路径正确，未指向中间渲染"
+    success_criteria:
+      - "Schema-valid publish_copy artifact (schemas/artifacts/publish_copy.schema.json)"
+      - "Schema-valid cover_manifest artifact (schemas/artifacts/cover_manifest.schema.json)"
+      - "renders/bilibili_cover.png 存在（1920×1080）"
+      - "renders/xiaohongshu_cover.png 存在（1080×1440）"
+      - "B 站 + 小红书文案/标题/标签规范"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 6: RETROSPECTIVE (自我学习与复盘)
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: retrospective
+    skill: pipelines/fabric-promotion/retrospective-director
+    required_artifacts_in:
+      - brief
+      - scene_plan
+      - script
+      - visual_design
+      - frame_blueprint
+      - asset_manifest
+      - edit_decisions
+      - render_report
+      - publish_copy
+    produces:
+      - retrospective
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - "retrospective artifact 已写入 .retrospectives/fabric-promotion/<project>.md"
+      - "记录了本次每 stage 实际耗时 / 实际成本（对比 brief 预算）"
+      - "记录了本次违反 review_focus 的项与修复方法"
+      - "提取 1-3 个下一轮可改进的 tunables（如 img2img strength 调整）"
+      - "关键决策（render_runtime / palette / 字体 / TTS voice）均有理由记录"
+      - "has_priors 为真时，已对比上一轮 retrospective 验证改进是否落实"
+    success_criteria:
+      - ".retrospectives/fabric-promotion/<project>.md 存在"
+      - "retrospective artifact 至少含 wins / pitfalls / improvements / decisions / tunables 字段"
+      - ".retrospectives/latest.md 已刷新指向本次"
+      - "agent 退出前已在 idea-director.md 入口提示中标注'下次读取 retrospective'"
+
+# ═════════════════════════════════════════════════════════════════════
+# Cross-stage 治理锚点（AGENTS.md 4 条红线 + HARD RULE 的 YAML 落地）
+# 注：metadata 在 schema 中是自由 object，此处仅作人类可读治理声明与工具可审计的
+#     关键布尔标记，不替代各 stage 的 review_focus / success_criteria。
+# ═════════════════════════════════════════════════════════════════════
+metadata:
+  governance:
+    # 1. NO AD-HOC SCRIPTS
+    no_ad_hoc_scripts: true
+    orchestration_mode: executive-producer
+
+    # 2. USE SELECTORS ONLY — directed_assets 必经 selectors
+    selector_only_capabilities:
+      - tts
+      - image_generation
+      - video_generation
+
+    # 3. RESPECT CHECKPOINTS — scene_plan/script/visual_design approval 在 visual_planning
+    critical_approval_gates:
+      - stage: idea
+        what: "brief 已显式批准（含 render_runtime 抉择）"
+      - stage: visual_planning
+        what: "scene_plan + script + visual_design + frame_blueprint 已显式批准"
+      - stage: publish_copy
+        what: "B 站/小红书 文案 + 封面文字层 已显式批准"
+
+    # 4. NO SINGLE-SHOT HTML — hyperframes_compose 工具内部生成 index.html
+    #    director 不手写 index.html / 不一次性写所有 frame HTML
+    compose_tool_only: true
+
+    # HARD RULE - Present Both Composition Runtimes
+    dual_runtime_required_at: idea
