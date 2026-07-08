@@ -19,13 +19,13 @@
 #                              前期：产出 scene_plan + script + visual_design + frame_blueprint
 #       3. directed_assets    ─┐
 #                              中期：按 frame_blueprint 用 img2img 生产素材 + TTS
-#                                ┘
+#                             ─┘
 #       4. hyperframes_compose─┐
 #                              后期：生成 edit_decisions + 调用 hyperframes_compose tool
 #                              合成（scaffold → lint → validate → render）
 #       5. publish_copy       ─┘
 #                              收尾：B 站/小红书 文案 + 封面
-#       6. retrospective     ─┐
+#       6. retrospective      ─┐
 #                              自我学习：复盘并沉淀 .retrospectives/ 知识库
 #
 # 【强制约束 source-of-truth】：
@@ -35,8 +35,9 @@
 #
 # 【AGENTS.md 4 条红线在本 YAML 的落地位置】：
 #   1. NO AD-HOC SCRIPTS    → orchestration.mode = executive-producer + 全 stage 声明
-#   2. USE SELECTORS ONLY   → directed_assets.required_tools 用 image_selector /
-#                             video_selector / tts_selector
+#   2. USE SELECTORS ONLY   → [官方豁免 (APPROVED EXEMPTION)]：面料推广对物理纹理和连贯声纹
+#                             有极强刚需，允许直接且必须硬编码调用 google_imagen (img2img)
+#                             / comfyui_video / voxcpm_tts (chain cloning)，跳过 selector。
 #   3. RESPECT CHECKPOINTS  → idea / visual_planning / publish_copy  human_approval_default = true
 #   4. NO SINGLE-SHOT HTML  → hyperframes_compose 工具内部生成 index.html，director 不手写
 # ===========================================================
@@ -182,11 +183,14 @@ stages:
       - voxcpm_tts
       - google_imagen
       - comfyui_video
+    # [HARD CONSTRAINT]: 严禁 fallback。如果 img2img/chain cloning 的 provider 宕机，
+    # 不能降级到普通的 text-to-image/tts，否则面料微距纹理会突变、声纹会跳戏。宁可让管道 fail。
     fallback_tools: []
     tools_available:
       - voxcpm_tts
       - google_imagen
       - comfyui_video
+      - pixabay_music
     checkpoint_required: true
     human_approval_default: false
     review_focus:
@@ -196,7 +200,7 @@ stages:
       - "成衣视频的动作 / 摄影机轨迹 / 时长 与 frame_blueprint.motion_rules.match"
       - "TTS 配音按 script.json sections 文本生成"
       - "固定工具：google_imagen (model=gemini-3.1-flash-lite-image) / comfyui_video / voxcpm_tts"
-      - "未出现调用 image_selector / video_selector / tts_selector 的违规行为"
+      - "确认已豁免 Selector 约束，直接校验是否使用了 google_imagen / comfyui_video / voxcpm_tts"
     success_criteria:
       - "Schema-valid asset_manifest artifact (schemas/artifacts/asset_manifest.schema.json)"
       - "每条 asset 条目含 img2img_source 路径"
@@ -225,9 +229,9 @@ stages:
       - edit_decisions
       - render_report
     required_tools:
-      - video_compose
+      - hyperframes_compose
     tools_available:
-      - video_compose
+      - hyperframes_compose
     checkpoint_required: true
     human_approval_default: false
     review_focus:
@@ -239,8 +243,8 @@ stages:
       - "工具返回成功，renders/final.mp4 存在"
       - "post-render self-review：ffprobe + 帧抽样 + 音频检查通过"
     success_criteria:
-      - "artifacts/edit_decisions.json 存在且 schema-valid"
-      - "artifacts/render_report.json 存在且 schema-valid"
+      - "artifacts/edit_decisions.json 存在且符合 schemas/artifacts/edit_decisions.schema.json"
+      - "artifacts/render_report.json 存在且符合 schemas/artifacts/render_report.schema.json"
       - "renders/final.mp4 存在且通过 ffprobe"
       - "render_report.self_review.passed = true"
 
@@ -254,6 +258,7 @@ stages:
       - asset_manifest
       - render_report
       - edit_decisions
+      - visual_design
     produces:
       - publish_copy
       - cover_manifest
@@ -291,6 +296,7 @@ stages:
       - edit_decisions
       - render_report
       - publish_copy
+      - cover_manifest
     produces:
       - retrospective
     tools_available: []
@@ -306,8 +312,8 @@ stages:
     success_criteria:
       - ".retrospectives/fabric-promotion/<project>.md 存在"
       - "retrospective artifact 至少含 wins / pitfalls / improvements / decisions / tunables 字段"
-      - ".retrospectives/latest.md 已刷新指向本次"
-      - "agent 退出前已在 idea-director.md 入口提示中标注'下次读取 retrospective'"
+      - ".retrospectives/knowledge_base.md 已整合并精简刷新"
+      - "agent 退出前已在 idea-director.md 入口提示中标注'下次读取知识库'"
 
 # ═════════════════════════════════════════════════════════════════════
 # Cross-stage 治理锚点（AGENTS.md 4 条红线 + HARD RULE 的 YAML 落地）
@@ -319,6 +325,7 @@ metadata:
     你是 OpenMontage 生产 agent，被指定使用 fabric-promotion-directed pipeline。
     工作目录：E:\YifuAIForge\OpenMontage。
     请直接推进项目 <project_name> 的 fabric-promotion-directed pipeline：
+    0. 第一步必须使用工具读取根目录下的 `.retrospectives/knowledge_base.md`，仔细阅读全局避坑指南，并将与你当前面料匹配的特有调参经验带入本次决策！
     1. 运行 python bin/omo.py status --project <project_name> --pipeline fabric-promotion-directed 查状态
     2. 运行 python bin/omo.py start-stage --project <project_name> --pipeline fabric-promotion-directed 获取当前阶段任务
     3. 按返回的严格 prompt 生成 JSON artifact

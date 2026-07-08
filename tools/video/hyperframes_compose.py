@@ -797,18 +797,79 @@ class HyperFramesCompose(BaseTool):
         assets_dir = workspace / "assets"
         copies: list[dict[str, str]] = []
         resolved: list[dict] = []
-        for cut in cuts:
+
+        def is_linked_static_to_video(c1: dict, c2: dict) -> bool:
+            s1 = c1.get("source", "")
+            s2 = c2.get("source", "")
+            if not s1 or not s2:
+                return False
+            p1 = asset_lookup[s1].get("path", s1) if s1 in asset_lookup else s1
+            p2 = asset_lookup[s2].get("path", s2) if s2 in asset_lookup else s2
+            ext1 = Path(p1).suffix.lower()
+            ext2 = Path(p2).suffix.lower()
+            if ext1 in _IMAGE_EXTENSIONS and ext2 in _VIDEO_EXTENSIONS:
+                id1 = c1.get("id", "") or ""
+                id2 = c2.get("id", "") or ""
+                for w in ["garment_a", "garment_b", "garment"]:
+                    if w in id1.lower() and w in id2.lower():
+                        return True
+            return False
+
+        def get_video_duration(path: Path) -> float:
+            try:
+                cmd = [
+                    "ffprobe", "-v", "error", "-show_entries",
+                    "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(path)
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                return float(res.stdout.strip())
+            except Exception:
+                return 0.0
+
+        for i, cut in enumerate(cuts):
             source = cut.get("source", "")
             resolved_cut = dict(cut)
             if source in asset_lookup:
                 resolved_cut["source"] = asset_lookup[source].get("path", source)
             src_path = Path(resolved_cut["source"]) if resolved_cut.get("source") else None
-            if src_path and src_path.exists() and not self._is_inside(src_path, workspace):
-                dest = assets_dir / src_path.name
-                if not dest.exists() or dest.stat().st_size != src_path.stat().st_size:
-                    shutil.copy2(src_path, dest)
-                resolved_cut["source"] = str(dest)
-                copies.append({"from": str(src_path), "to": str(dest)})
+            
+            in_s = float(resolved_cut.get("in_seconds", 0) or 0)
+            out_s = float(resolved_cut.get("out_seconds", 0) or 0)
+            duration = out_s - in_s
+
+            # 1. Zero-Flash padding: Extend static image duration if it is linked to the next video
+            if i < len(cuts) - 1 and is_linked_static_to_video(cuts[i], cuts[i+1]):
+                resolved_cut["out_seconds"] = out_s + 0.5
+                duration += 0.5
+
+            if src_path and src_path.exists():
+                ext = src_path.suffix.lower()
+                # 2. Slow-motion Stretching: auto slow down video to match timeline duration
+                if ext in _VIDEO_EXTENSIONS and duration > 0.1:
+                    phys_dur = get_video_duration(src_path)
+                    if phys_dur > 0 and duration > phys_dur + 0.1:
+                        pts_ratio = duration / phys_dur
+                        slowed_name = f"{src_path.stem}_slow_{int(duration*100)}{src_path.suffix}"
+                        dest = assets_dir / slowed_name
+                        if not dest.exists():
+                            log.info(f"Auto-stretching video {src_path.name} from {phys_dur:.2f}s to {duration:.2f}s (ratio {pts_ratio:.2f})")
+                            subprocess.run([
+                                "ffmpeg", "-y", "-i", str(src_path),
+                                "-vf", f"setpts={pts_ratio:.4f}*PTS",
+                                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(dest)
+                            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        resolved_cut["source"] = str(dest)
+                        copies.append({"from": str(src_path), "to": str(dest)})
+                        resolved.append(resolved_cut)
+                        continue
+
+                if not self._is_inside(src_path, workspace):
+                    dest = assets_dir / src_path.name
+                    if not dest.exists() or dest.stat().st_size != src_path.stat().st_size:
+                        shutil.copy2(src_path, dest)
+                    resolved_cut["source"] = str(dest)
+                    copies.append({"from": str(src_path), "to": str(dest)})
             resolved.append(resolved_cut)
         return resolved, copies
 
@@ -961,7 +1022,7 @@ class HyperFramesCompose(BaseTool):
         clip_html: list[str] = []
         entrance_tweens: list[str] = []
         for i, cut in enumerate(cuts):
-            html, tween = self._cut_to_html(i, cut, width, height)
+            html, tween = self._cut_to_html(i, cut, width, height, cuts)
             clip_html.append(html)
             if tween:
                 entrance_tweens.append(tween)
@@ -1009,9 +1070,41 @@ class HyperFramesCompose(BaseTool):
     }}
     .clip {{ position: absolute; inset: 0; }}
     .clip.video-clip, .clip.image-clip {{ object-fit: cover; width: 100%; height: 100%; }}
-    .clip.text-card {{ display: flex; align-items: center; justify-content: center; padding: 120px 160px; box-sizing: border-box; text-align: center; }}
-    .clip.text-card h1 {{ font-weight: 700; font-size: 96px; line-height: 1.1; margin: 0; color: var(--color-fg); }}
-    .clip.text-card .subtitle {{ font-size: 36px; margin-top: 24px; color: var(--color-accent); }}
+    .clip.text-card {{
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
+      padding: 100px 80px;
+      box-sizing: border-box;
+      text-align: left;
+      pointer-events: none;
+    }}
+    .clip.text-card h1 {{
+      background: rgba(250, 246, 246, 0.90);
+      padding: 28px 48px;
+      border-radius: 24px;
+      box-shadow: 0 12px 40px rgba(60, 50, 51, 0.15);
+      border: 1px solid rgba(236, 210, 211, 0.8);
+      font-weight: 700;
+      font-size: 60px;
+      line-height: 1.2;
+      color: var(--color-fg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      max-width: 85%;
+      margin: 0;
+    }}
+    .clip.text-card .subtitle {{
+      background: var(--color-accent);
+      color: #FFFFFF;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 30px;
+      margin-top: 24px;
+      font-weight: 600;
+      box-shadow: 0 6px 16px rgba(194, 141, 145, 0.35);
+    }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 </head>
@@ -1031,13 +1124,14 @@ class HyperFramesCompose(BaseTool):
 """
 
     def _cut_to_html(
-        self, index: int, cut: dict, width: int, height: int
+        self, index: int, cut: dict, width: int, height: int, cuts_list: list[dict] = None
     ) -> tuple[str, Optional[str]]:
         """Render one cut + its entrance tween. Returns (html, tween or None)."""
         cut_id = f"cut-{index}"
         in_s = float(cut.get("in_seconds", 0) or 0)
         out_s = float(cut.get("out_seconds", 0) or 0)
         duration = max(0.1, out_s - in_s)
+        track_index = "4" if cut.get("layer") == "overlay" else "1"
 
         source = cut.get("source") or ""
         cut_type = (cut.get("type") or "").lower()
@@ -1045,6 +1139,20 @@ class HyperFramesCompose(BaseTool):
 
         src_path = Path(source) if source else None
         ext = src_path.suffix.lower() if src_path else ""
+
+        # Check if this cut is a video linked to a preceding static image
+        is_linked_transition = False
+        if cuts_list and index > 0 and ext in _VIDEO_EXTENSIONS:
+            prev = cuts_list[index - 1]
+            prev_src = prev.get("source", "")
+            prev_ext = Path(prev_src).suffix.lower() if prev_src else ""
+            if prev_ext in _IMAGE_EXTENSIONS:
+                id_prev = prev.get("id", "") or ""
+                id_curr = cut.get("id", "") or ""
+                for w in ["garment_a", "garment_b", "garment"]:
+                    if w in id_prev.lower() and w in id_curr.lower():
+                        is_linked_transition = True
+                        break
 
         # Decide scene shape
         if cut_type in {"text_card", "hero_title", "callout"} or (not source and text):
@@ -1055,9 +1163,8 @@ class HyperFramesCompose(BaseTool):
             html = (
                 f'<div id="{cut_id}" class="clip text-card" '
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1">{inner}</div>'
+                f'data-track-index="{track_index}">{inner}</div>'
             )
-            # Mild entrance — fade + lift.
             tween = (
                 f'tl.from("#{cut_id} h1", {{ y: 40, opacity: 0, duration: 0.6, '
                 f'ease: "power3.out" }}, {self._f(in_s + 0.1)});'
@@ -1066,11 +1173,22 @@ class HyperFramesCompose(BaseTool):
 
         if ext in _IMAGE_EXTENSIONS and src_path:
             rel = self._rel_from_workspace(str(src_path))
+            style_override = ""
+            try:
+                from PIL import Image
+                with Image.open(src_path) as img:
+                    w, h = img.size
+                    if w > h:
+                        style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
+            except Exception:
+                if "payoff" in str(src_path).lower():
+                    style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
+                    
             html = (
                 f'<img id="{cut_id}" class="clip image-clip" '
-                f'src="{self._escape_attr(rel)}" '
+                f'src="{self._escape_attr(rel)}" {style_override}'
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1" alt="">'
+                f'data-track-index="{track_index}" alt="">'
             )
             tween = (
                 f'tl.from("#{cut_id}", {{ scale: 1.05, opacity: 0, duration: 0.5, '
@@ -1084,9 +1202,17 @@ class HyperFramesCompose(BaseTool):
                 f'<video id="{cut_id}" class="clip video-clip" '
                 f'src="{self._escape_attr(rel)}" '
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1" muted playsinline></video>'
+                f'data-track-index="{track_index}" muted playsinline></video>'
             )
-            return html, None
+            if is_linked_transition:
+                # Seamless flash-free overlay transition: bypass GSAP opacity animation!
+                tween = None
+            else:
+                tween = (
+                    f'tl.from("#{cut_id}", {{ opacity: 0, duration: 0.6, '
+                    f'ease: "power2.out" }}, {self._f(in_s)});'
+                )
+            return html, tween
 
         # Unknown cut shape — render a placeholder text card so the render
         # still succeeds; lint/validate will surface the issue.
@@ -1099,7 +1225,7 @@ class HyperFramesCompose(BaseTool):
                 f'data-composition-src="{self._escape_attr(rel)}" '
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
                 f'data-width="{width}" data-height="{height}" '
-                f'data-track-index="1"></div>'
+                f'data-track-index="{track_index}"></div>'
             )
             return html, None
 
@@ -1107,7 +1233,7 @@ class HyperFramesCompose(BaseTool):
         html = (
             f'<div id="{cut_id}" class="clip text-card" '
             f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-            f'data-track-index="1"><h1>{placeholder}</h1></div>'
+            f'data-track-index="{track_index}"><h1>{placeholder}</h1></div>'
         )
         return html, None
 

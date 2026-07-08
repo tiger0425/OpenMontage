@@ -504,6 +504,10 @@
       "samples": [
         "75",
         0
+      ],
+      "vae": [
+        "73",
+        0
       ]
     },
     "class_type": "LTXVLatentUpsampler",

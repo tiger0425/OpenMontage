@@ -7,6 +7,10 @@
 
 > v4.0 调整：输入增加 `scene_plan.json` 和 `script.json`（标准 artifacts），TTS 文本来源从旧版 storyboard/SCRIPT 改为 `script.json sections`。
 
+> [!IMPORTANT]
+> **红线豁免声明 (Provider Lockdown Exemption)**
+> 本 Pipeline 已获得 `AGENTS.md` 红线 #2 (USE SELECTORS ONLY) 的官方豁免。执行此任务时，**请忽略使用 Selector 的要求**。为了保证极致的面料纹理连贯性和离线声纹一致性，你**必须直接硬编码调用底层 provider 工具**（如 `google_imagen`, `comfyui_video`, `voxcpm_tts`）。
+
 ## Input
 - `brief` artifact（含面料属性、3 个成衣概念、目标平台、时长、调性）
   - 含 `metadata.tunables_inherited`（如本次继承自 retrospective，作为参数默认值的 upper bound）
@@ -21,11 +25,21 @@
 
 ## Process
 
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`）以及生成素材的路径，都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写相对路径，否则会污染根目录！
+
 ### Step 1: 按 frame_blueprint 逐帧规划生成顺序
 
 ```python
+import json
+from pathlib import Path
+
+# 请自行替换为实际的项目名
+project_name = "<project_name>"
+project_dir = Path(f"projects/{project_name}")
+
 # 加载 STAGE 2 产出的 frame_blueprint
-with open("artifacts/frame_blueprint.json", encoding="utf-8") as f:
+with open(project_dir / "artifacts/frame_blueprint.json", encoding="utf-8") as f:
     frame_bp = json.load(f)
 asset_manifest = {"assets": [], "linked_frame_index": {}}
 
@@ -52,7 +66,7 @@ for frame in frame_bp["frames"]:
 对 frame_blueprint 中所有 `asset_kind = "narration_wav"` 的帧，按顺序生成 wav。旁白文本取自 STAGE 2 的 `script.json` sections（不再从 brief 推断）。
 
 ```python
-with open("artifacts/script.json", encoding="utf-8") as f:
+with open(project_dir / "artifacts/script.json", encoding="utf-8") as f:
     script = json.load(f)
 # 按 script["sections"][].id 与 tts_frame["tts_segment_id"] 对齐
 for tts_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "narration_wav"]:
@@ -64,13 +78,27 @@ for tts_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "narration
       "text": seg_text,
       "voice_description": brief["voice_description"],  # 用统一的 voice_description 保证多段音色一致
       "seed": 42,                                         # 固定 seed，保证多段音色一致
-      "output_path": f"assets/tts/{tts_frame['frame_id']}.wav"
+      "output_path": str(project_dir / f"assets/tts/{tts_frame['frame_id']}.wav")
     })
     # asset_manifest 记录 tts_frame.frame_id → wav 路径
 ```
 
 - 多段一致音色：固定 `voxcpm_tts`，同一 voice_description + 固定 seed 保证不漂移
 - 调用前读 `.agents/skills/voxcpm-tts/SKILL.md`
+
+### Step 2.5: 背景音乐 (BGM)
+调用 `pixabay_music` 获取与调性匹配的背景音乐，确保在 `asset_manifest` 中生成 `type: "music"` 的资产，以供后续合成使用。
+
+```python
+tool = registry.get("pixabay_music")
+bgm_result = tool.execute({
+    "query": f"{brief.get('style', 'fashion')} background music",
+    "duration": script.get("total_duration_seconds", 30),
+    "output_path": str(project_dir / "assets/audio/bgm.mp3")
+})
+# 必须在 asset_manifest 记录:
+# {"id": "bgm_1", "path": bgm_result.data["output"], "type": "music", "kind": "music"}
+```
 
 ### Step 3: 成衣图（img2img）
 **【核心红线】：严禁使用通用提示词。必须从 `frame_blueprint.composition_rule` +
@@ -98,7 +126,7 @@ result = tool.execute({
     "image_path": frame["init_image_path"],       # 面料原图路径，用于 img2img
     "aspect_ratio": frame["aspect_ratio"],        # 来自 frame_blueprint
     "model": "gemini-3.1-flash-lite-image",       # 固定模型，不走 selector
-    "output_path": f"assets/images/{frame['frame_id']}.png"
+    "output_path": str(project_dir / f"assets/images/{frame['frame_id']}.png")
 })
 # 产出落到 assets/images/<frame.frame_id>.png
 # asset_manifest 记录 linked_frame_id = frame.frame_id
@@ -139,21 +167,26 @@ result = tool.execute({
         "92": {"value": frame.get("width", 1024)},
         "93": {"value": frame.get("height", 1024)},
         "94": {"steps": frame["comfyui_steps"]},
-        "89": {"strength": frame["comfyui_denoise_strength"]}
+        "89": {"strength": frame["comfyui_denoise_strength"]},
+        "101": {"value": int(frame["time_range"]["end"] - frame["time_range"]["start"])}  # 动态传入视频时长
     }
 })
 # 产出落到 assets/video/<frame.frame_id>.mp4
-# asset_manifest 记录 linked_frame_id = frame.frame_id
+# asset_manifest 记录 path = str(project_dir / f"assets/video/{frame['frame_id']}.mp4")
+# linked_frame_id = frame.frame_id
 ```
 调用前读 `.agents/skills/comfyui/SKILL.md` 和 `.agents/skills/comfyui-auto-recovery/SKILL.md`。
 
 ### Step 5: 面料特写视频
-对面料原图 image_to_video。同上，**所有 motion_rule 只描述镜头拉近 / 光影流转 /
-面料轻微飘动**。motion_rule 与 frame_blueprint.match。
+对面料原图 image_to_video。同上，**所有 motion_rule 只描述镜头拉近 / 光影流转 / 面料轻微飘动**。motion_rule 与 frame_blueprint.match。
+```python
+# 提取时长并注入节点 101
+duration_seconds = frame["time_range"]["end"] - frame["time_range"]["start"]
+# ...调用 comfyui_video 并设置 workflow_overrides={"101": {"value": int(duration_seconds)}}
+```
 
 ### Step 6: 封面底图（img2img）
-对 frame_blueprint 中所有 `asset_kind = "cover_base_image"` 的帧生成。**v3.0 几个爽爽换言：** 封面的 aspect_ratio 与文案模板不再写在此 skill —— 全部从 STAGE 2 的
-`frame_blueprint.<cover frame>` 取。本 step 仅产图。
+对 frame_blueprint 中所有 `asset_kind = "cover_base_image"` 的帧生成。
 
 ```python
 # 固定使用 google_imagen，模型 gemini-3.1-flash-lite-image
@@ -167,14 +200,15 @@ for cover_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "cover_b
         "image_path": cover_frame["init_image_path"],  # 面料原图或成衣图
         "aspect_ratio": cover_frame["aspect_ratio"],
         "model": "gemini-3.1-flash-lite-image",
-        "output_path": f"assets/images/{cover_frame['frame_id']}.png"
+        "output_path": str(project_dir / f"assets/images/{cover_frame['frame_id']}.png")
     })
 ```
 
 ### Step 7: 写 asset_manifest
 每条 asset 记录（v3.0 核心改造）：
 - `path`（项目内路径）
-- `kind`（`narration_wav` / `narration_timestamps` / `garment_image` / `garment_video` / `fabric_macro_video` / `cover_base_image`）
+- `kind`（`narration_wav` / `narration_timestamps` / `garment_image` / `garment_video` / `fabric_macro_video` / `cover_base_image` / `music`）
+- `type`（对于音乐必须标注 `"type": "music"` 供合成总监识别）
 - `img2img_source`（指向 fabric 原图 / 成衣图）
 - `linked_frame_id`（**v3.0 必填**：引用 STAGE 2 frame_blueprint.frames[].frame_id）
 - `linked_concept_id`（关联的 brief.angle_options 概念 id，0 = 面料特写 / 封面）

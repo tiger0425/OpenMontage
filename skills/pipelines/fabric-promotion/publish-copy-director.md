@@ -15,6 +15,9 @@
 
 ## Process
 
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`）以及生成素材的路径，都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写相对路径，否则会污染根目录！
+
 ### Step 1: 封面文字层合成
 从 `asset_manifest` 中取 `kind=cover_base_image` 的封面底图，叠加文字层：
 - B 站：1920×1080，横版主图 + 品牌名大字标题
@@ -23,16 +26,24 @@
 字体 / 颜色 v4.0 来源：`visual_design.json`（OpenMontage 标准 artifact）——与视频字幕同源同步。
 
 ```python
+import json
+from pathlib import Path
+
+# 请自行替换为实际的项目名
+project_name = "<project_name>"
+project_dir = Path(f"projects/{project_name}")
+
 # v4.0 验证来源
-visual_design = json.load("artifacts/visual_design.json")
+with open(project_dir / "artifacts/visual_design.json", encoding="utf-8") as f:
+    visual_design = json.load(f)
 assert visual_design["typography"]["heading"]["family"]   # 字体
 assert visual_design["palette"]["text"]                    # 主文字色
 # 这两个字段是 cover 字体选型的源 —— 与视频字幕同源同步
 ```
 
 输出：
-- `renders/bilibili_cover.png`（1920×1080）
-- `renders/xiaohongshu_cover.png`（1080×1440）
+- `projects/<project-name>/renders/bilibili_cover.png`（1920×1080）
+- `projects/<project-name>/renders/xiaohongshu_cover.png`（1080×1440）
 
 ### Step 2: B 站文案
 - **标题** ≤80 字，突出核心卖点（1 个稀有性 + 1 个工艺）
@@ -58,13 +69,13 @@ assert visual_design["palette"]["text"]                    # 主文字色
       "title": "<≤80字>",
       "description": "<300~500字>",
       "tags": ["..."],
-      "cover_ref": "renders/bilibili_cover.png"
+      "cover_ref": "projects/<project-name>/renders/bilibili_cover.png"
     },
     "xiaohongshu": {
       "title": "<≤20字含emoji>",
       "body": "<150~300字>",
       "hashtags": ["#...", "..."],
-      "cover_ref": "renders/xiaohongshu_cover.png"
+      "cover_ref": "projects/<project-name>/renders/xiaohongshu_cover.png"
     }
   }
 }

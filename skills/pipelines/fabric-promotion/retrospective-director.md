@@ -17,7 +17,7 @@
 
 1. `artifacts/retrospective.json` — 标准 artifact（可被 schema 校验）
 2. `.retrospectives/fabric-promotion/<project>.md`  — 人类可读复盘日记
-3. `.retrospectives/latest.md`  — 软链接 / 副本，指向最近一次
+3. `.retrospectives/knowledge_base.md`  — 全局整合与提炼后的知识库（SOP）
 
 ## 输入
 
@@ -35,6 +35,9 @@
 - `.retrospectives/previous.md`（如果本次启动时 hits 同面料 / 同平台历史）
 
 ## 强制流程
+
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`, `renders/...`）都**必须带有 `projects/{project_name}/` 前缀**。全局复盘文件可以放在 `.retrospectives/` 下。
 
 ### Step 1: 统计本次实际数据
 
@@ -89,8 +92,12 @@ if not audit.get("tool") == "hyperframes_compose":
 if self_review.get("passed") is not True:
     red_flags.append("CRITICAL: post-render self-review 未通过")
 
+from pathlib import Path
+project_name = "<project_name>"
+project_dir = Path(f"projects/{project_name}")
+
 # 标准 artifact 校验
-if not Path("artifacts/edit_decisions.json").exists():
+if not (project_dir / "artifacts/edit_decisions.json").exists():
     red_flags.append("CRITICAL: edit_decisions.json 缺失")
 ```
 
@@ -164,34 +171,36 @@ for frame in frame_blueprint.frames:
 - <给下次 pipeline 启动者的一句行动建议>
 
 ## 📦 附 artifacts 路径
-- artifacts/scene_plan.json
-- artifacts/script.json
-- artifacts/visual_design.json
-- artifacts/frame_blueprint.json
-- artifacts/asset_manifest.json
-- artifacts/edit_decisions.json
-- artifacts/render_report.json
-- artifacts/publish_copy.json
-- artifacts/cover_manifest.json
-- renders/final.mp4
+- projects/<project-name>/artifacts/scene_plan.json
+- projects/<project-name>/artifacts/script.json
+- projects/<project-name>/artifacts/visual_design.json
+- projects/<project-name>/artifacts/frame_blueprint.json
+- projects/<project-name>/artifacts/asset_manifest.json
+- projects/<project-name>/artifacts/edit_decisions.json
+- projects/<project-name>/artifacts/render_report.json
+- projects/<project-name>/artifacts/publish_copy.json
+- projects/<project-name>/artifacts/cover_manifest.json
+- projects/<project-name>/renders/final.mp4
 ────────────────────────────────────────────────────
 ```
 
-### Step 7: 刷新 `.retrospectives/latest.md`
+### Step 7: 提炼与融合全局知识库 (`.retrospectives/knowledge_base.md`)
 
-把新写的复盘 markdown **拷贝** 为 `.retrospectives/latest.md`（软链接也可以，但 Windows
-扫不开软链，写副本更稳）。下次启动 fabric-promotion pipeline 时，`idea-director` 与
-`visual-planning-director` 先读它：
+你必须作为一个“知识库管理员”，将本次复盘的成果（尤其是避免踩坑的教训和极佳的调参）**合并**到全局知识库中。
+
+**操作要求**：
+1. 使用工具读取 `.retrospectives/knowledge_base.md`。如果不存在，就在内存中初始化一份。
+2. 将你刚刚写下的 `wins`, `pitfalls`, `improvements`, `decisions`, `tunables` 归类合并进知识库。
+   - **全局经验 (Global Practices)**：放入第一部分，去重精简。如果之前有相似的坑，直接浓缩为一条铁律。
+   - **材质专属参数 (Fabric-Specific Tunables)**：放入第二部分对应的材质分类下（例如 `### 粗花呢 (Tweed)`）。如果是新的面料，就新建一个小节。
+3. 使用 `write_to_file` 或编辑工具，将整合精简后的内容覆盖回 `.retrospectives/knowledge_base.md`。
+
+下次启动 fabric-promotion pipeline 时，`idea-director` 与 `visual-planning-director` 会直接去读这个知识库。
 
 ```python
-# idea-director 启动时
-latest_retro = read(".retrospectives/latest.md", fallback=None)
-if latest_retro:
-    if latest_retro.fabric_type == current_brief.fabric_type:
-        brief.tunables_inherited = latest_retro.tunables
-        print(f"📚 已继承上轮 retrospective：{latest_retro.date} · {latest_retro.fabric_type}")
-    else:
-        print(f"📚 上轮 retrospective 与本面料类型不符，无 tunables 继承")
+# idea-director 启动时将会这样读取
+kb = read(".retrospectives/knowledge_base.md")
+# 它会自动查阅全局防坑指南，并提取对应面料的参数
 ```
 
 ## 输出
@@ -241,16 +250,16 @@ if latest_retro:
     "下次亚麻面料建议 visual_planning Strength 提高 0.05"
   ],
   "artifacts_paths": {
-    "scene_plan": "artifacts/scene_plan.json",
-    "script": "artifacts/script.json",
-    "visual_design": "artifacts/visual_design.json",
-    "frame_blueprint": "artifacts/frame_blueprint.json",
-    "asset_manifest": "artifacts/asset_manifest.json",
-    "edit_decisions": "artifacts/edit_decisions.json",
-    "render_report": "artifacts/render_report.json",
-    "video": "renders/final.mp4",
-    "publish_copy": "artifacts/publish_copy.json",
-    "cover_manifest": "artifacts/cover_manifest.json"
+    "scene_plan": "projects/<project-name>/artifacts/scene_plan.json",
+    "script": "projects/<project-name>/artifacts/script.json",
+    "visual_design": "projects/<project-name>/artifacts/visual_design.json",
+    "frame_blueprint": "projects/<project-name>/artifacts/frame_blueprint.json",
+    "asset_manifest": "projects/<project-name>/artifacts/asset_manifest.json",
+    "edit_decisions": "projects/<project-name>/artifacts/edit_decisions.json",
+    "render_report": "projects/<project-name>/artifacts/render_report.json",
+    "video": "projects/<project-name>/renders/final.mp4",
+    "publish_copy": "projects/<project-name>/artifacts/publish_copy.json",
+    "cover_manifest": "projects/<project-name>/artifacts/cover_manifest.json"
   }
 }
 ```
@@ -259,15 +268,15 @@ if latest_retro:
 
 按 Step 6 模板的人类可读 markdown。
 
-### `.retrospectives/latest.md`
+### `.retrospectives/knowledge_base.md`
 
-最新一份的副本。
+高度整合、按材质分类、无冗余的自我学习知识库。
 
 ## Reviewer Self-Review
 
 - [ ] retrospective.json schema 合法，含全 5 个必填字段：wins / pitfalls / improvements / decisions / tunables
 - [ ] .retrospectives/fabric-promotion/<project>.md 已落盘
-- [ ] .retrospectives/latest.md 已刷新（content 为最新本次）
+- [ ] .retrospectives/knowledge_base.md 已完成合并更新与精简
 - [ ] stage_times 已识别耗时最长的 stage，并在 improvements 给出优化提示
 - [ ] pitfalls 列表覆盖本次 review_focus 全部 violated / missed 项
 - [ ] decisions 列表至少含 render_runtime / 字体 / visual_design / TTS_voice 4 项
@@ -279,7 +288,7 @@ if latest_retro:
 
 - 上游：idea / visual_planning / directed_assets / hyperframes_compose / publish_copy
 - 下游：下次同 pipeline 启动时，idea-director 与 visual-planning-director
-  必读 `.retrospectives/latest.md`，把其中的 tunables 注入到新一次
+  必读 `.retrospectives/knowledge_base.md`，吸取全局教训并把属于本面料的 tunables 注入到新一次
   frame_blueprint
 
 ## 失败场景
@@ -294,4 +303,4 @@ if latest_retro:
 - ❌ 把 retrospective 写成笼统的"做得不错、有点不够" — 必须具体到 stage / frame_id / parameter
 - ❌ tunables 不给 rationale — 下次启动不知道该不该再调一次
 - ❌ decisions 不写 rejected 选项 — 下轮还会争论同一问题
-- ❌ latest.md 不刷新，老经验覆盖新经验
+- ❌ 没有将经验提炼合并进 knowledge_base.md，导致新执行者学不到教训

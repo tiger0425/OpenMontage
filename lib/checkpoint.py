@@ -33,9 +33,13 @@ CANONICAL_STAGE_ARTIFACTS = {
     "idea": "brief",
     "script": "script",
     "scene_plan": "scene_plan",
+    "visual_planning": "scene_plan",
     "assets": "asset_manifest",
+    "directed_assets": "asset_manifest",
     "edit": "edit_decisions",
     "compose": "render_report",
+    "hyperframes_compose": "render_report",
+    "publish_copy": "publish_copy",
     "publish": "publish_log",
 }
 

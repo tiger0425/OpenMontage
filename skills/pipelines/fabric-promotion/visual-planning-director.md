@@ -32,18 +32,23 @@
 
 ## 流程
 
-### Step 0: 读取上次复盘（自我学习接口）
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`, `renders/...`）都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写相对路径，否则会污染根目录！
+
+### Step 0: 读取知识库获取面料专属参数（自我学习接口）
+
+**⚠️ 强制动作**：
+你**必须主动使用文件查看工具（如 `view_file`）去读取 `.retrospectives/knowledge_base.md`**（如果它存在）。
+进入知识库后，你必须找到属于当前 brief 中面料类别（如 `Tweed`, `Linen`）的小节。
+如果找到了对应的材质参数，你必须把读到的 `tunables` **直接落地到 frame_blueprint 的默认值字段**（如 `img2img_strength` / `comfyui_steps` 等）。
 
 ```python
-latest_retro = read(".retrospectives/latest.md", fallback=None)
-if latest_retro:
-    if latest_retro.fabric_type == brief.fabric_type_guess:
-        print(f"📚 同面料历史命中，tunables: {latest_retro.tunables}")
-    else:
-        print("📚 历史不命中，本次将作为基线")
-        log_to_scene_plan_header("retrospective: no_match")
-else:
-    print("📚 无历史 retrospective，本次将作为基线运行")
+# 伪代码演示逻辑：
+kb_content = get_retro_if_exists(".retrospectives/knowledge_base.md")
+if kb_content:
+    fabric_tunables = extract_tunables_for_fabric(kb_content, brief.fabric_type_guess)
+    if fabric_tunables:
+        apply_tunables(fabric_tunables)
 ```
 
 读到的 tunables 在本 stage **直接落地到 frame_blueprint** 的默认值字段（`img2img_strength` / `comfyui_steps` / 字体 weight 等）。
@@ -215,7 +220,7 @@ assert total <= brief["target_duration_seconds"] - 0.2, "需留 200ms 收尾 fad
       "time_range": {"start": 0, "end": 3},
       "asset_kind": "fabric_macro_video",
       "aspect_ratio": "9:16",
-      "init_image_path": "assets/fabric_source/<fabric.jpg>",
+      "init_image_path": "projects/<project_name>/assets/fabric_source/<fabric.jpg>",
       "composition_rule": "Subject centered; macro lens leaves clean uniform edges for HTML text-block overlay",
       "motion_rules": ["drape-reveal", "warm-light-sweep"],
       "cut_in": "fade-from-black:0.3s",
@@ -231,7 +236,7 @@ assert total <= brief["target_duration_seconds"] - 0.2, "需留 200ms 收尾 fad
       "time_range": {"start": 3, "end": 5},
       "asset_kind": "garment_image",
       "aspect_ratio": "9:16",
-      "init_image_path": "assets/fabric_source/<fabric.jpg>",
+      "init_image_path": "projects/<project_name>/assets/fabric_source/<fabric.jpg>",
       "composition_rule": "Model centered perfectly in frame, clean uniform background — DO NOT let model crop into left flex column, text overlay will be placed there by compose",
       "garment_concept_ref": "concept_A",
       "prompt_injection_from_design_system": "dark moody studio background (#08050a), chiaroscuro lighting",

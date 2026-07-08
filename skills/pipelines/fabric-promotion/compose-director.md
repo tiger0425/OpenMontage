@@ -12,6 +12,9 @@
 - 不修改 `brief.render_runtime`（已锁）
 - 不在本 stage 重新做视觉设计
 
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `renders/...`）以及工具调用的参数路径，都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写 `artifacts/` 或 `hyperframes`，否则会污染根目录！
+
 ## 输入
 
 - `brief`（`render_runtime` 已锁定，本 stage 只读）
@@ -34,11 +37,16 @@
 
 ```python
 import json
+import os
 from pathlib import Path
 from schemas.artifacts import validate_artifact
 
+# 请自行替换为实际的项目名
+project_name = "<project_name>"
+project_dir = Path(f"projects/{project_name}")
+
 def _load_json(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
+    with open(project_dir / path, encoding="utf-8") as f:
         return json.load(f)
 
 brief = _load_json("artifacts/brief.json")
@@ -124,6 +132,19 @@ for i, frame in enumerate(frame_bp["frames"]):
         "reason": f"frame {frame['frame_id']}: {frame.get('composition_rule', '')}"
     }
     edit_decisions["cuts"].append(cut)
+
+    # 文字卡片 (overlay_notes) - 映射到视频中的文字叠加
+    if frame.get("overlay_notes"):
+        edit_decisions["cuts"].append({
+            "id": f"{frame['frame_id']}_overlay",
+            "source": "", # 文字层不需要外置素材
+            "in_seconds": frame["time_range"]["start"],
+            "out_seconds": frame["time_range"]["end"],
+            "type": "text_card",
+            "text": frame["overlay_notes"],
+            "layer": "overlay",
+            "reason": "Text overlay from frame overlay_notes"
+        })
 
     # narration 段：每个 tts_segment_id 对应 script.sections 一段
     if frame.get("tts_segment_id"):
@@ -230,15 +251,15 @@ profile_name = brief.get("target_platform", "xiaohongshu")  # bilibili / xiaohon
 if profile_name == "bilibili":
     profile = "youtube_landscape"
 else:
-    profile = "tiktok"
+    profile = "tiktok_vertical"
 
 import yaml
-playbook = yaml.safe_load(open(f"styles/{brief.get('style', 'clean-professional')}.yaml", encoding="utf-8"))
+playbook = yaml.safe_load(open(f"styles/{brief.get('style', 'clean-professional')}.yaml", "r", encoding="utf-8")) # 或项目 styles 目录
 
 result = tool.execute({
     "operation": "render",
-    "workspace_path": "hyperframes",  # 相对项目根目录
-    "output_path": "renders/final.mp4",
+    "workspace_path": f"projects/{project_name}/hyperframes",
+    "output_path": f"projects/{project_name}/renders/final.mp4",
     "edit_decisions": edit_decisions,
     "asset_manifest": asset_manifest,
     "playbook": playbook,

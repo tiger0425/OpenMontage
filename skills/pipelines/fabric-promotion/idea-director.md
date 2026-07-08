@@ -17,24 +17,28 @@
 
 ## 流程
 
-### Step 0: 读取上次复盘（自我学习接口）
+> **⚠️ 路径规范核心警告**：  
+> Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`, `renders/...`）都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写相对路径，否则会污染根目录！全局复盘可放在 `.retrospectives/` 下。
+
+### Step 0: 读取全局知识库（自我学习接口）
+<!-- NOTE: Next run MUST read the knowledge base from .retrospectives/knowledge_base.md to inherit tuned parameters and avoid past mistakes. -->
+
+**⚠️ 强制动作**：
+你不能仅仅是假装执行下面的伪代码！作为 Agent，你**必须在此时立刻使用文件查看工具（如 `view_file`）读取根目录下的 `.retrospectives/knowledge_base.md`**（如果文件存在的话）。
+
+读取后，你必须执行以下动作：
+1. **吸收全局经验**：仔细阅读知识库中的“全局避坑指南 (Global Practices)”，在后续的整个流程中严格避开这些已知的坑。
+2. **提取专属参数**：查找知识库中是否有针对你即将分析的面料类型（如 `Tweed`, `Linen` 等）的专属条目。如果有，将对应的 `tunables` 采纳并准备传递给 STAGE 2 visual_planning。
 
 ```python
-# 读取 `.retrospectives/latest.md`，若材质匹配则继承 tunables
-latest_retro = read(".retrospectives/latest.md", fallback=None)
-if latest_retro:
-    if latest_retro.fabric_type == current_input.fabric_type_guess:
-        # 在 brief.metadata.tunables_inherited 中下放可调参数，让 visual_planning 落实
-        print(f"📚 上次同面料运行呈现在 {latest_retro.date}，tunables 已生成")
-    else:
-        print(f"📚 上次 retrospective 与本面料类型 ({latest_retro.fabric_type} ≠ 
-              {current_fabric_type}) 不符，跳过 tunables 继承")
-else:
-    print("📚 无历史 retrospective，本次将作为基线运行")
+# 伪代码演示逻辑：
+kb_content = read(".retrospectives/knowledge_base.md")
+# 1. 记下全局避坑规则
+# 2. 如果后续查明面料为 "Linen"，则在 kb_content 寻找 Linen 专属的 tunables
 ```
 
-读到的 tunables **不在本 stage 实施具体实施在 STAGE 2 frame_blueprint**。本 step 只
-负责把 tunables 转写到 brief.metadata.tunables_inherited。
+提取到的 tunables **不在本 stage 实施，具体实施在 STAGE 2 frame_blueprint**。本 step 只
+负责把它们转写到 brief.metadata.tunables_inherited。
 
 ### Step 1: 面料分析
 使用 agent 视觉能力（或 `visual_qa` 工具，如注册可用）分析面料：
