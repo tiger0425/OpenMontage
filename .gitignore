@@ -19,10 +19,15 @@ htmlcov/
 .trae/
 .idea/
 .vscode/
+.opencode/
+.playwright-mcp/
 
 # Pipeline outputs (regenerable — never commit large media)
 output/
 pipeline/
+artifacts/
+renders/
+videos/
 tests/qa/output/
 
 # Project workspaces (generated assets, renders — all regenerable)
@@ -51,9 +56,31 @@ service_account*.json
 
 # Stray media downloads (test/scratch clips left in repo root)
 pexels_video_*.mp4
+comfyui_video_*.mp4
+
+# Downloaded TTS voice models
+voices/
+
+# Local ComfyUI installation (third-party, not part of repo)
+ComfyUI/
+
+# HyperFrames generated workspace
+hyperframes/
 
 # Scratch/debug scripts
 scratch/
+_tmp_*.py
+_check_*.py
+run_*.py
+gen_*.py
+check_*.py
+download_model.py
+update_manifest.py
+test.txt
+test_output.txt
+test_imagen.*
+test_*.wav
+test_voxcpm.py
 
 # Internal docs (strategy, handoffs, playbooks — not shipped)
 internal/
