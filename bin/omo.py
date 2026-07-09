@@ -78,13 +78,14 @@ def cmd_start_stage(args):
     print("="*60)
     print(f"HARNESS DISPATCH: Stage '{next_stage}'")
     print("="*60)
-    print("AGENT INSTRUCTIONS:")
-    print("1. You must ONLY complete the task for this specific stage.")
-    print("2. You must NOT generate assets or write code for future stages.")
+    print("AGENT INSTRUCTIONS & PRE-FLIGHT CHECKLIST (MANDATORY):")
+    print("1. [READ GLOBAL RULES] You MUST first read AGENTS.md and AGENT_GUIDE.md before proceeding.")
+    print(f"2. [READ STAGE DEFINITION] Read the pipeline manifest 'pipeline_defs/{pipeline_type}.yaml' to understand where stage '{next_stage}' sits in the data flow.")
     if skill_path:
-        print(f"3. Read the director skill at: {skill_path}")
-    print(f"4. You must output a JSON artifact named '{canonical_artifact}'")
-    print(f"5. Once generated, submit it using: python bin/omo.py submit-artifact --project {project_id} --stage {next_stage} --file <path_to_json> --pipeline {pipeline_type}")
+        print(f"3. [READ SKILL] Read the specific director skill at: {skill_path}")
+    print(f"4. [READ SCHEMA] You must output a JSON artifact named '{canonical_artifact}'. You MUST read its schema in 'schemas/artifacts/' to understand required fields and strict structure.")
+    print("5. [CROSS-REFERENCE] Explicitly list all required asset types (images, videos, text overlays). Cross-reference input JSONs against your target schema to ensure no field (like overlay_notes) is ignored.")
+    print(f"6. [EXECUTE] Only after full comprehension, generate and submit the artifact using: python bin/omo.py submit-artifact --project {project_id} --stage {next_stage} --file <path_to_json> --pipeline {pipeline_type}")
     if human_approval:
         print("6. IMPORTANT: This stage requires human approval. The harness will block after submission.")
     print("="*60)
@@ -117,6 +118,30 @@ def cmd_submit_artifact(args):
     
     # Validation logic inside checkpoint.py will handle schema validation
     try:
+        # 物理检查：如果提交的是素材清单，强制检查所有登记的图片/视频/音频是否真实存在且非空
+        if stage == "directed_assets" or canonical_artifact == "asset_manifest":
+            for asset in artifact_data.get("assets", []):
+                asset_path_str = asset.get("path", "")
+                asset_id = asset.get("id", "")
+                asset_type = asset.get("type", "")
+                
+                # 1. 检查占位符
+                if "placeholder" in asset_path_str.lower():
+                    print(f"VALIDATION ERROR: Asset '{asset_id}' contains forbidden 'placeholder' string.")
+                    sys.exit(1)
+                    
+                # 2. 检查物理文件
+                if asset_path_str and asset_type in ["image", "video", "audio", "animation", "narration", "music", "sfx"]:
+                    path = Path(asset_path_str)
+                    if not path.is_absolute():
+                        path = PROJECT_ROOT / path
+                    if not path.exists():
+                        print(f"VALIDATION ERROR: Asset '{asset_id}' physical file does not exist at: {path}")
+                        sys.exit(1)
+                    if path.is_file() and path.stat().st_size == 0:
+                        print(f"VALIDATION ERROR: Asset '{asset_id}' physical file is empty (0 bytes) at: {path}")
+                        sys.exit(1)
+
         manifest = pipeline_loader.load_pipeline(pipeline_type)
         # Find if human approval is needed
         human_approval_required = False

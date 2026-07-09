@@ -1,4 +1,4 @@
-"""Checkpoint writer/reader for pipeline state persistence.
+﻿"""Checkpoint writer/reader for pipeline state persistence.
 
 Each stage writes a checkpoint after completion. The orchestrator uses
 checkpoints to resume pipelines and to present state at human checkpoints.
@@ -22,7 +22,7 @@ ALL_KNOWN_STAGES = frozenset([
     "assets", "edit", "compose", "publish",
 ])
 
-# Backward-compatible alias — existing code / tests that import STAGES still work.
+# Backward-compatible alias 鈥?existing code / tests that import STAGES still work.
 # New code should use get_pipeline_stages(pipeline_type) instead.
 STAGES = ["research", "proposal", "idea", "script", "scene_plan",
           "assets", "edit", "compose", "publish"]
@@ -62,10 +62,10 @@ def get_pipeline_stages(pipeline_type: str | None) -> list[str]:
     nondeterministic ordering. The fallback now uses a stable list.
     """
     if pipeline_type is None:
-        # Deterministic canonical fallback — sorted to ensure stable ordering
+        # Deterministic canonical fallback 鈥?sorted to ensure stable ordering
         import logging
         logging.getLogger(__name__).warning(
-            "get_pipeline_stages called without pipeline_type — "
+            "get_pipeline_stages called without pipeline_type 鈥?"
             "using canonical fallback order. Pass pipeline_type for correctness."
         )
         return list(STAGES)
@@ -176,7 +176,7 @@ def _merge_decision_log(
     """
     path = _decision_log_path(pipeline_dir, project_id)
     if path.exists():
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             existing = json.load(f)
     else:
         existing = {
@@ -283,7 +283,7 @@ def read_checkpoint(
     path = _checkpoint_path(pipeline_dir, project_id, stage)
     if not path.exists():
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         checkpoint = json.load(f)
     validate_checkpoint(checkpoint)
     return checkpoint
@@ -317,7 +317,7 @@ def get_completed_stages(
     """Return list of stages that have a completed checkpoint.
 
     When pipeline_type is provided, only checks stages defined in that
-    pipeline's manifest — preventing false positives from leftover
+    pipeline's manifest 鈥?preventing false positives from leftover
     checkpoints of a different pipeline type.
     """
     stages_to_check = get_pipeline_stages(pipeline_type)
@@ -343,3 +343,4 @@ def get_next_stage(
         if stage not in completed:
             return stage
     return None
+

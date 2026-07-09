@@ -229,7 +229,15 @@ for cover_frame in [f for f in frame_bp["frames"] if f["asset_kind"] == "cover_b
 - [ ] Layer 3 skill 已在写 prompt 前读过
 - [ ] 未出现调用 `image_selector` / `video_selector` / `tts_selector` 的违规行为
 - [ ] 未出现直接 import 底层 provider（GoogleImagen / ComfyUI 直接 import）的违规代码
+- [ ] **物理文件核查**：在 `asset_manifest.json` 中登记的每一个图片、视频、音频物理文件在本地磁盘上真实存在，且文件大小大于 0 字节。
+- [ ] **零占位符规则**：整个清单中绝无任何 `placeholder` 路径，所有文件必须通过代码或 ffprobe 实际通过校验。
+
+> [!CAUTION]
+> **严禁欺骗性占位符 (NO PLACEHOLDERS)**
+> 无论遇到任何生成错误（如 ComfyUI 显卡溢出或模型缺失），**你绝对不能在 asset_manifest.json 中写入含有 'placeholder' 或是指向不存在文件的虚假路径！**
+> 每一个登记在 manifest 中的路径，你必须在写 JSON 前，通过 view_file/ffprobe 物理验证该文件已成功写入磁盘且大小大于 0 字节。
+> 如果确实因技术原因无法生成视频，必须调用 comfyui-auto-recovery 尝试自动抢修，若抢修失败，你必须立刻中断流程并向用户报错，严禁蒙混过关。
 
 ## Output
 Schema-valid `asset_manifest` artifact，所有条目含 `img2img_source` 与
-`linked_frame_id` 字段。
+`linked_frame_id` 字段，且所有登记的路径均已通过物理存在性校验。

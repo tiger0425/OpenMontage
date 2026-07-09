@@ -201,6 +201,8 @@ stages:
       - "TTS 配音按 script.json sections 文本生成"
       - "固定工具：google_imagen (model=gemini-3.1-flash-lite-image) / comfyui_video / voxcpm_tts"
       - "确认已豁免 Selector 约束，直接校验是否使用了 google_imagen / comfyui_video / voxcpm_tts"
+      - "所有在 asset_manifest 中登记的媒体文件物理上真实存在，大小大于 0，且严禁使用 placeholder 等占位路径"
+      - "视频文件必须能通过 ffprobe 验证，且时长与 frame_blueprint 约定的时长一致"
     success_criteria:
       - "Schema-valid asset_manifest artifact (schemas/artifacts/asset_manifest.schema.json)"
       - "每条 asset 条目含 img2img_source 路径"
@@ -208,6 +210,8 @@ stages:
       - "成衣图 = image_selector img2img（init_image = 面料原图）"
       - "成衣视频 / 动效 = video_selector 路由 comfyui_video image_to_video"
       - "配音 wav 与 json 时间戳已对齐 script.json"
+      - "所有登记的图片/视频/音频物理文件真实存在于磁盘中，且文件大小大于 0 字节"
+      - "零占位符：清单中不得包含任何带有 placeholder 字样的路径"
 
   # ═══════════════════════════════════════════════════════════════════════
   # STAGE 4: HYPERFRAMES_COMPOSE (OpenMontage 原生合成)
