@@ -275,7 +275,7 @@ assert total <= brief["target_duration_seconds"] - 0.2, "需留 200ms 收尾 fad
 
 ### Step 5: 等待用户批准（AGENTS.md #3 的正式落地点）
 
-产出四件工件后，向用户呈现：
+产出四件工件后，向用户呈现的最终确认清单**必须包含完整的文字叠加层（Overlay Notes / 文字卡片）规划**（格式如下模版所示）。
 
 ```
 ────── PRESENT FOR APPROVAL ───────
@@ -283,7 +283,17 @@ assert total <= brief["target_duration_seconds"] - 0.2, "需留 200ms 收尾 fad
 📋 SCENE PLAN（每幕画面 / 时间码 / 镜头语言 / 叙事角色）
 📝 SCRIPT（每段旁白 / 配音表演提示）
 🎨 VISUAL DESIGN（调色板 / 字体 / 光影 / motion profile）
-🎬 FRAME BLUEPRINT（每帧 asset_kind / composition_rule / motion_rules / cut_in / img2img 参数）
+🎬 FRAME BLUEPRINT（每帧 asset_kind / composition_rule / motion_rules / img2img 参数）
+💬 TEXT OVERLAYS（文字叠加卡片规划：每帧对应的时间码、轨道、文案内容）
+
+📋 最终确认清单
+视频结构（X秒）：
+  [时间轴轴线] │ [镜头id] │ 画面素材 + 配音段落 + 叠加文字内容 (Overlay Notes)
+素材需求：
+  • 图像/视频素材 xN 个
+  • 文字卡片 xN 段（列出每段的文案大纲）
+  • 配音 xN 段
+  • 背景音乐 x1
 
 请审阅：
   1. 旁白稿节奏与品牌调性是否一致？
@@ -291,9 +301,10 @@ assert total <= brief["target_duration_seconds"] - 0.2, "需留 200ms 收尾 fad
   3. 每帧 composition_rule 是否只描述主体摆放、未描述文字排版？
   4. motion_rules 是否只描述动作/摄影机/光影，未描述颜色/纹理？
   5. asset_kind 与 asset_candidates 是否会导致素材生成缺口？
+  6. 规划的文字内容卡片 (Text Overlay Cards) 与文案内容是否符合要求？
 
 批准 → STAGE 3 directed_assets
-要求改 → 在哪个 scene / 哪段旁白 / 哪个 frame / 哪个参数？
+要求改 → 在哪个 scene / 哪段旁白 / 哪个 frame / 哪个文字卡片 / 哪个参数？
 
 ─────────────────────────────────
 ```

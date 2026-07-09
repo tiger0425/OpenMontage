@@ -33,6 +33,23 @@
 
 ## 强制流程
 
+### Step 0: 强制读取上游 Artifacts 并回显（防漂移红线）
+为了绝对防止在大模型跨 Session 运行中出现“对上游决策不知情而自由发挥”的问题，你**必须首先调用文件查看工具读取以下上游 Artifacts 文件的实际内容**：
+* `projects/{project_name}/artifacts/brief.json`
+* `projects/{project_name}/artifacts/frame_blueprint.json`
+* `projects/{project_name}/artifacts/scene_plan.json`
+* `projects/{project_name}/artifacts/script.json`
+* `projects/{project_name}/artifacts/visual_design.json`
+* `projects/{project_name}/artifacts/asset_manifest.json`
+
+在执行后续的合成步骤之前，你**必须首先在回复中以 Markdown 表格的形式回显（Print）出上游的核心决策与匹配关系**，包括：
+1. 每一帧的 `frame_id` 及其在 `asset_manifest.json` 中匹配的实际物理文件路径
+2. 约定的 `render_runtime` 选项（必须与 `brief.json` 中的 render_runtime_selection 对齐）
+3. 设计系统中约定的全局 `palette` 颜色白名单及 `typography` 字体设置
+4. 每一帧对应的配音文本与物理音频文件的对齐状态
+
+**⚠️ 绝对违规警示**：如果在未通过工具读取并以 Markdown 表格回显上述上游契约数据的情况下，直接编写 edit_decisions 或调用合成工具（hyperframes_compose），将被视为重大运行违约。
+
 ### 阶段 A：契约校验
 
 ```python
@@ -133,18 +150,26 @@ for i, frame in enumerate(frame_bp["frames"]):
     }
     edit_decisions["cuts"].append(cut)
 
-    # 文字卡片 (overlay_notes) - 映射到视频中的文字叠加
-    if frame.get("overlay_notes"):
-        edit_decisions["cuts"].append({
-            "id": f"{frame['frame_id']}_overlay",
-            "source": "", # 文字层不需要外置素材
-            "in_seconds": frame["time_range"]["start"],
-            "out_seconds": frame["time_range"]["end"],
-            "type": "text_card",
-            "text": frame["overlay_notes"],
-            "layer": "overlay",
-            "reason": "Text overlay from frame overlay_notes"
-        })
+    # 文字叠加层：把 blueprint 里的 text_overlay 传给 edit_decisions cut
+    if frame.get("text_overlay"):
+        to = frame["text_overlay"]
+        overlay_text = ""
+        pos = "bottom_left"
+        if isinstance(to, dict):
+            overlay_text = to.get("text") or to.get("title") or to.get("badge") or ""
+            pos = to.get("position") or "bottom_left"
+            if not overlay_text and "specs_card" in to:
+                sc = to["specs_card"]
+                if isinstance(sc, dict):
+                    overlay_text = " · ".join(sc.values())
+        else:
+            overlay_text = str(to)
+            
+        if overlay_text:
+            cut["text_overlay"] = {
+                "text": overlay_text,
+                "position": pos
+            }
 
     # narration 段：每个 tts_segment_id 对应 script.sections 一段
     if frame.get("tts_segment_id"):

@@ -517,6 +517,151 @@ class HyperFramesCompose(BaseTool):
         if design_md:
             (workspace / "DESIGN.md").write_text(design_md, encoding="utf-8")
 
+        # Generate modular sub-compositions for cuts with text overlays or text cards
+        compositions_dir = workspace / "compositions"
+        compositions_dir.mkdir(exist_ok=True)
+
+        for i, cut in enumerate(resolved_cuts):
+            cut_id = cut.get("id") or f"cut-{i}"
+            cut_in = float(cut.get("in_seconds", 0) or 0)
+            cut_out = float(cut.get("out_seconds", 0) or 0)
+            cut_dur = max(0.1, cut_out - cut_in)
+
+            # Extract overlay text
+            text_overlay = cut.get("text_overlay") or {}
+            overlay_text = ""
+            position_class = "bottom_left"
+            font_family = "var(--font-heading)"
+            font_size = 32
+
+            if isinstance(text_overlay, dict) and text_overlay:
+                overlay_text = text_overlay.get("text") or text_overlay.get("title") or text_overlay.get("badge") or ""
+                position_class = text_overlay.get("position") or "bottom_left"
+                font_family = text_overlay.get("font") or "var(--font-heading)"
+                if text_overlay.get("size"):
+                    try:
+                        font_size = int(text_overlay.get("size"))
+                    except ValueError:
+                        pass
+            
+            text = cut.get("text") or cut.get("title") or ""
+            if not overlay_text and text:
+                overlay_text = text
+                position_class = cut.get("position") or "bottom_left"
+                font_family = cut.get("font") or "var(--font-heading)"
+                if cut.get("size"):
+                    try:
+                        font_size = int(cut.get("size"))
+                    except ValueError:
+                        pass
+
+            source = cut.get("source") or ""
+            cut_type = (cut.get("type") or "").lower()
+            src_path = Path(source) if source else None
+            is_media = src_path and src_path.exists()
+            is_pure_text_card = cut_type in {"text_card", "hero_title", "callout"} or (not source and text)
+
+            if overlay_text or (is_pure_text_card and not is_media):
+                cut["has_subcomp"] = True
+                
+                sub_title = cut.get("subtitle") or cut.get("caption") or (text_overlay.get("subtitle") if isinstance(text_overlay, dict) else "")
+                sub_html = ""
+                if sub_title:
+                    sub_html = f'<div class="subtitle">{self._escape_text(sub_title)}</div>'
+
+                sub_comp_html = f"""<template>
+  <div data-composition-id="{cut_id}" data-width="{width}" data-height="{height}" data-duration="{self._f(cut_dur)}" style="position:absolute; inset:0; pointer-events:none;">
+    <style>
+      .text-card-local {{
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        pointer-events: none;
+        position: absolute;
+        inset: 0;
+      }}
+      .text-card-local.top_center {{
+        align-items: center;
+        justify-content: flex-start;
+        text-align: center;
+        padding-top: 120px;
+      }}
+      .text-card-local.bottom_left {{
+        align-items: flex-start;
+        justify-content: flex-end;
+        text-align: left;
+        padding: 100px 80px;
+      }}
+      .text-card-local.bottom_right {{
+        align-items: flex-end;
+        justify-content: flex-end;
+        text-align: right;
+        padding: 100px 80px;
+      }}
+      .text-card-local.center {{
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }}
+      .text-card-local.grid_top_left {{
+        align-items: flex-start;
+        justify-content: flex-start;
+        text-align: left;
+        padding: 40px;
+      }}
+      .text-card-local.grid_top_right {{
+        align-items: flex-end;
+        justify-content: flex-start;
+        text-align: right;
+        padding: 40px;
+      }}
+      .text-card-local.grid_bottom_center {{
+        align-items: center;
+        justify-content: flex-end;
+        text-align: center;
+        padding-bottom: 40px;
+      }}
+      .text-card-local h1 {{
+        background: rgba(250, 246, 246, 0.90);
+        padding: 20px 40px;
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(60, 50, 51, 0.1);
+        border: 1px solid rgba(236, 210, 211, 0.6);
+        font-weight: 700;
+        font-size: 48px;
+        line-height: 1.2;
+        color: var(--color-fg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        max-width: 85%;
+        margin: 0;
+      }}
+      .text-card-local .subtitle {{
+        background: var(--color-accent);
+        color: #FFFFFF;
+        padding: 10px 20px;
+        border-radius: 10px;
+        font-size: 24px;
+        margin-top: 16px;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(194, 141, 145, 0.25);
+      }}
+    </style>
+    <div id="{cut_id}-overlay" class="text-card-local {position_class}" style="font-family: {font_family}; font-size: {font_size}px; font-weight: 700; color: var(--color-fg);">
+      <h1>{self._escape_text(overlay_text)}</h1>
+      {sub_html}
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+      tl.from("#{cut_id}-overlay h1", {{ y: 30, opacity: 0, duration: 0.6, ease: "power3.out" }}, 0.3);
+      window.__timelines["{cut_id}"] = tl;
+    </script>
+  </div>
+</template>
+"""
+                (compositions_dir / f"{cut_id}.html").write_text(sub_comp_html, encoding="utf-8")
+
         # Write index.html — the main composition.
         total_duration = self._compute_total_duration(resolved_cuts)
         html = self._generate_index_html(
@@ -655,7 +800,7 @@ class HyperFramesCompose(BaseTool):
             )
 
         workspace = self._require_workspace(inputs)
-        output_path = Path(inputs.get("output_path") or (workspace / "renders" / "final.mp4"))
+        output_path = Path(inputs.get("output_path") or (workspace / "renders" / "final.mp4")).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         steps: dict[str, Any] = {}
@@ -1073,21 +1218,60 @@ class HyperFramesCompose(BaseTool):
     .clip.text-card {{
       display: flex;
       flex-direction: column;
+      box-sizing: border-box;
+      pointer-events: none;
+      z-index: 10;
+    }}
+    /* Position alignment helper classes */
+    .clip.text-card.top_center {{
+      align-items: center;
+      justify-content: flex-start;
+      text-align: center;
+      padding-top: 120px;
+    }}
+    .clip.text-card.bottom_left {{
       align-items: flex-start;
       justify-content: flex-end;
-      padding: 100px 80px;
-      box-sizing: border-box;
       text-align: left;
-      pointer-events: none;
+      padding: 100px 80px;
+    }}
+    .clip.text-card.bottom_right {{
+      align-items: flex-end;
+      justify-content: flex-end;
+      text-align: right;
+      padding: 100px 80px;
+    }}
+    .clip.text-card.center {{
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }}
+    .clip.text-card.grid_top_left {{
+      align-items: flex-start;
+      justify-content: flex-start;
+      text-align: left;
+      padding: 40px;
+    }}
+    .clip.text-card.grid_top_right {{
+      align-items: flex-end;
+      justify-content: flex-start;
+      text-align: right;
+      padding: 40px;
+    }}
+    .clip.text-card.grid_bottom_center {{
+      align-items: center;
+      justify-content: flex-end;
+      text-align: center;
+      padding-bottom: 40px;
     }}
     .clip.text-card h1 {{
       background: rgba(250, 246, 246, 0.90);
-      padding: 28px 48px;
-      border-radius: 24px;
-      box-shadow: 0 12px 40px rgba(60, 50, 51, 0.15);
-      border: 1px solid rgba(236, 210, 211, 0.8);
+      padding: 20px 40px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(60, 50, 51, 0.1);
+      border: 1px solid rgba(236, 210, 211, 0.6);
       font-weight: 700;
-      font-size: 60px;
+      font-size: 48px;
       line-height: 1.2;
       color: var(--color-fg);
       backdrop-filter: blur(12px);
@@ -1098,12 +1282,37 @@ class HyperFramesCompose(BaseTool):
     .clip.text-card .subtitle {{
       background: var(--color-accent);
       color: #FFFFFF;
-      padding: 14px 28px;
-      border-radius: 12px;
-      font-size: 30px;
-      margin-top: 24px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 24px;
+      margin-top: 16px;
       font-weight: 600;
-      box-shadow: 0 6px 16px rgba(194, 141, 145, 0.35);
+      box-shadow: 0 4px 12px rgba(194, 141, 145, 0.25);
+    }}
+    /* Universal layout grid positioning for clips */
+    .clip.grid_top_left {{
+      left: 80px;
+      top: 80px;
+      width: 840px;
+      height: 440px;
+      border-radius: 20px;
+      object-fit: cover;
+    }}
+    .clip.grid_top_right {{
+      left: 1000px;
+      top: 80px;
+      width: 840px;
+      height: 440px;
+      border-radius: 20px;
+      object-fit: cover;
+    }}
+    .clip.grid_bottom_center {{
+      left: 540px;
+      top: 560px;
+      width: 840px;
+      height: 440px;
+      border-radius: 20px;
+      object-fit: cover;
     }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
@@ -1131,7 +1340,7 @@ class HyperFramesCompose(BaseTool):
         in_s = float(cut.get("in_seconds", 0) or 0)
         out_s = float(cut.get("out_seconds", 0) or 0)
         duration = max(0.1, out_s - in_s)
-        track_index = "4" if cut.get("layer") == "overlay" else "1"
+        track_index = str(cut.get("track") or cut.get("track_index") or ("4" if cut.get("layer") == "overlay" else "1"))
 
         source = cut.get("source") or ""
         cut_type = (cut.get("type") or "").lower()
@@ -1154,86 +1363,174 @@ class HyperFramesCompose(BaseTool):
                         is_linked_transition = True
                         break
 
-        # Decide scene shape
-        if cut_type in {"text_card", "hero_title", "callout"} or (not source and text):
-            inner = f'<h1>{self._escape_text(text or f"Scene {index + 1}")}</h1>'
-            subtitle = cut.get("subtitle") or cut.get("caption")
-            if subtitle:
-                inner += f'<div class="subtitle">{self._escape_text(subtitle)}</div>'
+        # Parse overlay and text properties
+        text_overlay = cut.get("text_overlay") or {}
+        overlay_text = ""
+        position_class = "bottom_left"
+        font_family = "var(--font-heading)"
+        font_size = 32
+
+        if isinstance(text_overlay, dict) and text_overlay:
+            overlay_text = text_overlay.get("text") or text_overlay.get("title") or text_overlay.get("badge") or ""
+            if text_overlay.get("position"):
+                position_class = text_overlay.get("position")
+            if text_overlay.get("font"):
+                font_family = text_overlay.get("font")
+            if text_overlay.get("size"):
+                try:
+                    font_size = int(text_overlay.get("size"))
+                except ValueError:
+                    pass
+        
+        if not overlay_text and text:
+            overlay_text = text
+            if cut.get("position"):
+                position_class = cut.get("position")
+            if cut.get("font"):
+                font_family = cut.get("font")
+            if cut.get("size"):
+                try:
+                    font_size = int(cut.get("size"))
+                except ValueError:
+                    pass
+
+        # Resolve positioning class name
+        transform = cut.get("transform") or {}
+        pos_val = cut.get("position") or (transform.get("position") if isinstance(transform, dict) else "") or "center"
+
+        # Check if we should render a modular sub-composition slot
+        has_subcomp = cut.get("has_subcomp", False)
+        subcomp_html = ""
+        if has_subcomp:
+            subcomp_track = str(int(track_index) + 3)
+            subcomp_html = (
+                f'\n    <div id="el-{cut["id"]}" class="clip {pos_val}" data-composition-id="{cut["id"]}" '
+                f'data-composition-src="compositions/{cut["id"]}.html" '
+                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                f'data-track-index="{subcomp_track}"></div>'
+            )
+
+        # 1. If it's a media file (Image or Video) that exists physically
+        if src_path and src_path.exists():
+            media_html = ""
+            media_tween = None
+
+            if ext in _IMAGE_EXTENSIONS:
+                rel = self._rel_from_workspace(str(src_path))
+                style_override = ""
+                try:
+                    from PIL import Image
+                    with Image.open(src_path) as img:
+                        w, h = img.size
+                        if w > h:
+                            style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
+                except Exception:
+                    if "payoff" in str(src_path).lower():
+                        style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
+                        
+                media_html = (
+                    f'<img id="{cut_id}" class="clip image-clip {pos_val}" '
+                    f'src="{self._escape_attr(rel)}" {style_override}'
+                    f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                    f'data-track-index="{track_index}" alt="">'
+                )
+                media_tween = (
+                    f'tl.from("#{cut_id}", {{ scale: 1.05, opacity: 0, duration: 0.5, '
+                    f'ease: "power2.out" }}, {self._f(in_s)});'
+                )
+
+            elif ext in _VIDEO_EXTENSIONS:
+                rel = self._rel_from_workspace(str(src_path))
+                media_html = (
+                    f'<video id="{cut_id}" class="clip video-clip {pos_val}" '
+                    f'src="{self._escape_attr(rel)}" '
+                    f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                    f'data-track-index="{track_index}" muted playsinline></video>'
+                )
+                if is_linked_transition:
+                    media_tween = None
+                else:
+                    media_tween = (
+                        f'tl.from("#{cut_id}", {{ opacity: 0, duration: 0.6, '
+                        f'ease: "power2.out" }}, {self._f(in_s)});'
+                    )
+
+            elif ext in {".html", ".htm"}:
+                rel = self._rel_from_workspace(str(src_path))
+                composition_id = Path(rel).stem
+                media_html = (
+                    f'<div id="{cut_id}" class="clip composition-clip" '
+                    f'data-composition-id="{self._escape_attr(composition_id)}" '
+                    f'data-composition-src="{self._escape_attr(rel)}" '
+                    f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                    f'data-width="{width}" data-height="{height}" '
+                    f'data-track-index="{track_index}"></div>'
+                )
+                media_tween = None
+
+            if media_html:
+                if has_subcomp:
+                    return media_html + subcomp_html, media_tween
+                elif overlay_text:
+                    overlay_id = f"{cut_id}-overlay"
+                    subtitle_html = ""
+                    subtitle = cut.get("subtitle") or cut.get("caption") or (text_overlay.get("subtitle") if isinstance(text_overlay, dict) else "")
+                    if subtitle:
+                        subtitle_html = f'<div class="subtitle">{self._escape_text(subtitle)}</div>'
+
+                    overlay_html = (
+                        f'<div id="{overlay_id}" class="clip text-card {position_class}" '
+                        f'style="font-family: {font_family}; font-size: {font_size}px; font-weight: 700; color: var(--color-fg);" '
+                        f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                        f'data-track-index="10">'
+                        f'<h1>{self._escape_text(overlay_text)}</h1>{subtitle_html}</div>'
+                    )
+                    
+                    tweens = []
+                    if media_tween:
+                        tweens.append(media_tween)
+                    tweens.append(
+                        f'tl.from("#{overlay_id} h1", {{ y: 30, opacity: 0, duration: 0.6, '
+                        f'ease: "power3.out" }}, {self._f(in_s + 0.3)});'
+                    )
+                    return media_html + overlay_html, "\n        ".join(tweens)
+                else:
+                    return media_html, media_tween
+
+        # 2. If it's a pure text card (either no source, or type matches, or physical source missing)
+        if has_subcomp:
+            return subcomp_html, None
+
+        is_pure_text_card = cut_type in {"text_card", "hero_title", "callout"} or (not source and text)
+        display_text = overlay_text or text
+        
+        if is_pure_text_card or display_text:
+            inner = ""
+            if display_text:
+                inner = f'<h1>{self._escape_text(display_text)}</h1>'
+                subtitle = cut.get("subtitle") or cut.get("caption") or (text_overlay.get("subtitle") if isinstance(text_overlay, dict) else "")
+                if subtitle:
+                    inner += f'<div class="subtitle">{self._escape_text(subtitle)}</div>'
+
             html = (
-                f'<div id="{cut_id}" class="clip text-card" '
+                f'<div id="{cut_id}" class="clip text-card {position_class}" '
+                f'style="font-family: {font_family}; font-size: {font_size}px; color: var(--color-fg);" '
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
                 f'data-track-index="{track_index}">{inner}</div>'
             )
-            tween = (
-                f'tl.from("#{cut_id} h1", {{ y: 40, opacity: 0, duration: 0.6, '
-                f'ease: "power3.out" }}, {self._f(in_s + 0.1)});'
-            )
-            return html, tween
-
-        if ext in _IMAGE_EXTENSIONS and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            style_override = ""
-            try:
-                from PIL import Image
-                with Image.open(src_path) as img:
-                    w, h = img.size
-                    if w > h:
-                        style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
-            except Exception:
-                if "payoff" in str(src_path).lower():
-                    style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
-                    
-            html = (
-                f'<img id="{cut_id}" class="clip image-clip" '
-                f'src="{self._escape_attr(rel)}" {style_override}'
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="{track_index}" alt="">'
-            )
-            tween = (
-                f'tl.from("#{cut_id}", {{ scale: 1.05, opacity: 0, duration: 0.5, '
-                f'ease: "power2.out" }}, {self._f(in_s)});'
-            )
-            return html, tween
-
-        if ext in _VIDEO_EXTENSIONS and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            html = (
-                f'<video id="{cut_id}" class="clip video-clip" '
-                f'src="{self._escape_attr(rel)}" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="{track_index}" muted playsinline></video>'
-            )
-            if is_linked_transition:
-                # Seamless flash-free overlay transition: bypass GSAP opacity animation!
-                tween = None
-            else:
+            tween = None
+            if display_text:
                 tween = (
-                    f'tl.from("#{cut_id}", {{ opacity: 0, duration: 0.6, '
-                    f'ease: "power2.out" }}, {self._f(in_s)});'
+                    f'tl.from("#{cut_id} h1", {{ y: 40, opacity: 0, duration: 0.6, '
+                    f'ease: "power3.out" }}, {self._f(in_s + 0.1)});'
                 )
             return html, tween
 
-        # Unknown cut shape — render a placeholder text card so the render
-        # still succeeds; lint/validate will surface the issue.
-        if ext in {".html", ".htm"} and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            composition_id = Path(rel).stem
-            html = (
-                f'<div id="{cut_id}" class="clip composition-clip" '
-                f'data-composition-id="{self._escape_attr(composition_id)}" '
-                f'data-composition-src="{self._escape_attr(rel)}" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-width="{width}" data-height="{height}" '
-                f'data-track-index="{track_index}"></div>'
-            )
-            return html, None
-
-        placeholder = self._escape_text(text or cut.get("reason") or f"Scene {index + 1}")
+        # Unknown cut shape — render an empty container
         html = (
             f'<div id="{cut_id}" class="clip text-card" '
             f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-            f'data-track-index="{track_index}"><h1>{placeholder}</h1></div>'
+            f'data-track-index="{track_index}"></div>'
         )
         return html, None
 

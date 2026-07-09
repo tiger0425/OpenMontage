@@ -28,6 +28,20 @@
 > **⚠️ 路径规范核心警告**：  
 > Universal Harness (omo.py) 始终在 OpenMontage 根目录执行！因此所有针对项目内工件的读取/写入（如 `artifacts/...`, `assets/...`）以及生成素材的路径，都**必须带有 `projects/{project_name}/` 前缀**。切勿直接写相对路径，否则会污染根目录！
 
+### Step 0: 强制读取上游 Artifacts 并回显（防漂移红线）
+为了绝对防止在大模型跨 Session 运行中出现“对上游参数不知情而自由发挥”的问题，你**必须首先调用文件查看工具读取以下上游 Artifacts 文件的实际内容**：
+* `projects/{project_name}/artifacts/frame_blueprint.json`
+* `projects/{project_name}/artifacts/scene_plan.json`
+* `projects/{project_name}/artifacts/script.json`
+
+在执行后续的 Step 1-7 生成步骤之前，你**必须首先在回复中以 Markdown 表格的形式回显（Print）出上阶段约定的关键决策数据**，包括：
+1. 每一帧的 `frame_id` 及其 `asset_kind`（如 `garment_image`, `narration_wav`）
+2. 每一帧对应的 `composition_rule` 和 `motion_rule` 描述文本
+3. 每一帧分配的 `img2img_strength` / `comfyui_steps` 等具体生图/视频参数
+4. 配音帧所对应的 `tts_segment_id` 和配音文本
+
+**⚠️ 绝对违规警示**：如果在未通过工具读取并以 Markdown 表格回显上述上游决策数据的情况下，直接开始调用底层生成工具（如 google_imagen / comfyui_video / voxcpm_tts），将被视为重大运行违约。
+
 ### Step 1: 按 frame_blueprint 逐帧规划生成顺序
 
 ```python
