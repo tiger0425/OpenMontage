@@ -73,6 +73,7 @@ _tmp_*.py
 _check_*.py
 /debug_*.py
 /list_*.py
+fix_*.py
 /test_*.py
 
 # Stray test artifacts (agent debugging outputs)
