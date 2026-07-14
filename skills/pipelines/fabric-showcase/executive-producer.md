@@ -99,6 +99,6 @@ CHECK: Platform fit
 ## Common Pitfalls
 
 - **Truth-Gate erosion** — the brief says "棉柔软" but assets stage generates cardigan. Brief says "中厚" but the image looks sheer. These are Truth-Gate violations.
-- **Over-investing in early stages** — 17s video doesn't need 3 rounds of scene architecture debate. Move through brief quickly once facts are confirmed.
+- **Over-investing in early stages** — 15-20s video doesn't need 3 rounds of scene architecture debate. Move through brief quickly once facts are confirmed.
 - **Cover mismatch** — cover font/style chosen without consulting fabric_brief's style direction. Cover should feel like the video's opening frame.
 - **Platform-aware export** — video is 9:16 but B站 expects 16:9 title card. Check the platform field in ad_intent.

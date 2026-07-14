@@ -114,7 +114,8 @@ Extract keyframes at scene boundaries and visually inspect:
 - Scene 1 (t=0.5s, t=2.5s): Close-up texture visible? Title animation smooth?
 - Scene 2 (t=5.5s, t=7.0s): Fabric movement natural? Color preserved?
 - Scene 3 (t=9.5s, t=11.0s): Hand interaction realistic? Fabric folds natural?
-- Scene 4 (t=13.5s, t=15.5s): Model crop appropriate? Final frame clean?
+- Scene 4 (t=13.5s, t=15.0s): Model crop appropriate? Fabric visible?
+- Scene 5 (t=17.5s, t=19.0s): CTA text clear? Audio fade-out smooth?
 
 Log findings in `final_review` artifact and append `self_review_completed: true`.
 
@@ -128,7 +129,7 @@ Log findings in `final_review` artifact and append `self_review_completed: true`
       "path": "renders/video.mp4",
       "format": "mp4",
       "resolution": "1080x1920",
-      "duration_seconds": 17.0,
+      "duration_seconds": 20.0,
       "fps": 30,
       "codec": "h264",
       "audio_codec": "aac",
