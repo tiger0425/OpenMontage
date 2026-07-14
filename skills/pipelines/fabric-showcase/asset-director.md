@@ -93,7 +93,7 @@ Parameters:
 
 ⚠️ **手部场景特别规则：**
 - Image prompt 必须加 "5 fingers, natural hand anatomy, no extra fingers, no missing fingers, no deformed fingers"
-- Video prompt 必须限定 "hand stays on fabric surface, never lifts up, only fingers move slightly"
+- Video prompt 必须限定 "hand slowly gliding across fabric surface, never lifts up, stays in contact with fabric at all times"
 - 常见的 AI 手部失败：多指、缺指、手指融合、手抬起后变形。这些必须用负面约束挡住。
 
 For each scene that requires video, run `comfyui_video` once. Each video uses the image generated for that specific scene as its `reference_image_path`. Do NOT reuse the same image for multiple video clips.
@@ -127,7 +127,7 @@ Prompt structure for LTX23 video (keep under 20 words):
 | Scene | Effective prompt | What it describes |
 |-------|-----------------|-------------------|
 | 面料飘动 | "Fabric gently swaying left to right, sunlight slowly sweeping across" | 飘动+光线变化=纹理层次感 |
-| 手部触碰 | "Hand resting on fabric, fingers gently rubbing surface, hand stays low" | 手不抬起，只原地抚摸，禁止多指少指 |
+| 手部触碰 | "Hand slowly gliding across fabric surface, palm touching fabric, hand never lifts" | 手慢慢滑过面料，全程贴着不抬起 |
 | 模特上身 | "Model standing, turning body slowly, arms at sides" | 最小动作，只转身不走路，避免肢体扭曲 |
 
 **Common failure patterns to avoid:**
