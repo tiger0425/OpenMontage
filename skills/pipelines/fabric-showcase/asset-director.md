@@ -95,15 +95,35 @@ For each scene that requires video, run `comfyui_video` once. Each video uses th
 
 Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
-⚠️ **Same I2I rule — NO lighting descriptions.** The reference image already has the lighting.
+⚠️ **I2I rule — NO lighting descriptions.** The reference image already has the lighting.
+
+⚠️ **Video prompt MUST be short and motion-specific.** LTX23 is a small video model. Long prompts or abstract descriptions (e.g. "展示垂坠和重量") produce chaotic, meaningless motion. Describe only ONE specific motion clearly.
 
 ```
-Prompt structure (I2I mode — NO lighting):
-1. Production intent: fabric swaying / hand stroking / model walking
-2. Truth lock: same as image — exact color, grain, drape
-3. Camera motion: slow dolly / handheld / locked-off
-4. Fabric behavior: gentle swinging, natural drape, no impossible physics
-5. Negative: no invented details, no garment distortion
+Prompt structure for LTX23 video (keep under 20 words):
+1. Subject (from scene): fabric / hand on fabric / person
+2. ONE motion: "fabric gently swaying left to right" / "hand slowly stroking from top to bottom"
+3. Speed: slowly / gently / calmly
+4. What stays still: "background static"
+5. Negative: no invented texture, no color shift
+```
+
+**Scene-specific example prompts:**
+
+| Scene | Effective prompt (under 15 words) | Why it works |
+|-------|----------------------------------|--------------|
+| 面料飘动 | "Fabric gently swaying left to right, background static" | 指定方向(left→right)、速度(gently)、什么不动(background) |
+| 手部触碰 | "Hand slowly pressing fabric, fingers gently rubbing surface" | 指定动作(pressing/rubbing)、部位(fingers)、幅度(gently) |
+| 模特上身 | "Person walking forward slowly, fabric flowing naturally" | 主体(person)、动作(walking)、幅度(slowly)、布料行为(flowing) |
+
+**Common failure patterns to avoid:**
+
+| Bad prompt (too vague) | Result | Good alternative |
+|------------------------|--------|-----------------|
+| "面料展示垂坠和重量" | 画面乱动/无意义扭曲 | "Fabric gently swaying left to right" |
+| "手抚过面料，展示柔软度" | 手部变形/动作不自然 | "Hand slowly pressing fabric surface" |
+| "模特穿着连衣裙" | 模特抽搐/衣服飘动异常 | "Person walking forward slowly" |
+| "展示竹节纹理细节" | 镜头乱晃/画面闪烁 | (不要在视频prompt里写纹理细节，参考图已提供) |
 ```
 
 Parameters:
