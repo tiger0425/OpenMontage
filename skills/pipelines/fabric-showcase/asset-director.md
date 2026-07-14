@@ -65,11 +65,17 @@ Max 2 iterations per sample if rejected. Do NOT batch until ALL samples approved
 
 Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`:
 
+⚠️ **CRITICAL: Klein is I2I (image-to-image). DO NOT write lighting descriptions.**
+The reference image provides all lighting and texture cues. Adding lighting prompts
+(e.g. "soft light from left", "diffused side light") causes the model to try to
+re-light the fabric, producing color drift and quality loss. Keep prompts to
+composition, truth lock, and negative constraints only.
+
 ```
-Prompt structure:
+Prompt structure (I2I mode — NO lighting):
 1. Production intent: fabric close-up / flat lay / hand touch / model
 2. Truth lock: exact color, grain, texture from fabric_brief.fabric_facts
-3. Light/camera: soft diffused light, macro (for close-up), shallow DoF
+3. Framing/composition: macro, shallow DoF, angle
 4. Brand mood: reference style_direction from fabric_brief.ad_intent
 5. Negative constraints: no invented texture, no gloss/shine if fabric is matte, no text, no logos
 6. Aspect ratio: from fabric_brief.ad_intent.aspect_ratio
@@ -89,12 +95,14 @@ For each scene that requires video, run `comfyui_video` once. Each video uses th
 
 Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
+⚠️ **Same I2I rule — NO lighting descriptions.** The reference image already has the lighting.
+
 ```
-Prompt structure:
+Prompt structure (I2I mode — NO lighting):
 1. Production intent: fabric swaying / hand stroking / model walking
 2. Truth lock: same as image — exact color, grain, drape
-3. Camera: slow dolly / handheld / locked-off
-4. Fabric behavior: light swinging, natural drape, no impossible physics
+3. Camera motion: slow dolly / handheld / locked-off
+4. Fabric behavior: gentle swinging, natural drape, no impossible physics
 5. Negative: no invented details, no garment distortion
 ```
 
