@@ -76,21 +76,35 @@ Max 2 iterations per sample if rejected. Do NOT batch until ALL samples approved
 
 Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`:
 
-⚠️ **CRITICAL: Klein is I2I (image-to-image). DO NOT write lighting descriptions.**
-The reference image provides all lighting and texture cues. Adding lighting prompts
-(e.g. "soft light from left", "diffused side light") causes the model to try to
-re-light the fabric, producing color drift and quality loss. Keep prompts to
-composition, truth lock, and negative constraints only.
+⚠️ **CRITICAL: Klein is I2I (image-to-image). DO NOT write static lighting descriptions.**
+Static lighting prompts (e.g. "soft light from left") in the text prompt conflict with the
+reference image's actual lighting, causing color drift. But you CAN and SHOULD describe the
+**scene environment, styling, props, and atmosphere** — these do NOT conflict with I2I because
+they describe what surrounds the fabric, not how the fabric itself is lit.
 
 ```
-Prompt structure (I2I mode — NO lighting):
+Prompt structure (I2I mode — NO static lighting, YES scene styling):
 1. Production intent: fabric close-up / flat lay / hand touch / model
 2. Truth lock: exact color, grain, texture from fabric_brief.fabric_facts
-3. Framing/composition: macro, shallow DoF, angle
-4. Brand mood: reference style_direction from fabric_brief.ad_intent
-5. Negative constraints: no invented texture, no gloss/shine if fabric is matte, no text, no logos
-6. Aspect ratio: from fabric_brief.ad_intent.aspect_ratio
+3. Scene environment: where is the fabric placed (wooden table / stone surface / mannequin /
+   warm bedroom / sunlight window)? This is the KEY to visual appeal — "fabric on white surface"
+   is boring, "fabric draped over vintage wooden chair with dried flowers" has beauty.
+4. Styling & props: what accompanies the fabric (dried flowers / ceramic vase / tailor's scissors /
+   linen thread / soft throw)? Props create a world around the fabric.
+5. Framing/composition: macro, flat lay, shallow DoF, angle
+6. Brand mood: reference style_direction from fabric_brief.ad_intent
+7. Negative constraints: no invented texture, no color shift, no text, no logos
+8. Aspect ratio: from fabric_brief.ad_intent.aspect_ratio
 ```
+
+**Scene-specific environment suggestions (add these to every prompt):**
+
+| Scene | Boring prompt | Beautiful prompt |
+|-------|--------------|-----------------|
+| 面料特写 | "Fabric on flat surface" | "Fabric draped over vintage wooden table, soft natural light, dried lavender sprigs beside it" |
+| 面料飘动 | "Fabric blowing in wind" | "Fabric flowing in gentle breeze on a sunlit balcony, warm neutral background, elegant movement" |
+| 手部触碰 | "Hand on fabric" | "Hand gently touching fabric spread on a linen-draped worktable, tailor's scissors nearby, warm studio" |
+| 模特上身 | "Model in dress" | "Model in dress standing in a bright minimalist room, large window, natural daylight, clean elegant" |
 
 Parameters:
 
