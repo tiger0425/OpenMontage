@@ -1,0 +1,5 @@
+Status: ToolStatus.DEGRADED
+Operation statuses: {
+  "text_to_video": "degraded",
+  "image_to_video": "degraded"
+}

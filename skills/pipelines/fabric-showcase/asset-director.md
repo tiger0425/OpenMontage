@@ -24,7 +24,11 @@ This stage generates all visual and audio assets for the fabric showcase video: 
 
 2. **ORDER IS LOCKED.** Images MUST be generated BEFORE video. Video generation takes `reference_image_path` from the prior image step. Generating video without a reference image is WRONG.
 
-3. **TRUTH-GATE IS LOCKED.** Every generated asset MUST be checked against `fabric_brief.fabric_facts` before acceptance. If the fabric color/texture/drape in the output doesn't match the truth sheet, reject it immediately.
+3. **IMAGE COUNT IS LOCKED.** Each video scene needs its OWN dedicated reference image. A 5-scene fabric video with 3 motion scenes (飘动/触感/模特) needs 3 separate images, NOT 1 image shared across all 3. For each scene that requires a video clip, generate one unique image for that scene first.
+
+4. **IMAGE UPLOAD IS AUTOMATIC.** The `comfyui_image` and `comfyui_video` tools handle image upload to ComfyUI's server internally via `ComfyUIClient.upload_image()`. You MUST call these tools (they are in the registry as `comfyui_image` and `comfyui_video`). Do NOT write custom code to call the ComfyUI API directly — let the tool handle the upload cycle.
+
+5. **TRUTH-GATE IS LOCKED.** Every generated asset MUST be checked against `fabric_brief.fabric_facts` before acceptance. If the fabric color/texture/drape in the output doesn't match the truth sheet, reject it immediately.
 
 ### 0. Truth-Gate Setup
 
@@ -55,6 +59,8 @@ Max 2 iterations per sample if rejected. Do NOT batch until ALL samples approved
 
 ### 2. Generate Fabric Images (MUST run before video step)
 
+**Generate ONE image per video scene.** Read `fabric_brief.scene_structure` and create a separate image for every scene that needs a video clip. For the standard 5-scene structure, that means 3 images: one for 面料飘动, one for 手部触碰, one for 模特上身 (the close-up scene uses the original reference image).
+
 Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`:
 
 ```
@@ -75,7 +81,9 @@ Parameters:
 | `output_node` | Must match Klein workflow's save node |
 | `seed` | Random or fixed |
 
-### 3. Generate Fabric Video Clips (MUST run after images exist)
+### 3. Generate Fabric Video Clips (MUST run after ALL images exist)
+
+For each scene that requires video, run `comfyui_video` once. Each video uses the image generated for that specific scene as its `reference_image_path`. Do NOT reuse the same image for multiple video clips.
 
 Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
