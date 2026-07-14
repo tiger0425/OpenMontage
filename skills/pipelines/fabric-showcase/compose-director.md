@@ -66,7 +66,19 @@ Use the scene structure from `fabric_brief.scene_structure` to build the HyperFr
   ...
 
   <!-- Scene 4: Model -->
-  ...
+  <div class="scene" data-start="{s3_end}" data-duration="{scene_4_duration}">
+    <video class="clip" data-src="assets/video/scene4.mp4" ...>
+    ...
+  </div>
+
+  <!-- Scene 5: CTA/收尾 -->
+  <div class="scene" data-start="{s4_end}" data-duration="{scene_5_duration}">
+    <div class="cta-card">
+      <h2 class="cta-title">品牌名</h2>
+      <p class="cta-subtitle">标语/成分</p>
+    </div>
+    ...
+  </div>
 </div>
 ```
 
@@ -77,6 +89,7 @@ Use the scene structure from `fabric_brief.scene_structure` to build the HyperFr
 - **Product line SVG icons**: Optional — only if `fabric_brief.product_line_drawings.enabled` is true. Use stroke-dasharray/draw SVG animation for product outlines.
 - **Title typography**: Use Google Fonts or downloaded calligraphy fonts for Chinese titles. Font path must be relative to project root.
 - **Ken Burns effect**: For static model images, apply CSS `scale` + `translateX` transforms for subtle camera motion.
+- **CTA/收尾**: 黑底或半透明底文字卡，品牌名大标题居中，BGM 渐弱淡出，无旁白。不依赖视频素材。
 
 ### 4. Audio Mixing
 
