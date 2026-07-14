@@ -22,13 +22,15 @@ This stage generates all visual and audio assets for the fabric showcase video: 
    - Video generation → `tools/_comfyui/workflows/ltx23_fabric.json` ONLY
    - Do NOT use any other workflow in `tools/_comfyui/workflows/` (e.g. `ltx23_i2v_vertical.json`, `wan22-*.json`, `flux2-*.json` are WRONG)
 
-2. **ORDER IS LOCKED.** Images MUST be generated BEFORE video. Video generation takes `reference_image_path` from the prior image step. Generating video without a reference image is WRONG.
+2. **SCENE ITERATION IS COMPULSORY.** Read `fabric_brief.scene_structure` and generate assets for **EVERY SCENE** in the list. Do NOT skip any scene. If the scene structure has 5 entries, you must produce 5 sets of assets. If only 3 scenes have assets after you finish, that is WRONG.
 
-3. **IMAGE COUNT IS LOCKED.** Each video scene needs its OWN dedicated reference image. A 5-scene fabric video with 3 motion scenes (飘动/触感/模特) needs 3 separate images, NOT 1 image shared across all 3. For each scene that requires a video clip, generate one unique image for that scene first.
+3. **ORDER IS LOCKED.** Images MUST be generated BEFORE video. Video generation takes `reference_image_path` from the prior image step. Generating video without a reference image is WRONG.
 
-4. **IMAGE UPLOAD IS AUTOMATIC.** The `comfyui_image` and `comfyui_video` tools handle image upload to ComfyUI's server internally via `ComfyUIClient.upload_image()`. You MUST call these tools (they are in the registry as `comfyui_image` and `comfyui_video`). Do NOT write custom code to call the ComfyUI API directly — let the tool handle the upload cycle.
+4. **IMAGE COUNT IS LOCKED.** Each video scene needs its OWN dedicated reference image. For a 5-scene fabric video with scenes [特写(no video), 飘动(video), 触感(video), 模特(video), CTA(no video)], you need exactly 3 images and 3 videos — one per video scene. Do NOT generate one image and use it for all videos.
 
-5. **TRUTH-GATE IS LOCKED.** Every generated asset MUST be checked against `fabric_brief.fabric_facts` before acceptance. If the fabric color/texture/drape in the output doesn't match the truth sheet, reject it immediately.
+5. **IMAGE UPLOAD IS AUTOMATIC.** The `comfyui_image` and `comfyui_video` tools handle image upload to ComfyUI's server internally via `ComfyUIClient.upload_image()`. You MUST call these tools (they are in the registry as `comfyui_image` and `comfyui_video`). Do NOT write custom code to call the ComfyUI API directly — let the tool handle the upload cycle.
+
+6. **TRUTH-GATE IS LOCKED.** Every generated asset MUST be checked against `fabric_brief.fabric_facts` before acceptance. If the fabric color/texture/drape in the output doesn't match the truth sheet, reject it immediately.
 
 ### 0. Truth-Gate Setup
 
@@ -126,33 +128,53 @@ Use `music_gen` to generate a BGM track.
 - Target duration = `fabric_brief.ad_intent.duration` + 3s padding for fade out
 - Generate a short sample (5-10s) first, confirm style with user.
 
-### 6. Build Asset Manifest
+### 6. Build Asset Manifest (must cover ALL scenes)
 
-After all assets are generated, build and validate the `asset_manifest`:
+After ALL assets from ALL scenes are generated, build the `asset_manifest`. It must have one entry per generated asset per scene — if `fabric_brief.scene_structure` has 5 scenes and 3 of them need images+video, the manifest should have 6 entries (3 images + 3 videos). Count them. If the count is wrong, you skipped a scene.
 
 ```json
 {
   "version": "1.0",
   "assets": [
     {
-      "id": "fabric_closeup_01",
+      "id": "fabric_motion_image",
       "type": "image",
-      "path": "projects/<id>/assets/images/fabric_closeup.png",
+      "path": "projects/<id>/assets/images/scene2_fabric_flat.jpg",
       "source_tool": "comfyui_image",
-      "scene_id": "scene_01",
+      "scene_id": "scene_02",
       "prompt": "...",
       "seed": 12345,
-      "model": "klein-workflow"
+      "model": "klein_fabric"
     },
     {
-      "id": "fabric_motion_01",
+      "id": "fabric_motion_video",
       "type": "video",
-      "path": "projects/<id>/assets/video/fabric_motion.mp4",
+      "path": "projects/<id>/assets/video/scene2_fabric_flow.mp4",
       "source_tool": "comfyui_video",
       "scene_id": "scene_02",
       "prompt": "...",
       "seed": 67890,
-      "model": "ltx23-workflow"
+      "model": "ltx23_fabric"
+    },
+    {
+      "id": "hand_touch_image",
+      "type": "image",
+      "path": "projects/<id>/assets/images/scene3_hand_touch.jpg",
+      "source_tool": "comfyui_image",
+      "scene_id": "scene_03",
+      "prompt": "...",
+      "seed": 12346,
+      "model": "klein_fabric"
+    },
+    {
+      "id": "hand_touch_video",
+      "type": "video",
+      "path": "projects/<id>/assets/video/scene3_hand_touch.mp4",
+      "source_tool": "comfyui_video",
+      "scene_id": "scene_03",
+      "prompt": "...",
+      "seed": 67891,
+      "model": "ltx23_fabric"
     }
   ],
   "total_cost_usd": 0.0
@@ -163,6 +185,10 @@ Every asset must include:
 - **source_tool** — the exact tool name used
 - **scene_id** — which scene this asset belongs to
 - **provenance** — seed, prompt, model/workflow name
+
+**VALIDATION: Count `asset_manifest.assets` and compare to expected.**
+  - Example: 5 scenes [特写=no gen, 飘动=img+vid, 触感=img+vid, 模特=img+vid, CTA=no gen] → expected count = 6
+  - If your manifest has fewer entries than expected, you skipped a scene. Go back.
 
 ### 7. Audio Mixing
 
