@@ -1,5 +1,16 @@
 # Asset Director — Fabric Showcase Pipeline
 
+## ⚠️ GATE CHECK — fabric_brief MUST exist before entering this stage
+
+Before doing ANYTHING in this stage, verify that `state.artifacts["brief"]["fabric_brief"]` exists on disk.
+If it does NOT exist:
+  - You skipped the brief stage. STOP.
+  - Go back and run the brief stage first: read `skills/pipelines/fabric-showcase/brief-director.md`
+  - Complete the brief stage, produce `fabric_brief.json`
+  - Only then return to this stage.
+
+This file contains the fabric facts, scene structure, voiceover script, and prompt anchors that every asset in this stage depends on. Without it, you cannot generate correct assets.
+
 ## When To Use
 
 This stage generates all visual and audio assets for the fabric showcase video: fabric images via ComfyUI (Klein workflow), fabric motion clips via ComfyUI (LTX23 workflow), TTS narration, and BGM. Produces the `asset_manifest` artifact that records provenance for every asset.

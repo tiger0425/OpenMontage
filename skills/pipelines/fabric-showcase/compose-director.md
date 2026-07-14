@@ -1,5 +1,9 @@
 # Compose Director — Fabric Showcase Pipeline
 
+## ⚠️ GATE CHECK — asset_manifest MUST exist before entering this stage
+
+Verify `state.artifacts["assets"]["asset_manifest"]` exists. If not, run the assets stage first.
+
 ## When To Use
 
 Render the fabric showcase video using HyperFrames. This stage assembles generated assets (images, videos, audio) into the final HTML/GSAP composition, applies motion design, mixes audio, and verifies the output.

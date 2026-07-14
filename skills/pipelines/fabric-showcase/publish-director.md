@@ -1,5 +1,9 @@
 # Publish Director — Fabric Showcase Pipeline
 
+## ⚠️ GATE CHECK — render_report MUST exist before entering this stage
+
+Verify `state.artifacts["compose"]["render_report"]` exists. If not, run the compose stage first.
+
 ## When To Use
 
 Package the fabric showcase video for platform delivery. This stage generates platform-appropriate cover images, builds the export package with metadata, and verifies platform fit before handoff.
