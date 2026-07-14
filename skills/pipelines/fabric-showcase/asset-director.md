@@ -61,7 +61,7 @@ Use `comfyui_image` with the Klein workflow for fabric still images.
 
 | Parameter | Typical Value | Notes |
 |-----------|---------------|-------|
-| `workflow_path` | Path to Klein workflow JSON | Custom workflow for fabric editing |
+| `workflow_path` | `tools/_comfyui/workflows/klein_fabric.json` | Bundled fabric image workflow |
 | `output_node` | ComfyUI output node ID | Must match the Klein workflow's save node |
 | `seed` | Random or fixed | Fixed for reproducibility |
 
@@ -83,7 +83,7 @@ Use `comfyui_video` with the LTX23 workflow for fabric motion scenes.
 
 | Parameter | Typical Value | Notes |
 |-----------|---------------|-------|
-| `workflow_path` | Path to LTX23 workflow JSON | Custom workflow for I2V |
+| `workflow_path` | `tools/_comfyui/workflows/ltx23_fabric.json` | Bundled fabric video workflow |
 | `output_node` | ComfyUI output node ID | Must match the LTX workflow's save node |
 | `reference_image_path` | Generated image from prior step | First frame for I2V |
 | `num_frames` | 97 (for ~5s at ~20fps) | Adjust per scene duration |
