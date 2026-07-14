@@ -269,7 +269,7 @@
   },
   "69:18": {
     "inputs": {
-      "cfg": 1,
+      "cfg": 3.5,
       "model": [
         "69:70",
         0
@@ -352,7 +352,7 @@
   },
   "69:22": {
     "inputs": {
-      "steps": 8,
+      "steps": 25,
       "max_shift": 2,
       "base_shift": 1,
       "stretch": true,
