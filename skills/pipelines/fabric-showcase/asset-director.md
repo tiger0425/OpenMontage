@@ -94,11 +94,13 @@ Prompt structure (I2I mode — NO lighting):
 
 Parameters:
 
-| Parameter | Value (LOCKED) |
-|-----------|----------------|
-| `workflow_path` | `tools/_comfyui/workflows/klein_fabric.json` |
-| `output_node` | Must match Klein workflow's save node |
-| `seed` | Random or fixed |
+| Parameter | Value (LOCKED) | Notes |
+|-----------|----------------|-------|
+| `workflow_path` | `tools/_comfyui/workflows/klein_fabric.json` | |
+| `workflow_overrides` | `{"76": {"image": "<UPLOADED_IMAGE>"}}` | Auto-replaces LoadImage with uploaded reference |
+| `reference_image_path` | `projects/<id>/assets/fabric-original.jpg` | Reference image to upload for I2I |
+| `output_node` | `9` | SaveImage node ID |
+| `seed` | Random or fixed | |
 
 ### 3. Generate Fabric Video Clips (MUST run after ALL images exist)
 
@@ -187,12 +189,14 @@ Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
 Parameters:
 
-| Parameter | Value (LOCKED) |
-|-----------|----------------|
-| `workflow_path` | `tools/_comfyui/workflows/ltx23_fabric.json` |
-| `output_node` | Must match LTX workflow's save node |
-| `reference_image_path` | MUST be the image generated in step 2 |
-| `num_frames` | 97 (for ~5s at ~20fps)
+| Parameter | Value (LOCKED) | Notes |
+|-----------|----------------|-------|
+| `workflow_path` | `tools/_comfyui/workflows/ltx23_fabric.json` | |
+| `workflow_overrides` | `{"59": {"image": "<UPLOADED_IMAGE>"}}` | Auto-replaces LoadImage with uploaded image |
+| `output_node` | `38` | SaveVideo node ID |
+| `reference_image_path` | MUST be the image generated in step 2 | Uploaded automatically via `<UPLOADED_IMAGE>` |
+| `num_frames` | 97 | (n-1)%8=0 ✅ valid for LTX |
+| `operation` | `image_to_video` | MUST be set, not text_to_video |
 
 ### 4. Generate TTS Narration
 

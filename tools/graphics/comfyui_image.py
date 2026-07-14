@@ -121,6 +121,18 @@ class ComfyUIImage(BaseTool):
                 ),
                 "items": {"type": "object"},
             },
+            "reference_image_path": {
+                "type": "string",
+                "description": "Local path to reference image for I2I workflows (uploaded and patched via workflow_overrides).",
+            },
+            "reference_image_url": {
+                "type": "string",
+                "description": "URL of reference image (for I2I, downloaded first).",
+            },
+            "workflow_overrides": {
+                "type": "object",
+                "description": "Optional node overrides for custom workflows (e.g. {'76': {'image': '<UPLOADED_IMAGE>'}}). Use <UPLOADED_IMAGE> to inject the uploaded reference image filename.",
+            },
         },
     }
 
@@ -200,6 +212,31 @@ class ComfyUIImage(BaseTool):
         try:
             if custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
+                
+                # Upload reference image if provided
+                ref_path = inputs.get("reference_image_path")
+                ref_url = inputs.get("reference_image_url")
+                uploaded_image_name = None
+                if ref_url and not ref_path:
+                    import requests
+                    resp = requests.get(ref_url, timeout=60)
+                    resp.raise_for_status()
+                    ref_path = str(output_path.with_suffix(".ref.png"))
+                    Path(ref_path).parent.mkdir(parents=True, exist_ok=True)
+                    Path(ref_path).write_bytes(resp.content)
+                if ref_path:
+                    upload_name = f"om_custom_{output_path.stem}.png"
+                    uploaded_image_name = self._client.upload_image(Path(ref_path), upload_name)
+                
+                overrides = inputs.get("workflow_overrides", {})
+                if overrides:
+                    if uploaded_image_name:
+                        for node_id, node_data in overrides.items():
+                            for k, v in node_data.items():
+                                if v == "<UPLOADED_IMAGE>":
+                                    overrides[node_id][k] = uploaded_image_name
+                    workflow = ComfyUIClient.patch_workflow(workflow, overrides)
+                
                 output_node = str(inputs["output_node"])
             else:
                 workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "flux2-txt2img.json")
