@@ -95,7 +95,7 @@ For each scene that requires video, run `comfyui_video` once. Each video uses th
 
 Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
-⚠️ **I2I rule — NO lighting descriptions.** The reference image already has the lighting.
+⚠️ **I2I image rule — NO static lighting descriptions.** Static lighting ("soft light from left 45°") in the prompt conflicts with the reference image's actual lighting, causing color drift. This does NOT apply to DYNAMIC lighting changes in video — those are valid motion cues.
 
 ⚠️ **Video prompt MUST be short and motion-specific.** LTX23 is a small video model. Long prompts or abstract descriptions (e.g. "展示垂坠和重量") produce chaotic, meaningless motion. Describe only ONE specific motion clearly.
 
@@ -103,27 +103,37 @@ Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 Prompt structure for LTX23 video (keep under 20 words):
 1. Subject (from scene): fabric / hand on fabric / person
 2. ONE motion: "fabric gently swaying left to right" / "hand slowly stroking from top to bottom"
+   OR dynamic light change: "sunlight slowly sweeping across fabric"
 3. Speed: slowly / gently / calmly
 4. What stays still: "background static"
 5. Negative: no invented texture, no color shift
 ```
 
+**Video prompts can include DYNAMIC lighting changes as motion cues** — these are not static lighting setups and do not conflict with I2I:
+
+| Valid dynamic light prompt | What it does |
+|---------------------------|--------------|
+| "Sunlight slowly sweeping across fabric from left to right" | 光线缓缓扫过，展示纹理变化 |
+| "Warm light gradually brightening on fabric surface" | 灯光渐渐亮起，凸显质感 |
+| "Soft shadow moving across fabric as light source shifts" | 阴影缓缓移动，展示立体感 |
+
 **Scene-specific example prompts:**
 
-| Scene | Effective prompt (under 15 words) | Why it works |
-|-------|----------------------------------|--------------|
-| 面料飘动 | "Fabric gently swaying left to right, background static" | 指定方向(left→right)、速度(gently)、什么不动(background) |
-| 手部触碰 | "Hand slowly pressing fabric, fingers gently rubbing surface" | 指定动作(pressing/rubbing)、部位(fingers)、幅度(gently) |
-| 模特上身 | "Person walking forward slowly, fabric flowing naturally" | 主体(person)、动作(walking)、幅度(slowly)、布料行为(flowing) |
+| Scene | Effective prompt | What it describes |
+|-------|-----------------|-------------------|
+| 面料飘动 | "Fabric gently swaying left to right, sunlight slowly sweeping across" | 飘动+光线变化=纹理层次感 |
+| 手部触碰 | "Hand slowly pressing fabric, fingers gently rubbing surface" | 静止光线，专注触感 |
+| 模特上身 | "Person walking forward slowly, fabric flowing naturally" | 静态光线，聚焦穿着效果 |
 
 **Common failure patterns to avoid:**
 
-| Bad prompt (too vague) | Result | Good alternative |
+| Bad prompt (too vague or conflicting) | Result | Good alternative |
 |------------------------|--------|-----------------|
 | "面料展示垂坠和重量" | 画面乱动/无意义扭曲 | "Fabric gently swaying left to right" |
 | "手抚过面料，展示柔软度" | 手部变形/动作不自然 | "Hand slowly pressing fabric surface" |
+| "柔和侧光从上往下" (静态光线 in I2I) | 颜色漂移 | (I2I禁止静态光线，但视频可写 "sunlight slowly sweeping") |
 | "模特穿着连衣裙" | 模特抽搐/衣服飘动异常 | "Person walking forward slowly" |
-| "展示竹节纹理细节" | 镜头乱晃/画面闪烁 | (不要在视频prompt里写纹理细节，参考图已提供) |
+| "展示竹节纹理细节" | 镜头乱晃/画面闪烁 | (纹理细节由参考图提供，视频prompt只写运动) |
 ```
 
 Parameters:
