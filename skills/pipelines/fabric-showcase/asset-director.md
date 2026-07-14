@@ -83,9 +83,11 @@ reference image's actual lighting, causing color drift. But you CAN and SHOULD d
 they describe what surrounds the fabric, not how the fabric itself is lit.
 
 ```
-Prompt structure (I2I mode — NO static lighting, YES scene styling):
+Prompt structure (I2I mode — NO static lighting, NO fabric color descriptions, YES scene styling):
 1. Production intent: fabric close-up / flat lay / hand touch / model
-2. Truth lock: exact color, grain, texture from fabric_brief.fabric_facts
+2. Truth lock: "Keep original fabric color and texture from reference. Do NOT change fabric color."
+   — do NOT write "warm tone", "cool tone", "bright", "dark", or any color adjectives.
+   The reference image IS the color source; writing color words conflicts with it.
 3. Scene environment: where is the fabric placed (wooden table / stone surface / mannequin /
    warm bedroom / sunlight window)? This is the KEY to visual appeal — "fabric on white surface"
    is boring, "fabric draped over vintage wooden chair with dried flowers" has beauty.
@@ -101,10 +103,10 @@ Prompt structure (I2I mode — NO static lighting, YES scene styling):
 
 | Scene | Boring prompt | Beautiful prompt |
 |-------|--------------|-----------------|
-| 面料特写 | "Fabric on flat surface" | "Fabric draped over vintage wooden table, soft natural light, dried lavender sprigs beside it" |
-| 面料飘动 | "Fabric blowing in wind" | "Fabric flowing in gentle breeze on a sunlit balcony, warm neutral background, elegant movement" |
-| 手部触碰 | "Hand on fabric" | "Hand gently touching fabric spread on a linen-draped worktable, tailor's scissors nearby, warm studio" |
-| 模特上身 | "Model in dress" | "Model in dress standing in a bright minimalist room, large window, natural daylight, clean elegant" |
+| 面料特写 | "Fabric on flat surface" | "Fabric draped over vintage wooden table, dried lavender sprigs beside it, tailor's scissors in corner, natural daylight" |
+| 面料飘动 | "Fabric blowing in wind" | "Fabric flowing in gentle breeze on a balcony, neutral background, elegant movement" |
+| 手部触碰 | "Hand on fabric" | "Hand gently touching fabric spread on a linen-draped worktable, tailor's scissors nearby" |
+| 模特上身 | "Model in dress" | "Model in dress standing in a bright minimalist room, large window, natural daylight" |
 
 Parameters:
 
