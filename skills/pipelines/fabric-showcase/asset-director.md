@@ -123,7 +123,7 @@ Prompt structure for LTX23 video (keep under 20 words):
 |-------|-----------------|-------------------|
 | 面料飘动 | "Fabric gently swaying left to right, sunlight slowly sweeping across" | 飘动+光线变化=纹理层次感 |
 | 手部触碰 | "Hand slowly pressing fabric, fingers gently rubbing surface" | 静止光线，专注触感 |
-| 模特上身 | "Person walking forward slowly, fabric flowing naturally" | 静态光线，聚焦穿着效果 |
+| 模特上身 | "Model standing, turning body slowly, arms at sides" | 最小动作，只转身不走路，避免肢体扭曲 |
 
 **Common failure patterns to avoid:**
 
@@ -132,7 +132,8 @@ Prompt structure for LTX23 video (keep under 20 words):
 | "面料展示垂坠和重量" | 画面乱动/无意义扭曲 | "Fabric gently swaying left to right" |
 | "手抚过面料，展示柔软度" | 手部变形/动作不自然 | "Hand slowly pressing fabric surface" |
 | "柔和侧光从上往下" (静态光线 in I2I) | 颜色漂移 | (I2I禁止静态光线，但视频可写 "sunlight slowly sweeping") |
-| "模特穿着连衣裙" | 模特抽搐/衣服飘动异常 | "Person walking forward slowly" |
+| "模特穿着连衣裙" | 模特抽搐/衣服飘动异常 | "Model standing, turning body slowly" (不走路) |
+| "模特正面走来" | 面部扭曲/肢体错位 | "Model standing, arms at sides, slight body sway" (站定微晃) |
 | "展示竹节纹理细节" | 镜头乱晃/画面闪烁 | (纹理细节由参考图提供，视频prompt只写运动) |
 ```
 
