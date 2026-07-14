@@ -100,47 +100,77 @@ For each scene that requires video, run `comfyui_video` once. Each video uses th
 
 Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
-⚠️ **I2I image rule — NO static lighting descriptions.** Static lighting ("soft light from left 45°") in the prompt conflicts with the reference image's actual lighting, causing color drift. This does NOT apply to DYNAMIC lighting changes in video — those are valid motion cues.
+⚠️ **I2I image rule — NO static lighting descriptions in image section.** But video prompts CAN include lighting AS MOTION ("sunlight sweeping across fabric"). See LTX prompting structure below.
 
-⚠️ **Video prompt MUST be short and motion-specific.** LTX23 is a small video model. Long prompts or abstract descriptions (e.g. "展示垂坠和重量") produce chaotic, meaningless motion. Describe only ONE specific motion clearly.
+⚠️ **LTX-2 official prompting structure** (from docs.ltx.video). Each video prompt MUST cover these elements. Do NOT write one-line action-only prompts — they produce chaotic motion.
+
+### LTX Prompt — 6-Element Structure
 
 ```
-Prompt structure for LTX23 video (keep under 20 words):
-1. Subject (from scene): fabric / hand on fabric / person
-2. ONE motion: "fabric gently swaying left to right" / "hand slowly stroking from top to bottom"
-   OR dynamic light change: "sunlight slowly sweeping across fabric"
-3. Speed: slowly / gently / calmly
-4. What stays still: "background static"
-5. Negative: no invented texture, no color shift
+1. ESTABLISH THE SHOT:
+   "Close-up shot of red plaid fabric on a flat surface"
+   (cinematography term + subject + setting)
+
+2. SET THE SCENE (lighting + atmosphere):
+   "Warm sunlight from the left, gentle shadows, natural textures visible"
+   (lighting direction, mood, what the light does to the surface)
+
+3. DESCRIBE THE ACTION:
+   "The fabric gently sways left to right as a breeze passes over it"
+   (natural sequence flowing from beginning to end, one motion only)
+
+4. DEFINE THE CHARACTER (if human in scene):
+   "A woman in her 30s with long dark hair, wearing the fabric as a shirt"
+   (physical cues: age, hair, clothes — NOT abstract labels)
+
+5. CAMERA MOVEMENT:
+   "Static camera" — or — "Camera slowly pushes in on the fabric surface"
+   (static = no movement at all; if you say static, don't conflict with motion verbs)
+
+6. AUDIO (optional — our BGM/narration is mixed separately):
+   "Soft rustling fabric sound" — omit if using mixed audio
 ```
 
-**Video prompts can include DYNAMIC lighting changes as motion cues** — these are not static lighting setups and do not conflict with I2I:
+**CRITICAL NOTES:**
+- Keep under **80 words total** — beyond that LTX degrades
+- **~30% artifact rate** — always re-run with a different seed if the output is bad
+- **Frame count** = `num_frames: 97` → (97-1)%8=0 ✅ valid
+- **Static camera means ZERO movement** — no zoom, no focus change, nothing
+- **Post-movement description**: describe what appears AFTER the movement, e.g. "camera pans left to reveal fabric texture" not just "camera pans left"
 
-| Valid dynamic light prompt | What it does |
-|---------------------------|--------------|
-| "Sunlight slowly sweeping across fabric from left to right" | 光线缓缓扫过，展示纹理变化 |
-| "Warm light gradually brightening on fabric surface" | 灯光渐渐亮起，凸显质感 |
-| "Soft shadow moving across fabric as light source shifts" | 阴影缓缓移动，展示立体感 |
+### Scene-Specific Full Prompts (copy these, fill in fabric details)
 
-**Scene-specific example prompts:**
-
-| Scene | Effective prompt | What it describes |
-|-------|-----------------|-------------------|
-| 面料飘动 | "Fabric gently swaying left to right, sunlight slowly sweeping across" | 飘动+光线变化=纹理层次感 |
-| 手部触碰 | "Hand slowly gliding across fabric surface, palm touching fabric, hand never lifts" | 手慢慢滑过面料，全程贴着不抬起 |
-| 模特上身 | "Model standing, turning body slowly, arms at sides" | 最小动作，只转身不走路，避免肢体扭曲 |
-
-**Common failure patterns to avoid:**
-
-| Bad prompt (too vague or conflicting) | Result | Good alternative |
-|------------------------|--------|-----------------|
-| "面料展示垂坠和重量" | 画面乱动/无意义扭曲 | "Fabric gently swaying left to right" |
-| "手抚过面料，展示柔软度" | 手部变形/动作不自然 | "Hand resting on fabric, gently rubbing" |
-| "柔和侧光从上往下" (静态光线 in I2I) | 颜色漂移 | (I2I禁止静态光线，但视频可写 "sunlight slowly sweeping") |
-| "模特穿着连衣裙" | 模特抽搐/衣服飘动异常 | "Model standing, turning body slowly" (不走路) |
-| "模特正面走来" | 面部扭曲/肢体错位 | "Model standing, arms at sides, slight body sway" (站定微晃) |
-| "展示竹节纹理细节" | 镜头乱晃/画面闪烁 | (纹理细节由参考图提供，视频prompt只写运动) |
 ```
+面料飘动:
+  A close-up shot of [fabric_name] fabric spread on a surface.
+  Warm sunlight slowly sweeps across from left to right, revealing the woven texture.
+  The fabric gently lifts and sways as a light breeze passes over it.
+  Static camera.
+
+手部触碰:
+  A macro shot of a hand resting on [fabric_name] fabric.
+  Soft natural light, fabric texture clearly visible.
+  The hand slowly glides across the fabric surface from right to left, palm keeping contact.
+  The fingers gently press into the fabric, never lifting away.
+  Static camera.
+
+模特上身:
+  A medium shot of a woman wearing a dress made of [fabric_name] fabric.
+  Warm golden hour light from the side.
+  She stands in place and slowly turns her body from front to side, arms at her sides.
+  The fabric flows naturally as she moves.
+  Camera slowly pushes in.
+```
+
+### Common Failure Patterns
+
+| Bad prompt | Why | Fix |
+|------------|-----|-----|
+| "Fabric gently swaying" (only 3 words) | No shot, no scene, no lighting → random motion | Use 6-element structure above |
+| "手抚过面料，展示柔软度" | Abstract intent, not visual description | "Hand slowly gliding across fabric surface, palm keeping contact" |
+| "Person walking" | LTX struggles with locomotion | "Stands in place, slowly turns body" |
+| Static camera + "fabric gently sways" | Camera contradiction | Static camera is fine for fabric scenes; don't add camera movement |
+| Over 80 words | LTX degrades | Cut to essential 5-6 elements |
 
 Parameters:
 

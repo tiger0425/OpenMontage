@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* use system serif fonts - no external font loading */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #000;
+      }
+      body { font-family: 'SimSun', '宋体', 'FangSong', '仿宋', serif; }
+
+      .scene { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; overflow: hidden; }
+      .scene img, .scene video {
+        position: absolute; top: 0; left: 0;
+        width: 100%; height: 100%; object-fit: cover;
+      }
+
+      /* Text overlays */
+      .brand-name {
+        position: absolute;
+        bottom: 160px; left: 0; right: 0;
+        text-align: center;
+        font-family: 'Noto Serif SC', serif;
+        font-size: 72px; font-weight: 700;
+        color: #fff;
+        letter-spacing: 0.15em;
+        text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+        opacity: 0;
+      }
+      .subtitle {
+        position: absolute;
+        bottom: 80px; left: 0; right: 0;
+        text-align: center;
+        font-family: 'Noto Serif SC', serif;
+        font-size: 36px; font-weight: 400;
+        color: rgba(255,255,255,0.85);
+        letter-spacing: 0.1em;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        opacity: 0;
+      }
+      .cta-title {
+        position: absolute;
+        top: 50%; left: 0; right: 0;
+        transform: translateY(-50%);
+        text-align: center;
+        font-family: 'Noto Serif SC', serif;
+        font-size: 88px; font-weight: 700;
+        color: #fff;
+        letter-spacing: 0.2em;
+        text-shadow: 0 4px 30px rgba(0,0,0,0.6);
+        opacity: 0;
+      }
+      .cta-sub {
+        position: absolute;
+        top: calc(50% + 120px); left: 0; right: 0;
+        text-align: center;
+        font-family: 'Noto Serif SC', serif;
+        font-size: 42px; font-weight: 400;
+        color: rgba(255,255,255,0.9);
+        letter-spacing: 0.15em;
+        text-shadow: 0 2px 15px rgba(0,0,0,0.5);
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="20" data-width="1080" data-height="1920">
+
+    <!-- Scene 1: 面料特写 0-5s -->
+    <div id="s1" class="scene clip" data-start="0" data-duration="5" data-width="1080" data-height="1920">
+      <img src="assets/images/scene2_fabric_flat.png" alt="面料特写" />
+      <div class="brand-name">晟鑫纺织</div>
+    </div>
+
+    <!-- Scene 2: 面料飘动 5-9s -->
+    <div id="s2" class="scene clip" data-start="5" data-duration="4" data-width="1080" data-height="1920">
+      <video id="s2-video" src="assets/video/scene2_video.mp4" muted playsinline></video>
+      <div class="subtitle">天然竹节纹理，哑光柔润</div>
+    </div>
+
+    <!-- Scene 3: 手触面料 9-13s -->
+    <div id="s3" class="scene clip" data-start="9" data-duration="4" data-width="1080" data-height="1920">
+      <video id="s3-video" src="assets/video/scene3_video.mp4" muted playsinline></video>
+      <div class="subtitle">十五厘米大宽幅</div>
+    </div>
+
+    <!-- Scene 4: 模特汉服 13-17s -->
+    <div id="s4" class="scene clip" data-start="13" data-duration="4" data-width="1080" data-height="1920">
+      <video id="s4-video" src="assets/video/scene4_video.mp4" muted playsinline></video>
+      <div class="subtitle">三桑蚕丝，汉服首选</div>
+    </div>
+
+    <!-- Scene 5: CTA 17-20s -->
+    <div id="s5" class="scene clip" data-start="17" data-duration="3" data-width="1080" data-height="1920">
+      <img src="assets/images/scene5_cta.jpg" alt="CTA" />
+      <div class="cta-title">晟鑫纺织</div>
+      <div class="cta-sub">平价真丝质感，性价比天花板</div>
+    </div>
+
+    </div><!-- /root -->
+
+    <audio id="main-audio" src="assets/audio/mixed.wav" data-start="0" data-duration="20" data-track-index="0" data-volume="1"></audio>
+
+    <script>
+      const AUDIO = 'assets/audio/mixed.wav';
+      const TOTAL = 20;
+
+      // Play videos at correct times
+      document.querySelectorAll('video').forEach(vid => {
+        const scene = vid.closest('.scene');
+        const start = parseFloat(scene.dataset.start);
+        vid.addEventListener('loadedmetadata', () => {
+          vid.currentTime = 0;
+        });
+      });
+
+      const tl = gsap.timeline({ paused: true });
+
+      // Scene 1: brand name fade in/out
+      tl.fromTo('#s1 .brand-name', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 1 }, 0.5)
+        .to('#s1 .brand-name', { opacity: 0, duration: 0.8 }, 4.2);
+
+      // Scene 2: video starts, subtitle
+      tl.fromTo('#s2 video', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 5)
+        .fromTo('#s2 .subtitle', { opacity: 0 }, { opacity: 1, duration: 0.8 }, 5.5)
+        .to('#s2 .subtitle', { opacity: 0, duration: 0.8 }, 8.5)
+        .to('#s2 video', { opacity: 0, duration: 0.5 }, 8.8);
+
+      // Scene 3: video, subtitle
+      tl.fromTo('#s3 video', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 9)
+        .fromTo('#s3 .subtitle', { opacity: 0 }, { opacity: 1, duration: 0.8 }, 9.5)
+        .to('#s3 .subtitle', { opacity: 0, duration: 0.8 }, 12.5)
+        .to('#s3 video', { opacity: 0, duration: 0.5 }, 12.8);
+
+      // Scene 4: video, subtitle
+      tl.fromTo('#s4 video', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 13)
+        .fromTo('#s4 .subtitle', { opacity: 0 }, { opacity: 1, duration: 0.8 }, 13.5)
+        .to('#s4 .subtitle', { opacity: 0, duration: 0.8 }, 16.5)
+        .to('#s4 video', { opacity: 0, duration: 0.5 }, 16.8);
+
+      // Scene 5: CTA fade in, text
+      tl.fromTo('#s5', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 17)
+        .fromTo('#s5 .cta-title', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.8 }, 17.3)
+        .fromTo('#s5 .cta-sub', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.8 }, 17.8)
+        .to('#s5 .cta-title', { opacity: 0, duration: 0.8 }, 19.2)
+        .to('#s5 .cta-sub', { opacity: 0, duration: 0.8 }, 19.5)
+        .to('#s5', { opacity: 0, duration: 0.5 }, 19.5);
+
+      window.__timelines = { main: tl };
+    </script>
+  </body>
+</html>
