@@ -143,3 +143,8 @@ venv/
 ---
 hf_check.txt
 tool_check.txt
+probe_*.py
+ffmpeg_*.py
+copy_*.py
+/silk_*/
+*.silk/
