@@ -74,39 +74,36 @@ Max 2 iterations per sample if rejected. Do NOT batch until ALL samples approved
 
 **Generate ONE image per video scene.** Read `fabric_brief.scene_structure` and create a separate image for every scene that needs a video clip. For the standard 5-scene structure, that means 3 images: one for 面料飘动, one for 手部触碰, one for 模特上身 (the close-up scene uses the original reference image).
 
-Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`:
+**⚠️ MANDATORY — Read these Layer 3 skills before writing ANY image prompts:**
+1. `.agents/skills/flux-best-practices/rules/i2i-prompting.md` — Flux I2I prompting rules
+2. `.agents/skills/flux-best-practices/AGENTS.md` — model selection, text alternatives, preservation
+3. These skills contain the EXACT prompting vocabulary that FLUX models respond to. Do NOT write image prompts without reading them first.
 
-⚠️ **CRITICAL: Klein is I2I (image-to-image). DO NOT write static lighting descriptions.**
-Static lighting prompts (e.g. "soft light from left") in the text prompt conflict with the
-reference image's actual lighting, causing color drift. But you CAN and SHOULD describe the
-**scene environment, styling, props, and atmosphere** — these do NOT conflict with I2I because
-they describe what surrounds the fabric, not how the fabric itself is lit.
+Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`.
+
+**CRITICAL I2I RULES (from flux-best-practices):**
+- FLUX does NOT support negative prompts — always describe what you WANT
+- For I2I: be explicit about what to PRESERVE ("maintaining exact fabric color and texture from reference")
+- Front-load important elements (FLUX prioritizes early words)
+- Keep prompts 30-80 words (FLUX sweet spot)
+- Describe scene ENVIRONMENT and PROPS (these don't conflict with I2I)
+- Do NOT describe fabric color, lighting direction, or materials in the prompt (reference image provides these)
+
+**Scene-specific prompt templates — copy these, fill in fabric_brief values:**
 
 ```
-Prompt structure (I2I mode — NO static lighting, NO fabric color descriptions, YES scene styling):
-1. Production intent: fabric close-up / flat lay / hand touch / model
-2. Truth lock: "Keep original fabric color and texture from reference. Do NOT change fabric color."
-   — do NOT write "warm tone", "cool tone", "bright", "dark", or any color adjectives.
-   The reference image IS the color source; writing color words conflicts with it.
-3. Scene environment: where is the fabric placed (wooden table / stone surface / mannequin /
-   warm bedroom / sunlight window)? This is the KEY to visual appeal — "fabric on white surface"
-   is boring, "fabric draped over vintage wooden chair with dried flowers" has beauty.
-4. Styling & props: what accompanies the fabric (dried flowers / ceramic vase / tailor's scissors /
-   linen thread / soft throw)? Props create a world around the fabric.
-5. Framing/composition: macro, flat lay, shallow DoF, angle
-6. Brand mood: reference style_direction from fabric_brief.ad_intent
-7. Negative constraints: no invented texture, no color shift, no text, no logos
-8. Aspect ratio: from fabric_brief.ad_intent.aspect_ratio
+[面料特写]
+[fabric_name] fabric draped over vintage wooden table, dried lavender sprigs beside it, tailor's scissors in corner, natural daylight, soft focus background, Keep original fabric color and texture exactly from reference.
+
+[面料飘动]
+[fabric_name] fabric flowing in gentle breeze on a sunlit balcony, neutral warm background, elegant movement, fabric surface clearly visible, Preserve exact fabric color and texture from reference image.
+
+[手部触碰]
+[fabric_name] fabric spread on linen-draped worktable, tailor's scissors nearby, hand gently touching fabric surface, natural daylight, Keep original fabric color unchanged.
+
+[模特上身]
+Woman in her 30s wearing a dress made of [fabric_name] fabric, standing in a bright minimalist room with large window, natural daylight, facing camera, arms at sides, neutral expression, Preserve exact fabric color and texture from reference.
 ```
-
-**Scene-specific environment suggestions (add these to every prompt):**
-
-| Scene | Boring prompt | Beautiful prompt |
-|-------|--------------|-----------------|
-| 面料特写 | "Fabric on flat surface" | "Fabric draped over vintage wooden table, dried lavender sprigs beside it, tailor's scissors in corner, natural daylight" |
-| 面料飘动 | "Fabric blowing in wind" | "Fabric flowing in gentle breeze on a balcony, neutral background, elegant movement" |
-| 手部触碰 | "Hand on fabric" | "Hand gently touching fabric spread on a linen-draped worktable, tailor's scissors nearby" |
-| 模特上身 | "Model in dress" | "Model in dress standing in a bright minimalist room, large window, natural daylight" |
 
 Parameters:
 
@@ -131,77 +128,37 @@ Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
 ⚠️ **I2I image rule — NO static lighting descriptions in image section.** But video prompts CAN include lighting AS MOTION ("sunlight sweeping across fabric"). See LTX prompting structure below.
 
-⚠️ **LTX-2 official prompting structure** (from docs.ltx.video). Each video prompt MUST cover these elements. Do NOT write one-line action-only prompts — they produce chaotic motion.
+**⚠️ MANDATORY — Read these Layer 3 skills before writing ANY video prompts:**
+1. `skills/creative/video-gen-prompting.md` — Universal 5-aspect video prompt structure
+2. `skills/creative/prompting/ltx-prompting.md` — LTX 6-element structure, audio prompting, strict-static-shot rule
+3. These skills contain the exact prompt vocabulary and length rules per model. Do NOT write video prompts without reading them first.
 
-### LTX Prompt — 6-Element Structure
-
-```
-1. ESTABLISH THE SHOT:
-   "Close-up shot of red plaid fabric on a flat surface"
-   (cinematography term + subject + setting)
-
-2. SET THE SCENE (lighting + atmosphere):
-   "Warm sunlight from the left, gentle shadows, natural textures visible"
-   (lighting direction, mood, what the light does to the surface)
-
-3. DESCRIBE THE ACTION:
-   "The fabric gently sways left to right as a breeze passes over it"
-   (natural sequence flowing from beginning to end, one motion only)
-
-4. DEFINE THE CHARACTER (if human in scene):
-   "A woman in her 30s with long dark hair, wearing the fabric as a shirt"
-   (physical cues: age, hair, clothes — NOT abstract labels)
-
-5. CAMERA MOVEMENT:
-   "Static camera" — or — "Camera slowly pushes in on the fabric surface"
-   (static = no movement at all; if you say static, don't conflict with motion verbs)
-
-6. AUDIO (optional — our BGM/narration is mixed separately):
-   "Soft rustling fabric sound" — omit if using mixed audio
-```
-
-**CRITICAL NOTES:**
-- Keep under **80 words total** — beyond that LTX degrades
+**LTX-2 CRITICAL NOTES (from official guide):**
+- Keep under **80 words total** — LTX degrades past that
 - **~30% artifact rate** — always re-run with a different seed if the output is bad
 - **Frame count** = `num_frames: 97` → (97-1)%8=0 ✅ valid
 - **Static camera means ZERO movement** — no zoom, no focus change, nothing
-- **Post-movement description**: describe what appears AFTER the movement, e.g. "camera pans left to reveal fabric texture" not just "camera pans left"
+- **Post-movement description**: describe what appears AFTER the movement
+- Use the 6-element structure from `skills/creative/prompting/ltx-prompting.md`
 
-### Scene-Specific Full Prompts (copy these, fill in fabric details)
+### Scene-Specific Prompt Templates (copy these, fill in fabric details)
 
 ```
-面料飘动:
-  A close-up shot of [fabric_name] fabric spread on a surface.
-  Warm sunlight slowly sweeps across from left to right, revealing the woven texture.
-  The fabric gently lifts and sways as a light breeze passes over it.
-  Static camera.
+[面料飘动]
+A close-up shot of [fabric_name] fabric spread on a surface. Gentle breeze passes through,
+the fabric slowly lifts and sways left to right. Natural daylight, woven texture clearly
+visible. Static camera. Keep original fabric color from reference.
 
-手部触碰:
-  A macro shot of a hand resting on [fabric_name] fabric.
-  Soft natural light, fabric texture clearly visible.
-  The hand slowly glides across the fabric surface from right to left, palm keeping contact.
-  The fingers gently press into the fabric, never lifting away.
-  Static camera.
+[手部触碰]
+A macro shot of a hand resting on [fabric_name] fabric, soft natural light. The hand slowly
+glides across the fabric surface from right to left, palm keeping contact, fingers gently
+pressing, never lifting away. Static camera. Preserve exact fabric color.
 
-模特上身:
-  A medium front-facing shot of a woman wearing a dress made of [fabric_name] fabric.
-  Warm golden hour light from the side.
-  She stands facing the camera, arms naturally at her sides, and shifts her weight slightly.
-  The fabric drapes naturally as she stands.
-  Camera slowly pushes in.
-  Face visible but expression neutral, focus on the garment.
+[模特上身]
+A medium front-facing shot of a woman wearing a dress made of [fabric_name] fabric. She stands
+facing camera, arms at sides, shifts weight slightly. Natural daylight from window. Camera
+slowly pushes in. Neutral expression, focus on garment. Keep original fabric color.
 ```
-
-### Common Failure Patterns
-
-| Bad prompt | Why | Fix |
-|------------|-----|-----|
-| "Fabric gently swaying" (only 3 words) | No shot, no scene, no lighting → random motion | Use 6-element structure above |
-| "手抚过面料，展示柔软度" | Abstract intent, not visual description | "Hand slowly gliding across fabric surface, palm keeping contact" |
-| "Person walking" | LTX struggles with locomotion | "Stands in place, slowly turns body" |
-| "Model back view" | Can't show garment front | "Woman facing camera, standing still" — front-facing required |
-| Static camera + "fabric gently sways" | Camera contradiction | Static camera is fine for fabric scenes; don't add camera movement |
-| Over 80 words | LTX degrades | Cut to essential 5-6 elements |
 
 Parameters:
 
