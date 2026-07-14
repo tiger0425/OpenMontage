@@ -71,6 +71,14 @@ hyperframes/
 scratch/
 _tmp_*.py
 _check_*.py
+
+# Stray test artifacts (agent debugging outputs)
+fabric.jpg
+fabric*.png
+models_out.txt
+tool_status.txt
+tools_check.txt
+video_result.txt
 run_*.py
 gen_*.py
 check_*.py
