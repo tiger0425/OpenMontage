@@ -1,0 +1,140 @@
+name: fabric-showcase
+version: "1.0"
+description: >
+  面料/纺织品展示广告管线。从用户提供的面料属性（成分、手感、用途）和参考图出发，
+  通过 ComfyUI 生成质感图片和动态视频，配合 TTS 配音和 MusicGen BGM，
+  使用 HyperFrames 合成竖版短视频。适用于小红书/抖音/B站等平台的产品面料推广。
+  Truth-Gate: 所有生成内容必须忠于 fabric_brief.fabric_facts 中记录的不可虚构属性。
+category: product_promo
+stability: beta
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: true
+  analysis_depth: transcript_only
+  analysis_tools: []
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/fabric-showcase/executive-producer
+  - pipelines/fabric-showcase/brief-director
+  - pipelines/fabric-showcase/asset-director
+  - pipelines/fabric-showcase/compose-director
+  - pipelines/fabric-showcase/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/fabric-showcase/executive-producer
+  budget_default_usd: 0.50
+  max_revisions_per_stage: 2
+  max_send_backs: 1
+  max_wall_time_minutes: 8
+
+compatible_playbooks:
+  recommended: []
+  also_works: []
+  custom_allowed: true
+
+stages:
+  - name: brief
+    skill: pipelines/fabric-showcase/brief-director
+    produces:
+      - fabric_brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "fabric_brief.fabric_facts.composition 完整成分不可虚构（如 55% linen, 45% cotton）"
+      - "fabric_brief.fabric_facts.texture 质感/手感描述具体（如 亚麻筋骨、棉柔软、亲肤透气）"
+      - "fabric_brief.fabric_facts.applicable_products 适用产品列表（如 衬衫、连衣裙、帆布包）"
+      - "fabric_brief.ad_intent.platform 目标平台明确（小红书/抖音/B站）"
+      - "fabric_brief.ad_intent.duration 目标时长（通常 15-20s）"
+      - "fabric_brief.voiceover_script 旁白稿忠于面料事实，无夸大宣传"
+      - "fabric_brief.scene_structure 场景结构合理（通常 3-5 幕）"
+      - "如有参考图，参考图清晰展示面料质感"
+    success_criteria:
+      - Schema-valid fabric_brief artifact
+      - fabric_brief.fabric_facts.composition exists and is non-empty
+      - fabric_brief.fabric_facts.texture exists and is non-empty
+      - fabric_brief.ad_intent.platform exists
+      - fabric_brief.voiceover_script exists and fits target duration
+
+  - name: assets
+    skill: pipelines/fabric-showcase/asset-director
+    required_artifacts_in:
+      - fabric_brief
+    produces:
+      - asset_manifest
+    tools_available:
+      - comfyui_image
+      - comfyui_video
+      - tts_selector
+      - music_gen
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "生成的面料图片忠于 fabric_brief.fabric_facts 的成分和质感描述"
+      - "生成的动态视频展示面料的垂坠/飘动/光泽，不虚构属性"
+      - "TTS 配音忠于 fabric_brief.voiceover_script，无擅自修改文案"
+      - "BGM 风格与面料调性匹配（如复古红格配轻盈钢琴）"
+      - "产品线画（如有）忠于 fabric_brief.fabric_facts.applicable_products"
+      - "所有素材文件存在于 projects/<project-id>/assets/ 下"
+      - "每个素材的 provenance 信息完整（工具名、模型名/工作流、参数）"
+    success_criteria:
+      - Schema-valid asset_manifest artifact
+      - All referenced asset files exist on disk
+      - asset_manifest contains provenance for every generated asset
+
+  - name: compose
+    skill: pipelines/fabric-showcase/compose-director
+    required_artifacts_in:
+      - asset_manifest
+      - fabric_brief
+    produces:
+      - render_report
+      - final_review
+    required_tools:
+      - video_compose
+      - audio_mixer
+    tools_available:
+      - hyperframes_compose
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "render_runtime='hyperframes' — silent swap is a CRITICAL governance violation"
+      - "合成时长 ≤ fabric_brief.ad_intent.duration + 2s tolerance"
+      - "画面比例匹配目标平台（竖版 9:16 / 横版 16:9）"
+      - "音频混音中旁白清晰，BGM 音量 ≤ 0.2"
+      - "面料质感在最终渲染中清晰可辨"
+      - "hyperframes lint 和 validate 在 render 前通过"
+    success_criteria:
+      - Schema-valid render_report artifact
+      - Output file exists and passes ffprobe validation
+      - Duration within ±10% of fabric_brief.ad_intent.duration
+
+  - name: publish
+    skill: pipelines/fabric-showcase/publish-director
+    required_artifacts_in:
+      - render_report
+      - fabric_brief
+    produces:
+      - publish_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "封面文字忠于 fabric_brief.fabric_facts 的面料名称和成分"
+      - "封面尺寸匹配目标平台（小红书 3:4 / B站 16:9 / 抖音 9:16）"
+      - "封面字体选择符合面料调性"
+      - "导出包含视频 + 封面 + metadata"
+    success_criteria:
+      - Schema-valid publish_log artifact
+      - Export package contains video, cover image, and metadata

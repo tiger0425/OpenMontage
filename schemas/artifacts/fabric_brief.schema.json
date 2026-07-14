@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/fabric_brief",
+  "title": "Fabric Brief",
+  "description": "面料展示广告的创作简报。融合面料真理（fabric_facts）和广告意图（ad_intent），是 Truth-Gate 的校验基础。",
+  "type": "object",
+  "required": ["version", "fabric_facts", "ad_intent", "voiceover_script", "scene_structure"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "fabric_facts": {
+      "type": "object",
+      "description": "面料真理表：文档化且不可虚构的面料属性",
+      "required": ["composition", "texture", "applicable_products", "color_palette", "reference_image"],
+      "properties": {
+        "composition": { "type": "string", "description": "成分比例，如 '55% linen, 45% cotton'" },
+        "texture": { "type": "string", "description": "触感/质感描述，如 '亚麻筋骨，棉柔软，亲肤透气'" },
+        "applicable_products": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "适用产品列表，如 ['衬衫', '连衣裙', '帆布包']"
+        },
+        "reference_image": { "type": "string", "description": "原始面料参考图路径" },
+        "color_palette": { "type": "string", "description": "面料色彩描述，如 '复古红格（砖红+深棕），哑光'" },
+        "season": { "type": "string", "description": "适用季节，如 '三季皆宜'" },
+        "weight": { "type": "string", "description": "面料克重/厚薄，如 '中厚'" },
+        "drape": { "type": "string", "description": "垂坠性描述" },
+        "stretch": { "type": "string", "description": "弹性描述" },
+        "sheerness": { "type": "string", "description": "透明度" },
+        "finishing": { "type": "string", "description": "后整理工艺" },
+        "care": { "type": "string", "description": "养护说明" },
+        "origin": { "type": "string", "description": "产地声明（高风险，需用户确认证据）" },
+        "sustainability_claims": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "环保/可持续声明（高风险，需证据）"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ad_intent": {
+      "type": "object",
+      "description": "用户对广告产物的需求和目标",
+      "required": ["platform", "duration", "aspect_ratio"],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": ["xiaohongshu", "douyin", "bilibili"],
+          "description": "目标平台"
+        },
+        "duration": { "type": "number", "minimum": 10, "maximum": 60, "description": "目标时长（秒）" },
+        "aspect_ratio": {
+          "type": "string",
+          "enum": ["9:16", "16:9", "1:1"],
+          "description": "画面比例"
+        },
+        "style_direction": { "type": "string", "description": "风格导向，如 '复古、文艺、质感'" },
+        "brand_name": { "type": "string", "description": "品牌名" },
+        "additional_platforms": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["xiaohongshu", "douyin", "bilibili"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "voiceover_script": {
+      "type": "string",
+      "minLength": 1,
+      "description": "旁白稿件。必须忠于 fabric_facts，20-40 字，不含未经证实的高风险声明"
+    },
+    "scene_structure": {
+      "type": "array",
+      "description": "场景大纲，3-5 幕",
+      "minItems": 3,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["name", "duration", "treatment"],
+        "properties": {
+          "name": { "type": "string", "description": "场景名" },
+          "duration": { "type": "number", "minimum": 1, "description": "场景时长（秒）" },
+          "treatment": { "type": "string", "description": "画面处理描述" },
+          "assets_needed": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "需要的素材类型，如 ['image', 'video', 'voiceover']"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "product_line_drawings": {
+      "type": "object",
+      "description": "产品线画（可选）。SVG 线稿的偏好设置",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "products": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "style": { "type": "string", "description": "线稿风格描述" }
+      },
+      "additionalProperties": false
+    },
+    "cover_spec": {
+      "type": "object",
+      "description": "封面生成规范",
+      "properties": {
+        "font_title": { "type": "string", "description": "标题字体，如 'ZhiMangXing.ttf'" },
+        "font_subtitle": { "type": "string", "description": "副标题字体" },
+        "title_text": { "type": "string", "description": "封面主标题" },
+        "subtitle_text": { "type": "string", "description": "封面副标题" },
+        "color_scheme": { "type": "string", "description": "封面色调偏好" }
+      },
+      "additionalProperties": false
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}
