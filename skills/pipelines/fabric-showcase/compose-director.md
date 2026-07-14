@@ -33,7 +33,15 @@ Must pass before render attempt. Common failures:
 - ffmpeg not found → install ffmpeg
 - npx not found → install npm/node
 
-### 2. Build the Composition
+### 2. Set Working Directory (CRITICAL — must be project dir)
+
+Before running any hyperframes command, change to the project directory:
+```bash
+cd projects/<project-id>/
+```
+All hyperframes commands (`init`, `lint`, `validate`, `render`) MUST be run from `projects/<project-id>/`. Running them from the repo root creates files in the wrong place.
+
+### 3. Build the Composition
 
 Use the scene structure from `fabric_brief.scene_structure` to build the HyperFrames `index.html`.
 
@@ -70,7 +78,7 @@ Use the scene structure from `fabric_brief.scene_structure` to build the HyperFr
 - **Title typography**: Use Google Fonts or downloaded calligraphy fonts for Chinese titles. Font path must be relative to project root.
 - **Ken Burns effect**: For static model images, apply CSS `scale` + `translateX` transforms for subtle camera motion.
 
-### 3. Audio Mixing
+### 4. Audio Mixing
 
 Use `audio_mixer` if the BGM and narration were not already mixed in the assets stage:
 
@@ -79,7 +87,7 @@ Use `audio_mixer` if the BGM and narration were not already mixed in the assets 
 - Fade out last 2s
 - Output duration matches target
 
-### 4. Render
+### 5. Render
 
 ```bash
 npm run render
@@ -89,7 +97,7 @@ With quality setting: `-q high` for hero renders.
 
 Output path: `renders/{project_name}_{timestamp}.mp4`
 
-### 5. QA (ffprobe Verification)
+### 6. QA (ffprobe Verification)
 
 Run these checks on every render:
 
@@ -107,7 +115,7 @@ ffprobe -v error -select_streams a:0 -show_entries stream=codec_name
 ls -lh renders/video.mp4
 ```
 
-### 6. Post-Render Self-Review
+### 7. Post-Render Self-Review
 
 Extract keyframes at scene boundaries and visually inspect:
 
@@ -119,7 +127,7 @@ Extract keyframes at scene boundaries and visually inspect:
 
 Log findings in `final_review` artifact and append `self_review_completed: true`.
 
-### 7. Build Render Report
+### 8. Build Render Report
 
 ```json
 {
