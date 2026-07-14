@@ -155,11 +155,12 @@ Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
   Static camera.
 
 模特上身:
-  A medium shot of a woman wearing a dress made of [fabric_name] fabric.
+  A medium front-facing shot of a woman wearing a dress made of [fabric_name] fabric.
   Warm golden hour light from the side.
-  She stands in place and slowly turns her body from front to side, arms at her sides.
-  The fabric flows naturally as she moves.
+  She stands facing the camera, arms naturally at her sides, and shifts her weight slightly.
+  The fabric drapes naturally as she stands.
   Camera slowly pushes in.
+  Face visible but expression neutral, focus on the garment.
 ```
 
 ### Common Failure Patterns
@@ -169,6 +170,7 @@ Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 | "Fabric gently swaying" (only 3 words) | No shot, no scene, no lighting → random motion | Use 6-element structure above |
 | "手抚过面料，展示柔软度" | Abstract intent, not visual description | "Hand slowly gliding across fabric surface, palm keeping contact" |
 | "Person walking" | LTX struggles with locomotion | "Stands in place, slowly turns body" |
+| "Model back view" | Can't show garment front | "Woman facing camera, standing still" — front-facing required |
 | Static camera + "fabric gently sways" | Camera contradiction | Static camera is fine for fabric scenes; don't add camera movement |
 | Over 80 words | LTX degrades | Cut to essential 5-6 elements |
 
