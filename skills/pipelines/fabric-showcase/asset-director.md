@@ -15,40 +15,50 @@ This stage generates all visual and audio assets for the fabric showcase video: 
 
 ## Process
 
-### 0. Truth-Gate Setup (MANDATORY first step)
+### HARD RULES (ABSOLUTE — must read before doing anything else)
 
-Before generating any asset, read `fabric_brief.fabric_facts` and distill it into a **truth lock sheet** that every generation tool call will reference. This is the contract:
+1. **WORKFLOW FILES ARE LOCKED.** You MUST use exactly these two files:
+   - Image generation → `tools/_comfyui/workflows/klein_fabric.json` ONLY
+   - Video generation → `tools/_comfyui/workflows/ltx23_fabric.json` ONLY
+   - Do NOT use any other workflow in `tools/_comfyui/workflows/` (e.g. `ltx23_i2v_vertical.json`, `wan22-*.json`, `flux2-*.json` are WRONG)
+
+2. **ORDER IS LOCKED.** Images MUST be generated BEFORE video. Video generation takes `reference_image_path` from the prior image step. Generating video without a reference image is WRONG.
+
+3. **TRUTH-GATE IS LOCKED.** Every generated asset MUST be checked against `fabric_brief.fabric_facts` before acceptance. If the fabric color/texture/drape in the output doesn't match the truth sheet, reject it immediately.
+
+### 0. Truth-Gate Setup
+
+Read `fabric_brief.fabric_facts` and distill it into a truth lock sheet:
 
 ```
 TRUTH LOCK:
-  composition: "55% linen, 45% cotton"
-  texture: "亚麻筋骨，棉柔软，亲肤透气"
-  color: "复古红格（砖红+深棕），哑光"
-  weight: "中厚"
-  sheerness: "不透明"
-  drape: "中等垂坠"
+  composition: "<from fabric_brief>"
+  texture: "<from fabric_brief>"
+  color: "<from fabric_brief>"
+  weight: "<from fabric_brief>"
+  sheerness: "<from fabric_brief>"
+  drape: "<from fabric_brief>"
   must_not_change: [颜色, 格纹比例, 光泽度, 透明度, 成分表现]
 ```
 
-Every generated image must be checked against this sheet before being accepted.
+Every generated asset MUST pass this check before being accepted.
 
-### 1. Sample Preview First (Prevents Wasted Spend)
+### 1. Sample Preview (Prevents Wasted Spend)
 
-Before batch-generating all assets, produce one sample of each expensive type and review:
+Before batch-generating all assets, produce ONE sample of each type and review:
 
-1. **ComfyUI image sample**: Generate one fabric close-up image. Verify color, texture, and grain match the truth lock before generating additional scenes.
-2. **ComfyUI video sample**: Generate one fabric motion clip. Verify fabric behavior (drape, weight, movement) matches fabric_facts.
-3. **TTS sample**: Generate one section of narration. Confirm voice and tone fits the brand.
+1. **ComfyUI image sample** — one fabric close-up. Verify texture, color, grain match truth lock before generating more.
+2. **ComfyUI video sample** — one fabric motion clip. Verify fabric behavior matches fabric_facts.
+3. **TTS sample** — one section of narration. Confirm voice fits brand.
 
-If rejected, adjust prompts or parameters and retry (max 2 iterations). Do not batch until approved.
+Max 2 iterations per sample if rejected. Do NOT batch until ALL samples approved.
 
-### 2. Generate Fabric Images
+### 2. Generate Fabric Images (MUST run before video step)
 
-Use `comfyui_image` with the Klein workflow for fabric still images.
-
-**Prompt structure for fabric imagery:**
+Use `comfyui_image` with workflow `tools/_comfyui/workflows/klein_fabric.json`:
 
 ```
+Prompt structure:
 1. Production intent: fabric close-up / flat lay / hand touch / model
 2. Truth lock: exact color, grain, texture from fabric_brief.fabric_facts
 3. Light/camera: soft diffused light, macro (for close-up), shallow DoF
@@ -57,21 +67,20 @@ Use `comfyui_image` with the Klein workflow for fabric still images.
 6. Aspect ratio: from fabric_brief.ad_intent.aspect_ratio
 ```
 
-**Key parameters:**
+Parameters:
 
-| Parameter | Typical Value | Notes |
-|-----------|---------------|-------|
-| `workflow_path` | `tools/_comfyui/workflows/klein_fabric.json` | Bundled fabric image workflow |
-| `output_node` | ComfyUI output node ID | Must match the Klein workflow's save node |
-| `seed` | Random or fixed | Fixed for reproducibility |
+| Parameter | Value (LOCKED) |
+|-----------|----------------|
+| `workflow_path` | `tools/_comfyui/workflows/klein_fabric.json` |
+| `output_node` | Must match Klein workflow's save node |
+| `seed` | Random or fixed |
 
-### 3. Generate Fabric Video Clips
+### 3. Generate Fabric Video Clips (MUST run after images exist)
 
-Use `comfyui_video` with the LTX23 workflow for fabric motion scenes.
-
-**Prompt structure for fabric video:**
+Use `comfyui_video` with workflow `tools/_comfyui/workflows/ltx23_fabric.json`:
 
 ```
+Prompt structure:
 1. Production intent: fabric swaying / hand stroking / model walking
 2. Truth lock: same as image — exact color, grain, drape
 3. Camera: slow dolly / handheld / locked-off
@@ -79,14 +88,14 @@ Use `comfyui_video` with the LTX23 workflow for fabric motion scenes.
 5. Negative: no invented details, no garment distortion
 ```
 
-**Key parameters:**
+Parameters:
 
-| Parameter | Typical Value | Notes |
-|-----------|---------------|-------|
-| `workflow_path` | `tools/_comfyui/workflows/ltx23_fabric.json` | Bundled fabric video workflow |
-| `output_node` | ComfyUI output node ID | Must match the LTX workflow's save node |
-| `reference_image_path` | Generated image from prior step | First frame for I2V |
-| `num_frames` | 97 (for ~5s at ~20fps) | Adjust per scene duration |
+| Parameter | Value (LOCKED) |
+|-----------|----------------|
+| `workflow_path` | `tools/_comfyui/workflows/ltx23_fabric.json` |
+| `output_node` | Must match LTX workflow's save node |
+| `reference_image_path` | MUST be the image generated in step 2 |
+| `num_frames` | 97 (for ~5s at ~20fps)
 
 ### 4. Generate TTS Narration
 

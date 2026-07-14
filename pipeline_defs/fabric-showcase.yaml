@@ -5,6 +5,11 @@ description: >
   通过 ComfyUI 生成质感图片和动态视频，配合 TTS 配音和 MusicGen BGM，
   使用 HyperFrames 合成竖版短视频。适用于小红书/抖音/B站等平台的产品面料推广。
   Truth-Gate: 所有生成内容必须忠于 fabric_brief.fabric_facts 中记录的不可虚构属性。
+
+metadata:
+  keywords: ["面料", "纺织品", "复古红格", "亚麻棉", "材质展示", "种草视频", "布行", "fabric", "textile", "linen cotton"]
+  matching_terms: ["面料广告", "材质推广", "布行", "面料展示", "纺织品广告", "fabric promo", "textile showcase"]
+  routing_hint: "面料展示广告 | fabric product showcase | 纺织品材质推广 | 复古红格面料广告 | 布行短视频"
 category: product_promo
 stability: beta
 default_checkpoint_policy: guided
