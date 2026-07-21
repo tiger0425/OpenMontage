@@ -247,6 +247,34 @@ def sample_artifact(name: str) -> dict:
                 },
             },
         }
+    if name == "fabric_edu_brief":
+        return {
+            "version": "1.0",
+            "fabric_name": "100%新疆长绒棉",
+            "composition": "100% cotton, 60支",
+            "weight": "180g/m² 中厚",
+            "knowledge_depth": "basic",
+            "pitfalls": ["化纤冒充纯棉", "支数虚标"],
+            "educational_angle": "从手感、燃烧、水洗三步辨别纯棉真假",
+        }
+    if name == "note_manifest":
+        return {
+            "version": "1.0",
+            "core_article": "# 如何辨别纯棉真伪\n\n三步教你避开最常见的坑...",
+            "platform_versions": [
+                {
+                    "platform": "xiaohongshu",
+                    "title": "别再被骗了！三步辨别纯棉真假🔥",
+                    "body": "面料老手教你...",
+                },
+                {
+                    "platform": "zhihu",
+                    "title": "纯棉面料到底怎么辨别？",
+                    "body": "作为一个在面料行业干了20年的老手...",
+                },
+            ],
+            "fabric_origin_image": "assets/fabric_source/cotton_origin.jpg",
+        }
     raise KeyError(f"Unknown artifact sample: {name}")
 
 
@@ -283,6 +311,20 @@ class TestSchemas:
 
     def test_video_analysis_brief_validates(self):
         validate_artifact("video_analysis_brief", sample_artifact("video_analysis_brief"))
+
+    def test_fabric_edu_brief_validates(self):
+        validate_artifact("fabric_edu_brief", sample_artifact("fabric_edu_brief"))
+
+    def test_fabric_edu_brief_rejects_invalid(self):
+        with pytest.raises(Exception):
+            validate_artifact("fabric_edu_brief", {"version": "1.0"})
+
+    def test_note_manifest_validates(self):
+        validate_artifact("note_manifest", sample_artifact("note_manifest"))
+
+    def test_note_manifest_rejects_invalid(self):
+        with pytest.raises(Exception):
+            validate_artifact("note_manifest", {"version": "1.0"})
 
 
 # ---- Checkpoint ----
@@ -381,6 +423,34 @@ class TestPipelineManifests:
             include_inactive=False,
         )
         assert any(s["name"] == "sample" for s in active_sub_stages)
+
+    def test_fabric_education_manifest_loads(self):
+        manifest = load_pipeline("fabric-education")
+        assert manifest["name"] == "fabric-education"
+        assert manifest["version"] == "1.0"
+        stage_names = get_stage_order(manifest)
+        assert stage_names == ["edu_brief", "notes", "edu_video", "edu_publish", "retrospective"]
+
+    def test_fabric_education_stages_have_skills(self):
+        manifest = load_pipeline("fabric-education")
+        for stage in manifest["stages"]:
+            assert "skill" in stage, f"Stage {stage['name']} missing skill field"
+            assert isinstance(stage["skill"], str) and len(stage["skill"]) > 0
+
+    def test_fabric_education_artifact_dependencies_close(self):
+        manifest = load_pipeline("fabric-education")
+        produced = set()
+        for stage in manifest["stages"]:
+            produced.update(stage.get("produces", []))
+        for stage in manifest["stages"]:
+            for req in stage.get("required_artifacts_in", []):
+                assert req in produced, (
+                    f"Stage '{stage['name']}' requires '{req}' "
+                    f"but no upstream stage produces it"
+                )
+
+    def test_fabric_education_pipeline_listed(self):
+        assert "fabric-education" in list_pipelines()
 
 
 # ---- BaseTool ----

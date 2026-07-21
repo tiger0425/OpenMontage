@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/note_manifest",
+  "title": "Note Manifest",
+  "description": "面料教育笔记产出清单。记录核心长文、多平台适配版本和配图信息。",
+  "type": "object",
+  "required": ["version", "core_article", "platform_versions", "fabric_origin_image"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "core_article": {
+      "type": "string",
+      "minLength": 1,
+      "description": "核心长文（Markdown），作为所有平台版本的基础"
+    },
+    "platform_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["platform", "title", "body"],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": ["xiaohongshu", "wechat_public", "zhihu", "moments", "bilibili"],
+            "description": "目标平台"
+          },
+          "title": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1, "description": "适配后的平台正文" },
+          "images": {
+            "type": "array",
+            "items": { "type": "string", "description": "配图路径" }
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "话题标签"
+          },
+          "cover_ref": { "type": "string", "description": "封面图路径" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "educational_role"],
+        "properties": {
+          "path": { "type": "string" },
+          "educational_role": {
+            "type": "string",
+            "enum": ["microscopic_detail", "comparison_diagram", "care_label_explained", "test_scene", "diagram"],
+            "description": "配图的教育角色"
+          },
+          "description": { "type": "string", "description": "配图说明，用于标注" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fabric_origin_image": { "type": "string", "description": "用户原始面料图片路径" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

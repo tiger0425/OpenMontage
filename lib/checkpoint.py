@@ -1,4 +1,4 @@
-﻿"""Checkpoint writer/reader for pipeline state persistence.
+"""Checkpoint writer/reader for pipeline state persistence.
 
 Each stage writes a checkpoint after completion. The orchestrator uses
 checkpoints to resume pipelines and to present state at human checkpoints.
@@ -20,6 +20,8 @@ from schemas.artifacts import ARTIFACT_NAMES, validate_artifact
 ALL_KNOWN_STAGES = frozenset([
     "research", "proposal", "idea", "script", "scene_plan",
     "assets", "edit", "compose", "publish",
+    "visual_planning", "directed_assets", "hyperframes_compose", "publish_copy",
+    "retrospective", "edu_brief", "notes", "edu_video", "edu_publish",
 ])
 
 # Backward-compatible alias 鈥?existing code / tests that import STAGES still work.
@@ -31,6 +33,7 @@ CANONICAL_STAGE_ARTIFACTS = {
     "research": "research_brief",
     "proposal": "proposal_packet",
     "idea": "brief",
+    "brief": "fabric_brief",
     "script": "script",
     "scene_plan": "scene_plan",
     "visual_planning": "scene_plan",
@@ -41,6 +44,11 @@ CANONICAL_STAGE_ARTIFACTS = {
     "hyperframes_compose": "render_report",
     "publish_copy": "publish_copy",
     "publish": "publish_log",
+    "retrospective": "review",
+    "edu_brief": "fabric_edu_brief",
+    "notes": "note_manifest",
+    "edu_video": "render_report",
+    "edu_publish": "publish_copy",
 }
 
 # Additional artifacts that may be produced alongside canonical ones.

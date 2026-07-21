@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/fabric_edu_brief",
+  "title": "Fabric Education Brief",
+  "description": "面料教育简报。记录面料事实、知识深度评级、避坑要点和教育切入点，是 Truth-Gate 的教育版校验基础。",
+  "type": "object",
+  "required": ["version", "fabric_name", "composition", "weight", "knowledge_depth", "pitfalls", "educational_angle"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "fabric_name": { "type": "string", "minLength": 1, "description": "面料名称，如 '100%新疆长绒棉'" },
+    "composition": { "type": "string", "description": "成分比例，如 '55% linen, 45% cotton'" },
+    "weight": { "type": "string", "description": "克重/厚薄描述，如 '180g/m² 中厚'" },
+    "knowledge_depth": {
+      "type": "string",
+      "enum": ["basic", "deep"],
+      "description": "知识深度评级：basic=普通面料仅需简单说明，deep=知识点丰富的面料值得深度视频"
+    },
+    "pitfalls": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "该面料常见的消费者误区/坑，如 ['化纤冒充真丝','支数虚标']"
+    },
+    "educational_angle": {
+      "type": "string",
+      "minLength": 1,
+      "description": "推荐的教育切入点，如 '从燃烧实验分辨真丝和化纤'"
+    },
+    "weave": { "type": "string", "description": "织物组织，如 '平纹、斜纹、缎纹'" },
+    "finishing": { "type": "string", "description": "后整理工艺，如 '丝光、烧毛、预缩'" },
+    "season": { "type": "string", "description": "适用季节，如 '春夏'/'四季'" },
+    "comparison_materials": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "易混淆的材质清单，如 ['天丝','醋酸','粘胶']"
+    },
+    "origin_image": { "type": "string", "description": "用户提供的原始面料图片路径" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

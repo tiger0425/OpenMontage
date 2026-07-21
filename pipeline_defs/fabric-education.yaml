@@ -1,0 +1,265 @@
+# ===========================================================
+# fabric-education v1.0
+#
+# 【面料知识教育管线】
+# 笔记先行、视频可选。每块面料输入后先分析面料事实并生成
+# 多平台适配的图文笔记；根据面料知识深度决定是否出视频。
+# 与 fabric-promotion-directed 平行共存，前者专注销售转化，
+# 本管线专注教育市场、让用户避坑、建立专家权威。
+#
+# 【工作流（5 stage）】：
+#       1. edu_brief              ─┐
+#                                 前期：面料信息采集 + 知识深度评级 + 避坑要点
+#       2. notes                  ─┘
+#                                 前期：核心长文 + 4 平台适配 + 教育配图
+#       3. edu_video              ─┐
+#                                 后期：知识视频/切片（根据知识深度决定）
+#       4. edu_publish             ─┘
+#                                 收尾：平台文案 + 封面
+#       5. retrospective           ─┐
+#                                 自我学习：复盘并沉淀 .retrospectives/ 知识库
+#
+# 【AGENTS.md 4 条红线在本 YAML 的落地位置】：
+#   1. NO AD-HOC SCRIPTS    → orchestration.mode = executive-producer + 全 stage 声明
+#   2. USE SELECTORS ONLY   → 所有图片/语音/视频生成必经 selector，无官方豁免
+#   3. RESPECT CHECKPOINTS  → edu_brief / notes / edu_publish human_approval_default = true
+#   4. NO SINGLE-SHOT HTML  → edu_video 调用 video_compose 工具，director 不手写 HTML
+# ===========================================================
+
+name: fabric-education
+version: "1.0"
+description: >
+  Fabric education pipeline v1.0 — 笔记先行、视频可选的面料知识教育管线。
+  用户提供面料照片 + 基础资料 → Agent 分析面料事实 → 自动生成多平台图文笔记
+  → 按知识深度决定是否出视频/切片 → 发布文案 + 复盘沉淀。
+  Key constraint: ALL image and video generation MUST use img2img to
+  preserve fabric texture. ALL educational content must be grounded in
+  fabric facts (Truth-Gate).
+category: custom
+stability: beta
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: false
+
+compatible_playbooks:
+  recommended:
+    - clean-professional
+    - flat-motion-graphics
+  also_works:
+    - minimalist-diagram
+  custom_allowed: true
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/fabric-education/brief-director
+  - pipelines/fabric-education/notes-director
+  - pipelines/fabric-education/video-planning-director
+  - pipelines/fabric-education/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/fabric-education/brief-director
+  budget_default_usd: 1.00
+  max_revisions_per_stage: 2
+  max_send_backs: 2
+  max_wall_time_minutes: 60
+
+stages:
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 1: EDU_BRIEF (面料教育与内容策略)
+  # ─ 输入：用户提供的面料照片 + 名称/成分/克重
+  # ─ 产出：fabric_edu_brief — 面料事实、知识深度评级、避坑要点
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: edu_brief
+    skill: pipelines/fabric-education/brief-director
+    produces:
+      - fabric_edu_brief
+    tools_available: []
+    optional_tools:
+      - visual_qa
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "面料名称/成分/克重与用户提供的一致"
+      - "pitfalls（常见坑）基于面料行业经验，不虚构"
+      - "knowledge_depth 评级合理（basic=知识点少/普通面料，deep=知识丰富/贵重面料）"
+      - "educational_angle 切入点有实际价值，非泛泛而谈"
+      - "若 Agent 追问了额外信息（weave/finishing/season），用户已回答"
+      - "不包含推广销售性质的内容"
+    success_criteria:
+      - Schema-valid fabric_edu_brief artifact (schemas/artifacts/fabric_edu_brief.schema.json)
+      - fabric_name 和 composition 非空
+      - pitfalls 数组至少 1 项
+      - knowledge_depth 为 basic 或 deep
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 2: NOTES (多平台图文笔记生成)
+  # ─ 输入：fabric_edu_brief
+  # ─ 产出：note_manifest — 核心长文 + 4 平台适配 + 教育配图
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: notes
+    skill: pipelines/fabric-education/notes-director
+    required_artifacts_in:
+      - fabric_edu_brief
+    produces:
+      - note_manifest
+    tools_available:
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "core_article 有实质知识内容（不空洞），基于 fabric_edu_brief 的事实"
+      - "小红书版：≤1000 字，标题含 emoji，正文图文混排"
+      - "公众号版：深度长文，可系统讲解知识点"
+      - "知乎版：偏测评/科普风格"
+      - "朋友圈版：≤150 字，引导去长内容平台"
+      - "配图通过 image_selector img2img 生成，educational_role 明确标注"
+      - "配图目的为说明知识点（微距/对比/测试），非展示美感"
+      - "所有平台版本忠于 fabric_edu_brief 的面料事实，无虚构"
+    success_criteria:
+      - Schema-valid note_manifest artifact (schemas/artifacts/note_manifest.schema.json)
+      - core_article 非空
+      - platform_versions 至少包含 1 个平台
+      - 所有版本的有图片路径的配图已通过 image_selector 生成
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 3: EDU_VIDEO (知识视频/切片)
+  # ─ 分叉路由：knowledge_depth=deep → 完整视频 3-8min，basic → 短切片 15-30s
+  # ─ 如果用户选择不出视频，本 stage 可跳过
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: edu_video
+    skill: pipelines/fabric-education/video-planning-director
+    required_artifacts_in:
+      - fabric_edu_brief
+      - note_manifest
+    produces:
+      - edit_decisions
+      - render_report
+    required_tools:
+      - video_compose
+    tools_available:
+      - video_compose
+      - tts_selector
+      - pixabay_music
+      - comfyui_video
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "render_runtime='hyperframes' — silent swap 是 CRITICAL governance 违规"
+      - "视频叙事结构：钩子→问题→拆解→解决方案→总结（深度）或一条核心知识（切片）"
+      - "TTS 配音音色多段一致（VoxCPM chain cloning）"
+      - "所有面料画面通过 img2img 保留实物纹理"
+      - "BGM 风格与面料调性匹配"
+      - "深度视频时长 3-8min，切片 15-30s"
+      - "合成时长不超过 note_manifest 平台约定的目标时长 + 2s tolerance"
+    success_criteria:
+      - Schema-valid edit_decisions artifact (schemas/artifacts/edit_decisions.schema.json)
+      - Schema-valid render_report artifact (schemas/artifacts/render_report.schema.json)
+      - renders/final.mp4 存在且通过 ffprobe 验证
+      - 如果 knowledge_depth=basic：视频时长 ≤ 60s
+      - 如果 knowledge_depth=deep：视频时长在 3-8min 范围内
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 4: EDU_PUBLISH (平台文案与封面)
+  # ─ 产出各平台发布文案和封面图
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: edu_publish
+    skill: pipelines/fabric-education/publish-director
+    required_artifacts_in:
+      - fabric_edu_brief
+      - note_manifest
+      - render_report
+    produces:
+      - publish_copy
+      - cover_manifest
+    tools_available:
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "B站标题 ≤80 字，正文 300-500 字，标签 ≤10 个"
+      - "小红书标题 ≤20 字（可 emoji），正文 150-300 字，话题标签 5-8 个"
+      - "公众号标题/摘要/正文完整"
+      - "知乎标题和正文为科普/测评风格"
+      - "朋友圈 ≤150 字，有引导语"
+      - "封面素材 100% 来自项目 assets/ 目录"
+      - "文案无夸张违禁词（第一/最/100% 等绝对化用语）"
+    success_criteria:
+      - Schema-valid publish_copy artifact (schemas/artifacts/publish_copy.schema.json)
+      - Schema-valid cover_manifest artifact (schemas/artifacts/cover_manifest.schema.json)
+      - renders/ 下封面图存在（对应 note_manifest 中的平台列表）
+      - 各平台文案符合对应平台字数规范
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # STAGE 5: RETROSPECTIVE (自我学习与复盘)
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: retrospective
+    skill: meta/reviewer
+    required_artifacts_in:
+      - fabric_edu_brief
+      - note_manifest
+      - render_report
+      - publish_copy
+    produces:
+      - review
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - "记录了本次每 stage 实际耗时 / 实际成本"
+      - "记录了本次违反 review_focus 的项与修复方法"
+      - "提取 1-3 个下一轮可改进的 tunables"
+      - "关键决策（知识深度评级 / 视频落地决策 / 配图风格）有理由记录"
+    success_criteria:
+      - ".retrospectives/fabric-education/<project>.md 存在"
+      - "review artifact 至少含 wins / pitfalls / improvements / decisions / tunables 字段"
+
+# ═════════════════════════════════════════════════════════════════════
+# Cross-stage 治理锚点
+# ═════════════════════════════════════════════════════════════════════
+metadata:
+  agent_prompt: >
+    你是 OpenMontage 生产 agent，被指定使用 fabric-education pipeline。
+    工作目录：E:\YifuAIForge\OpenMontage。
+    请直接推进项目 <project_name> 的 fabric-education pipeline：
+    0. 第一步必须加载 Provider Lockdown skill，确认可用 provider。
+    1. 运行 python bin/omo.py status --project <project_name> --pipeline fabric-education 查状态
+    2. 运行 python bin/omo.py start-stage --project <project_name> --pipeline fabric-education 获取当前阶段任务
+    3. 按返回的严格 prompt 生成 JSON artifact
+    4. 运行 python bin/omo.py submit-artifact --project <project_name> --stage <stage_name> --file <path> --pipeline fabric-education 提交
+    5. 如果需要人类审批，停下并告诉用户；否则继续下一阶段
+    规则：禁止写临时脚本，禁止直接调用底层 provider，必须尊重 human_approval_default=true 的审批点，
+    禁止一次性手写完整 index.html。视频合成必须通过 video_compose 工具。
+    关键文件：AGENTS.md、AGENT_GUIDE.md、pipeline_defs/fabric-education.yaml、
+    skills/pipelines/fabric-education/ 下的各 stage director。
+  governance:
+    # 1. NO AD-HOC SCRIPTS
+    no_ad_hoc_scripts: true
+    orchestration_mode: executive-producer
+
+    # 2. USE SELECTORS ONLY
+    selector_only_capabilities:
+      - tts
+      - image_generation
+      - video_generation
+
+    # 3. RESPECT CHECKPOINTS
+    critical_approval_gates:
+      - stage: edu_brief
+        what: "fabric_edu_brief 已显式批准（面料事实确认）"
+      - stage: notes
+        what: "note_manifest 已显式批准（笔记内容审核）"
+      - stage: edu_publish
+        what: "发布文案 + 封面文字层已显式批准"
+
+    # 4. NO SINGLE-SHOT HTML — 视频合成通过 video_compose 工具
+    compose_tool_only: true
