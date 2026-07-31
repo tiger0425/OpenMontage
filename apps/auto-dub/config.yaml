@@ -164,7 +164,6 @@ glossary:
     pre-trained: "预训练"
     pretrained: "预训练"
     prompt engineering: "提示词工程"
-    prompt: "提示词"
     embedding: "嵌入向量"
     embeddings: "嵌入向量"
     token: "token"
@@ -202,6 +201,32 @@ batch:
   max_per_run: 15              # 每次最多处理 15 个视频
   download_quality: "best"     # yt-dlp 下载质量
   search_max_results: 10       # 每个关键词最多搜索结果数
+
+# ============================================================
+# 片尾配置（B站一键三连风格）
+# ============================================================
+outro:
+  engine: hyperframes
+  style: bilibili
+  min_duration_seconds: 1.5
+  max_duration_seconds: 5.0
+  drift_fail_threshold_seconds: 5.0
+  text:
+    thanks: "感谢观看"
+    cta: "觉得有用，欢迎点赞 · 收藏 · 关注"
+
+# ============================================================
+# 访谈类视频分类与调速配置
+# ============================================================
+interview:
+  enabled: true
+  classification:
+    min_duration_seconds: 180        # 时长 >= 3分钟视为访谈/长视频
+  atempo:
+    enabled: true
+    max_drift_seconds: 1.5           # 漂移在此范围内允许全局调速
+    min_speed_factor: 0.95           # 最慢 95%
+    max_speed_factor: 1.05           # 最快 105%
 
 # ============================================================
 # 输出路径

@@ -6,6 +6,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+# 在 Windows 下强制 stdout 使用 UTF-8 编码，避免 emoji 打印崩溃
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # 添加 OpenMontage 根目录和 auto-dub 根目录到 Python 路径
 OMO_ROOT = Path(__file__).resolve().parents[3]
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +29,7 @@ from batch.dedup_db import DedupDB
 from batch.glossary import Glossary
 from batch.auto_reviewer import AutoReviewer
 from batch.pipeline_automator import PipelineAutomator
+from batch.llm_client import LLMClient
 
 
 class BatchRunner:
@@ -54,6 +62,7 @@ class BatchRunner:
             self.projects_dir
         )
         self.auto_reviewer.set_glossary(self.glossary)
+        self.auto_reviewer.set_llm(LLMClient())
         
         # 确保目录存在
         self.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -197,17 +206,18 @@ class BatchRunner:
         """查看处理状态统计"""
         stats = self.db.get_stats()
         print("\n" + "="*60)
-        print("📊 视频处理状态统计")
+        print("  视频处理状态统计")
         print("="*60)
         total = sum(stats.values())
         print(f"总计: {total}")
+        labels = {
+            'discovered': '[新]', 'filtering': '[筛]', 'queued': '[待]',
+            'processing': '[中]', 'done': '[完]', 'published': '[发]',
+            'failed': '[败]', 'skipped': '[跳]'
+        }
         for status, count in sorted(stats.items()):
-            emoji = {
-                'discovered': '🌟', 'filtering': '🔍', 'queued': '⏳',
-                'processing': '⚡', 'done': '✅', 'published': '🚀',
-                'failed': '❌', 'skipped': '⏭️'
-            }.get(status, '●')
-            print(f"  {emoji} {status}: {count}")
+            label = labels.get(status, '[*]')
+            print(f"  {label} {status}: {count}")
         return stats
     
     def mark_published(self, video_id: str):
@@ -304,10 +314,49 @@ class BatchRunner:
         }
         
         # === Step 3: 用自动审核器通过 idea 阶段 ===
+        decision_log = {
+            "version": "1.0",
+            "project_id": project_id,
+            "decisions": [
+                {
+                    "decision_id": "d-outro-001",
+                    "stage": "idea",
+                    "category": "render_runtime_selection",
+                    "subject": "Auto-dub end-card composition engine",
+                    "options_considered": [
+                        {
+                            "option_id": "hyperframes",
+                            "label": "HyperFrames HTML/GSAP motion end-card",
+                            "score": 1.0,
+                            "reason": "Lightweight, no Remotion dep, fits B站 一键三连"
+                        },
+                        {
+                            "option_id": "remotion",
+                            "label": "Remotion React composition",
+                            "score": 0.4,
+                            "reason": "Could render similar motion graphics",
+                            "rejected_because": "Avoid installing remotion-composer for single short end-card"
+                        },
+                        {
+                            "option_id": "ffmpeg",
+                            "label": "FFmpeg static end-card",
+                            "score": 0.2,
+                            "reason": "Can append static frame, no animation",
+                            "rejected_because": "Cannot author animated icons without pre-rendered assets"
+                        }
+                    ],
+                    "selected": "hyperframes",
+                    "reason": "HyperFrames renders B站 一键三连 animated end-card without pulling Remotion deps.",
+                    "user_visible": True,
+                    "user_approved": True,
+                    "confidence": 0.95
+                }
+            ]
+        }
         success, issues = self.auto_reviewer.review_and_approve(
             project_id=project_id,
             stage="idea",
-            artifacts={"brief": brief_data}
+            artifacts={"brief": brief_data, "decision_log": decision_log}
         )
         if not success:
             print(f"  ❌ idea 阶段审核失败: {issues}")

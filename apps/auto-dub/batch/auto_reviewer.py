@@ -24,6 +24,7 @@ class AutoReviewer:
         self.max_fix_loops = config.get('max_fix_loops', 3)
         self.checks = config.get('checks', {})
         self.projects_dir = projects_dir
+        self._llm_client = None
     
     def review_and_approve(self, project_id: str, stage: str, artifacts: dict) -> tuple[bool, list[str]]:
         """审核阶段产物并尝试自动通过
@@ -143,6 +144,12 @@ class AutoReviewer:
             return line['translated_text'] or ""
         return line.get('delivery_cues', {}).get('provider_text', '') or ""
 
+    def _set_translated_text(self, line: dict, text: str):
+        if 'translated_text' in line:
+            line['translated_text'] = text
+        if 'delivery_cues' in line and isinstance(line['delivery_cues'], dict):
+            line['delivery_cues']['provider_text'] = text
+
     def _check_translation_completeness(self, stage: str, artifacts: dict) -> Optional[str]:
         """所有句子都必须有翻译"""
         script = artifacts.get('script', {})
@@ -160,6 +167,10 @@ class AutoReviewer:
     def set_glossary(self, glossary):
         """注入术语表实例"""
         self.glossary = glossary
+
+    def set_llm(self, llm_client):
+        """注入 LLM 客户端，用于 script 阶段术语重翻译"""
+        self._llm_client = llm_client
 
     def _check_glossary_terms_preserved(self, stage: str, artifacts: dict) -> Optional[str]:
         """检查术语表是否被遵守"""
@@ -284,9 +295,48 @@ class AutoReviewer:
         return artifacts
     
     def _fix_script(self, artifacts: dict, issues: list[str]) -> dict:
-        """修复 script 阶段的问题（较复杂，可能需要重新翻译）"""
-        # 简单修复：标记未翻译的句子
-        print("[AutoReviewer] script 阶段问题需要重新翻译，返回原始 artifacts 等待重试")
+        """修复 script 阶段的问题：对术语表违规句子做定向重翻译"""
+        script = artifacts.get('script', {})
+        lines = self._get_lines(script)
+        if not lines or not self.glossary:
+            return artifacts
+
+        fixed_count = 0
+        for line in lines:
+            src = line.get('text', '')
+            tgt = self._get_translated_text(line)
+            if not src or not tgt:
+                continue
+            violations = self.glossary.validate_translation(src, tgt)
+            if not violations:
+                continue
+            print(f"[AutoReviewer] 重翻违规句: {src[:30]}... -> 违规: {violations}")
+            if self._llm_client is None:
+                break
+            repair_prompt = (
+                "You are a professional translator. Re-translate the following English sentence "
+                "to Simplified Chinese. You MUST strictly follow the glossary rules below.\n\n"
+                f"Glossary violations in your previous translation:\n{chr(10).join(violations)}\n\n"
+                f"English: {src}\n\n"
+                "Return ONLY the corrected Chinese translation. No markdown, no explanations."
+            )
+            try:
+                repaired = self._llm_client.generate(
+                    repair_prompt,
+                    system_instruction="Re-translate to satisfy glossary constraints strictly.",
+                )
+                repaired = repaired.strip()
+                new_violations = self.glossary.validate_translation(src, repaired)
+                if not new_violations:
+                    self._set_translated_text(line, repaired)
+                    fixed_count += 1
+                else:
+                    print(f"[AutoReviewer] 修复后仍有违规: {new_violations}，保留原翻译")
+            except Exception as e:
+                print(f"[AutoReviewer] 重翻译异常: {e}")
+
+        if fixed_count > 0:
+            print(f"[AutoReviewer] 已修复 {fixed_count} 处术语违规")
         return artifacts
     
     def _fix_scene_plan(self, artifacts: dict, issues: list[str]) -> dict:

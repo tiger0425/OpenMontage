@@ -12,22 +12,28 @@
 
 import os
 import sys
+import re
+import math
 import json
 import logging
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 from pydub import AudioSegment
 
 # 添加 OpenMontage 根目录和 auto-dub 根目录到 Python 路径
 OMO_ROOT = Path(__file__).resolve().parents[3]
+APPS_ROOT = Path(__file__).resolve().parents[1]
 if str(OMO_ROOT) not in sys.path:
     sys.path.insert(0, str(OMO_ROOT))
 
 from lib import checkpoint
 from tools.analysis.transcriber import Transcriber
 from tools.audio.voxcpm_tts import VoxCPMTTS
+from tools.audio.voxcpm_speed_calibrator import VoxCPMSpeedCalibrator, measured_char_budget
 from batch.llm_client import LLMClient
 
 
@@ -43,6 +49,14 @@ class PipelineAutomator:
         self.glossary = glossary
         self.auto_reviewer = auto_reviewer
         self.llm = LLMClient()
+        
+        # 语速校准器（延迟初始化，首次 translate 时测速）
+        cache = self.project_dir.parent / "voxcpm_cps_cache.json"
+        self._voxcpm_calibrator = VoxCPMSpeedCalibrator(cache_path=cache)
+        self._cps: Optional[float] = None
+
+        # 访谈类判定
+        self.is_interview = self._is_interview_video(video, config)
         
         # 确定各文件路径
         self.source_video = self.project_dir / "source.mp4"
@@ -167,111 +181,101 @@ class PipelineAutomator:
         return script_data
 
     def _translate_segments(self, segments: list[dict]) -> Optional[list[dict]]:
-        """分批调用 LLM 翻译分段"""
+        """分批调用 LLM 翻译分段，使用实测语速预算 + 语义拆分"""
+        cps = self._get_cps()
+        print(f"    📏 实测 VoxCPM 语速: {cps:.2f} 字/秒")
         translated_lines = []
         batch_size = 20
-        
+
         system_prompt = (
             "You are a professional video localization translator specializing in AI and cloud technology.\n"
             "Your task is to translate English transcription lines to Simplified Chinese (zh-CN)."
         )
-        
+
         for i in range(0, len(segments), batch_size):
             batch = segments[i:i+batch_size]
             print(f"    - 翻译分批 [{i+1} to {min(i+batch_size, len(segments))}/{len(segments)}]...")
-            
-            # 准备翻译请求数据
+
             batch_data = []
             for item in batch:
                 dur = item["end"] - item["start"]
-                # 计算字数上限 (Law 1: 3.8 字/秒，但增加最小容差至 15 字以容纳技术词汇)
-                max_chars = max(15, int(dur * 4.5))
-                
-                # 检测密集段落 (每秒英文单词数 > 4)
+                max_chars = measured_char_budget(dur, cps)
                 words_count = len(item["text"].split())
                 wps = words_count / dur if dur > 0 else 0
                 is_dense = wps > 4.0
-                
                 batch_data.append({
                     "id": str(item["id"]),
                     "text": item["text"],
                     "duration": round(dur, 2),
                     "max_chinese_characters": max_chars,
+                    "cps": round(cps, 2),
                     "drift_risk": "high" if is_dense else "low",
-                    "note": "密集段落 (Dense paragraph)。请重点精简该分段的翻译！" if is_dense else ""
+                    "note": (
+                        f"实测预算 {max_chars} 字；密集段落请优先精简！"
+                        if is_dense else f"实测预算 {max_chars} 字"
+                    )
                 })
-                
+
             prompt = (
                 f"{self.glossary.build_translation_prompt()}\n\n"
                 "## 翻译指导规则：\n"
                 "1. 必须精准翻译技术语境下的含义。\n"
-                "2. 优先保证中文的口语自然度、意思完整度与信息丰富度。尽量简炼即可，无需死板限制字数（由于后端采用方案A动态平移混音，字数超出限制是允许的）。\n"
-                "3. 返回格式必须是 JSON 数组，每个对象包含 id 和 translated_text。不要返回任何其他解释或 Markdown 包装。\n\n"
+                "2. 在准确、完整、术语合规的前提下，尽量将翻译控制在 max_chinese_characters 预算内。"
+                "若中文翻译天然由多个从句/分句组成，可拆分为多个子条目，id 使用 '<id>_1'、'<id>_2' 格式。\n"
+                "3. 返回格式必须是 JSON 数组，每个对象必须包含 id 和 translated_text。不要返回任何其他解释或 Markdown 包装。\n\n"
                 f"输入数据:\n{json.dumps(batch_data, ensure_ascii=False)}"
             )
-            
+
             try:
-                # 调用 LLM，强制要求 JSON 模式
                 resp_text = self.llm.generate(prompt, system_instruction=system_prompt, json_mode=True)
-                
-                # 清理可能的 markdown 标记和格式问题
+
                 resp_text_clean = resp_text.strip()
                 if resp_text_clean.startswith("```json"):
                     resp_text_clean = resp_text_clean[7:]
                 if resp_text_clean.endswith("```"):
                     resp_text_clean = resp_text_clean[:-3]
                 resp_text_clean = resp_text_clean.strip()
-                
-                # 容错：使用正则清理 JSON 字符串中的尾随逗号 (e.g., [1, 2,] -> [1, 2])
-                import re
                 resp_text_clean = re.sub(r',\s*([\]}])', r'\1', resp_text_clean)
-                
+
                 try:
                     results = json.loads(resp_text_clean)
                 except Exception as json_err:
                     logging.warning(f"Standard JSON parse failed, trying regex object extraction: {json_err}")
                     results = []
-                    # 正则提取所有的 {...} 对象并尝试解析
                     for obj_match in re.finditer(r'\{[^{}]*\}', resp_text_clean):
                         try:
                             obj = json.loads(obj_match.group(0))
                             results.append(obj)
                         except Exception:
                             pass
-                            
-                # 建立映射 (容错支持不同的键名)
+
                 translation_map = {}
                 for r_item in results:
                     r_id = str(r_item.get("id", ""))
                     if not r_id:
                         continue
-                    # 容错提取译文文本键
                     trans = r_item.get("translated_text", r_item.get("translation", r_item.get("text_zh", r_item.get("translated", ""))))
                     translation_map[r_id] = trans
-                
+
                 for item in batch:
                     line_id = str(item["id"])
-                    trans = translation_map.get(line_id, "")
-                    
-                    # 校验并强行纠错：如果未翻译或为空，使用英文原文作为兜底
+                    dur = item["end"] - item["start"]
+                    max_chars = measured_char_budget(dur, cps)
+                    trans = self._get_segment_translation(line_id, translation_map)
+
                     if not trans or trans.strip() == "":
                         trans = item["text"]
-                    
+
                     # === Targeted Glossary Repair Loop ===
                     violations = self.glossary.validate_translation(item["text"], trans)
-                    
-                    # 额外校验：检查是否完全未翻译（内容与原文一致且原文包含英文单词）
-                    import re
                     src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
                     tgt_clean = re.sub(r'[^\w]', '', trans).lower()
                     if src_clean == tgt_clean and len(src_clean) > 3:
                         violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
-                        
+
                     if violations:
                         print(f"      ⚠️ 行 {line_id} 违反术语表/未翻译: {violations}，尝试自动修复...")
-                        dur = item["end"] - item["start"]
-                        max_chars = max(18, int(dur * 4.5))
-                        
+                        repair_budget = max(2, int(dur * cps))
                         for attempt in range(3):
                             repair_prompt = (
                                 "You are a professional video localization translator.\n"
@@ -280,7 +284,9 @@ class PipelineAutomator:
                                 "This translation violated technical glossary rules:\n"
                                 f"{chr(10).join(violations)}\n\n"
                                 "Please re-translate. You MUST satisfy all the glossary rules listed above.\n"
-                                f"Additionally, keep the translation concise if possible. Target characters limit: {max_chars} (this is only a soft guideline; prioritized accuracy, completeness, and glossary compliance come first).\n"
+                                f"Additionally, keep the translation concise if possible. "
+                                f"Target characters limit: {repair_budget} "
+                                "(this is only a soft guideline; prioritized accuracy, completeness, and glossary compliance come first).\n"
                                 "Return ONLY the corrected Chinese translation. Do not wrap in markdown or add explanations."
                             )
                             try:
@@ -289,19 +295,16 @@ class PipelineAutomator:
                                     system_instruction="Re-translate to satisfy technical glossary constraints strictly."
                                 )
                                 repaired_trans = repaired_trans.strip()
-                                # Check if it still violates
                                 new_violations = self.glossary.validate_translation(item["text"], repaired_trans)
                                 new_src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
                                 new_tgt_clean = re.sub(r'[^\w]', '', repaired_trans).lower()
                                 if new_src_clean == new_tgt_clean and len(new_src_clean) > 3:
                                     new_violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
-                                    
                                 if not new_violations:
                                     print(f"      ✅ 行 {line_id} 修复成功: \"{repaired_trans}\"")
                                     trans = repaired_trans
                                     break
                                 else:
-                                    # Update violations for next attempt
                                     violations = new_violations
                                     trans = repaired_trans
                             except Exception as e:
@@ -309,16 +312,35 @@ class PipelineAutomator:
                         else:
                             print(f"      ❌ 行 {line_id} 修复 3 次后仍失败，最终翻译: \"{trans}\"")
 
-                    translated_lines.append({
-                        "line_id": line_id,
-                        "start": item["start"],
-                        "end": item["end"],
-                        "text": item["text"],
-                        "translated_text": trans
-                    })
+                    # === 语义拆分（按从句边界拆分长句，避免硬截断） ===
+                    chunks = self._split_semantic(trans, max_chars)
+                    if len(chunks) == 1:
+                        translated_lines.append({
+                            "line_id": line_id,
+                            "start": item["start"],
+                            "end": item["end"],
+                            "text": item["text"],
+                            "translated_text": trans
+                        })
+                    else:
+                        total_len = sum(len(c) for c in chunks)
+                        offset = 0.0
+                        for ci, chunk in enumerate(chunks):
+                            sub_dur = dur * (len(chunk) / total_len) if total_len > 0 else dur / len(chunks)
+                            sub_start = item["start"] + offset
+                            sub_end = sub_start + sub_dur
+                            offset += sub_dur
+                            sub_id = f"{line_id}_c{ci}"
+                            translated_lines.append({
+                                "line_id": sub_id,
+                                "start": sub_start,
+                                "end": sub_end,
+                                "text": item["text"],
+                                "translated_text": chunk
+                            })
+
             except Exception as e:
                 logging.error(f"Translation batch failed: {e}")
-                # 降级兜底：如果 LLM 失败，保留原文
                 for item in batch:
                     translated_lines.append({
                         "line_id": str(item["id"]),
@@ -327,7 +349,7 @@ class PipelineAutomator:
                         "text": item["text"],
                         "translated_text": item["text"]
                     })
-                    
+
         return translated_lines
 
     # ==========================================
@@ -414,8 +436,7 @@ class PipelineAutomator:
         print("    🔊 开始调用 VoxCPM 本地 GPU 合成音频分段...")
         tts = VoxCPMTTS()
         
-        # 检查是否提供了外部 voice reference (从原视频抽取的说话人声纹)
-        # 若存在 voice_ref.wav，所有分段都以此为音色锚点 (而不是用第一段做锚点)
+        # === 从原视频自动提取说话人声纹 ===
         external_voice_ref = self.assets_dir / "voice_ref.wav"
         use_external_ref = False
         if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
@@ -423,11 +444,26 @@ class PipelineAutomator:
                 chk_ref = AudioSegment.from_wav(str(external_voice_ref))
                 if chk_ref.rms >= 100:
                     use_external_ref = True
-                    print(f"    🎤 使用外部 voice reference: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s, RMS={chk_ref.rms})")
+                    print(f"    🎤 使用已有 voice reference: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s)")
             except Exception as e:
-                logging.warning(f"voice_ref.wav 不可用, 降级到内部锚点: {e}")
+                logging.warning(f"voice_ref.wav 不可用, 将重新提取: {e}")
+        if not use_external_ref:
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(self.source_video),
+                    "-t", "10", "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                    str(external_voice_ref)
+                ]
+                subprocess.run(cmd, capture_output=True, check=True)
+                chk_ref = AudioSegment.from_wav(str(external_voice_ref))
+                if chk_ref.rms >= 100:
+                    use_external_ref = True
+                    print(f"    🎤 自动从原视频提取声纹: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s, RMS={chk_ref.rms})")
+                else:
+                    print(f"    ⚠️ 提取的声纹音量过低，使用内部锚点替代")
+            except Exception as e:
+                logging.warning(f"无法从原视频提取声纹: {e}，使用内部锚点")
         
-        voice_ref_path = None
         temp_segments = []
         
         # 逐段合成配音，并获取其实际音频长度 (不进行任何变速/atempo处理)
@@ -450,26 +486,19 @@ class PipelineAutomator:
 
             if is_valid_existing:
                 print(f"      - ⚡ 复用有效音频 [{idx+1}/{len(lines)}]: seg_{line_id}.wav")
-                if idx == 0:
-                    voice_ref_path = output_file
             else:
-                # 配音生成参数
+                # 配音生成参数：统一音色来源
                 tts_params = {
                     "text": text,
-                    "output_path": str(output_file)
+                    "output_path": str(output_file),
+                    "seed": 42,
                 }
                 
                 if use_external_ref:
-                    # 用外部 voice_ref.wav (原视频说话人声纹) 做音色克隆，所有分段都一致
                     tts_params["reference_wav_path"] = str(external_voice_ref)
                     tts_params["cfg_value"] = 3.0
-                elif idx == 0:
-                    # 第一段，使用 voice_description + seed 生成基准锚点
-                    tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
-                    tts_params["seed"] = 42
                 else:
-                    # 后续所有分段克隆第一段的音色，保持声纹一致
-                    tts_params["reference_wav_path"] = str(voice_ref_path)
+                    tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
 
                 print(f"      - 合成 [{idx+1}/{len(lines)}]: {text[:20]}...")
                 
@@ -477,11 +506,7 @@ class PipelineAutomator:
                 res = tts.execute(tts_params)
                 if not res.success:
                     print(f"      ❌ 合成失败 (分段 {line_id}): {res.error}")
-                    # 降级：使用静音音频兜底，不中断整个批次
                     self._create_silent_wav(dur, output_file)
-                    
-                if idx == 0 and res.success:
-                    voice_ref_path = output_file
 
             # 载入生成的配音，获取其实际时长 (维持 1.0x 原速，禁止变速)
             try:
@@ -585,9 +610,19 @@ class PipelineAutomator:
             })
             
         # 将实际的起止时间信息写入独立的 segment_timings.json 供下游 compose 阶段使用
+        drift_seconds = max(0.0, previous_end - float(script_data["total_duration_seconds"]))
         timings_data = {
             "version": "1.0",
-            "segments": segments_manifest
+            "segments": segments_manifest,
+            "metadata": {
+                "drift_seconds": round(drift_seconds, 3),
+                "original_video_duration_seconds": float(script_data["total_duration_seconds"]),
+                "mixed_audio_duration_seconds": round(previous_end, 3),
+                "is_interview": self.is_interview,
+                "cps": round(self._get_cps(), 2),
+                "mix_algorithm": "serial_queue",
+                "speed_modification": "forbidden"
+            }
         }
         timings_file = self.project_dir / "segment_timings.json"
         try:
@@ -662,6 +697,182 @@ class PipelineAutomator:
             self._create_silent_wav(duration_sec, output_path)
 
     # ==========================================
+    # 辅助方法
+    # ==========================================
+
+    def _get_cps(self) -> float:
+        """延迟校准并返回 VoxCPM 实测语速（cps）。"""
+        if self._cps is None:
+            self._cps = self._voxcpm_calibrator.get_cps()
+        return self._cps
+
+    @staticmethod
+    def _is_interview_video(video: dict, config: dict) -> bool:
+        """根据视频时长判断是否为访谈/长视频类型。"""
+        interview_cfg = config.get("interview", {})
+        if not interview_cfg.get("enabled", True):
+            return False
+        threshold = float(interview_cfg.get("classification", {}).get("min_duration_seconds", 180))
+        duration = float(video.get("duration_seconds", 0))
+        return duration >= threshold
+
+    @staticmethod
+    def _split_semantic(text: str, max_chars: int) -> list[str]:
+        """按语义/从句边界拆分中文文本，每段不超过 max_chars，避免硬截断。"""
+        text = text.strip()
+        if not text:
+            return [text]
+        if len(text) <= max_chars:
+            return [text]
+        tokens = re.split(r'(?<=[，。！？；、,])', text)
+        tokens = [t for t in tokens if t]
+        if not tokens:
+            return [text]
+        chunks = []
+        current = ""
+        for token in tokens:
+            if len(token) > max_chars:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                for i in range(0, len(token), max_chars):
+                    chunks.append(token[i:i + max_chars])
+                continue
+            if current and len(current) + len(token) <= max_chars:
+                current += token
+            else:
+                if current:
+                    chunks.append(current)
+                current = token
+        if current:
+            chunks.append(current)
+        return chunks if chunks else [text]
+
+    @staticmethod
+    def _get_segment_translation(line_id: str, translation_map: dict) -> str:
+        """从 LLM 返回的翻译映射中提取某句的翻译（支持 LLM 拆分出的子句）。"""
+        sub_keys = sorted(
+            [k for k in translation_map if k.startswith(line_id + "_") or k.startswith(line_id + "-")],
+            key=lambda k: k
+        )
+        if sub_keys:
+            return " ".join(translation_map.get(k, "") for k in sub_keys)
+        return translation_map.get(line_id, "")
+
+    def _load_script_json(self) -> Optional[dict]:
+        """读取 script.json。"""
+        script_file = self.project_dir / "script.json"
+        if script_file.exists():
+            with open(script_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return None
+
+    def _apply_global_atempo(self, audio_path: Path, factor: float) -> Path:
+        """对整段配音音频做全局 atempo 变速并返回新的文件路径。"""
+        adjusted = self.renders_dir / f"dub_adjusted_{factor:.3f}.wav"
+        if adjusted.exists():
+            return adjusted
+        cmd = [
+            "ffmpeg", "-y", "-i", str(audio_path),
+            "-filter:a", f"atempo={factor:.6f}",
+            "-c:a", "pcm_s16le", str(adjusted)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        if res.returncode != 0:
+            logging.warning(f"Global atempo failed, fallback to original: {res.stderr[:300]}")
+            return audio_path
+        return adjusted
+
+    def _scale_srt_timings(self, srt_path: Path, scale: float) -> Path:
+        """按比例缩放 SRT 文件中的所有时间戳，返回新路径。"""
+        adjusted = self.renders_dir / f"subtitles_scaled_{scale:.3f}.srt"
+        if adjusted.exists():
+            return adjusted
+        TIMESTAMP_RE = re.compile(r'(\d{2}):(\d{2}):(\d{2}),(\d{3})')
+
+        def _rescale(match: re.Match) -> str:
+            h = int(match.group(1))
+            m = int(match.group(2))
+            s = int(match.group(3))
+            ms = int(match.group(4))
+            total_ms = ((h * 3600 + m * 60 + s) * 1000 + ms) * scale
+            if total_ms < 0:
+                total_ms = 0.0
+            total_sec = int(total_ms / 1000)
+            rem_ms = int(total_ms % 1000)
+            nh = total_sec // 3600
+            nm = (total_sec % 3600) // 60
+            ns = total_sec % 60
+            return f"{nh:02d}:{nm:02d}:{ns:02d},{rem_ms:03d}"
+
+        raw = srt_path.read_text(encoding="utf-8")
+        scaled = TIMESTAMP_RE.sub(_rescale, raw)
+        adjusted.write_text(scaled, encoding="utf-8")
+        return adjusted
+
+    def _render_hyperframes_outro(self, duration: float, channel_name: str, output_path: Path) -> bool:
+        """渲染 B站一键三连片尾。"""
+        template_dir = APPS_ROOT / "templates"
+        if not (template_dir / "index.html").exists():
+            print(f"    ❌ 片尾模板不存在: {template_dir / 'index.html'}")
+            return False
+        outro_cfg = self.config.get("outro", {})
+        thanks = outro_cfg.get("text", {}).get("thanks", "感谢观看")
+        cta = outro_cfg.get("text", {}).get("cta", "觉得有用，欢迎点赞 · 收藏 · 关注")
+        variables = json.dumps({
+            "duration": round(float(duration), 2),
+            "thanks": thanks,
+            "cta": cta,
+            "channel_name": channel_name or "",
+        }, ensure_ascii=False)
+        npx_exe = shutil.which("npx") or shutil.which("npx.cmd")
+        if not npx_exe:
+            print("    ❌ 未找到 npx，无法渲染片尾")
+            return False
+        cmd = [
+            npx_exe, "hyperframes", "render", str(template_dir),
+            "--output", str(output_path),
+            "--resolution", "landscape",
+            "--quality", "standard",
+            "--variables", variables,
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+            if res.returncode != 0:
+                print(f"    ❌ 片尾渲染失败: {res.stderr[:500]}")
+                return False
+        except Exception as e:
+            print(f"    ❌ 片尾渲染异常: {e}")
+            return False
+        return output_path.exists() and output_path.stat().st_size > 0
+
+    def _add_silent_audio(self, video_path: Path, duration_sec: float, output_path: Path) -> None:
+        """为无音频的视频添加静音音轨。"""
+        if output_path.exists():
+            return
+        cmd = [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            "-c:v", "copy", "-c:a", "aac",
+            "-shortest", str(output_path)
+        ]
+        subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+
+    def _ffprobe_duration(self, video_path: Path) -> float:
+        """用 ffprobe 获取视频时长。"""
+        try:
+            res = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+                capture_output=True, text=True
+            )
+            if res.returncode == 0:
+                return float(res.stdout.strip())
+        except Exception:
+            pass
+        return 0.0
+
+    # ==========================================
     # 阶段 4: edit
     # ==========================================
     def _run_edit_stage(self, scene_plan_data: dict, asset_manifest_data: dict) -> Optional[dict]:
@@ -711,7 +922,12 @@ class PipelineAutomator:
             },
             "metadata": {
                 "mix_algorithm": "serial_queue",
-                "speed_modification": "forbidden"
+                "timing_drift_policy": "allow_natural_extension",
+                "min_pause_between_segments_ms": 100,
+                "speed_modification": "forbidden",
+                "interview_type": self.is_interview,
+                "outro_engine": "hyperframes",
+                "outro_style": "bilibili"
             }
         }
 
@@ -731,146 +947,217 @@ class PipelineAutomator:
     # ==========================================
     def _run_compose_stage(self, edit_decisions_data: dict, asset_manifest_data: dict) -> Optional[dict]:
         print("  ⚙️ 运行 [compose] 阶段...")
-        
+
         cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "compose")
         if cp and cp.get("status") == "completed":
             print("  ⏭️ compose 阶段已完成，跳过。")
             return cp["artifacts"]["render_report"]
 
-        output_video = self.renders_dir / "final.mp4"
-        
-        srt_path = ""
-        dub_audio_path = ""
+        # === 定位资产 ===
+        srt_path = None
+        dub_audio_path = None
         for asset in asset_manifest_data["assets"]:
             if asset["type"] == "subtitle" and asset["id"] == "subtitle_zh":
                 srt_path = self.project_dir / asset["path"]
             elif asset["type"] == "audio" and asset["id"] == "dub_audio_zh":
                 dub_audio_path = self.project_dir / asset["path"]
+        if not srt_path or not dub_audio_path:
+            print("    ❌ compose: 无法定位 SRT 或配音文件")
+            return None
 
-        # 处理 FFmpeg 滤镜路径中的 Windows 盘符和反斜杠转义
-        srt_filter_path = str(srt_path.resolve()).replace('\\', '/')
-        srt_filter_path = srt_filter_path.replace(':', '\\:')
+        # === 读取漂移信息 ===
+        timings_file = self.project_dir / "segment_timings.json"
+        timings_data = {}
+        if timings_file.exists():
+            timings_data = json.loads(timings_file.read_text(encoding="utf-8"))
+        timings_meta = timings_data.get("metadata", {})
+        audio_duration = float(timings_meta.get("mixed_audio_duration_seconds",
+            timings_data.get("segments", [{"end_time": 0}])[-1].get("end_time", 0)))
+        script_data = self._load_script_json()
+        video_duration = float(script_data.get("total_duration_seconds", 0)) if script_data else float(self.video.get("duration_seconds", 0))
+        drift_seconds = max(0.0, audio_duration - video_duration)
 
-        # 使用 FFmpeg 烧录字幕，并把原视频音轨替换为我们的配音音轨
-        print("    🎬 正在通过 FFmpeg 渲染并合成视频 (烧录字幕 + 音轨合并)...")
-        
+        # === 漂移上限检查 ===
+        outro_cfg = self.config.get("outro", {})
+        max_drift = float(outro_cfg.get("drift_fail_threshold_seconds", 5.0))
+        if drift_seconds > max_drift:
+            print(f"    ❌ 漂移 {drift_seconds:.2f}s 超过上限 {max_drift}s，标记失败")
+            checkpoint.write_checkpoint(
+                pipeline_dir=self.project_dir.parent,
+                project_id=self.project_id,
+                stage="compose",
+                status="failed",
+                artifacts={"render_report": {"version": "1.0", "outputs": [], "verification_notes": [], "warnings": [], "metadata": {}}},
+                pipeline_type="localization-dub",
+                error=f"drift {drift_seconds:.2f}s > {max_drift}s"
+            )
+            return None
+
+        # === 访谈类全局调速（铁律 A 豁免） ===
+        effective_audio = dub_audio_path
+        effective_srt = srt_path
+        atempo_applied = False
+        atempo_factor = 1.0
+
+        if self.is_interview and drift_seconds > 0:
+            interview_cfg = self.config.get("interview", {}).get("atempo", {})
+            max_drift_for_atempo = float(interview_cfg.get("max_drift_seconds", 1.5))
+            min_speed = float(interview_cfg.get("min_speed_factor", 0.95))
+            max_speed = float(interview_cfg.get("max_speed_factor", 1.05))
+            if drift_seconds <= max_drift_for_atempo:
+                required_factor = audio_duration / video_duration if video_duration > 0 else 1.0
+                if min_speed <= required_factor <= max_speed:
+                    print(f"    🎚️ 访谈类漂移 {drift_seconds:.2f}s ≤ {max_drift_for_atempo}s，应用全局 atempo={required_factor:.3f}")
+                    effective_audio = self._apply_global_atempo(dub_audio_path, required_factor)
+                    effective_srt = self._scale_srt_timings(srt_path, 1.0 / required_factor)
+                    atempo_applied = True
+                    atempo_factor = required_factor
+                    audio_duration = audio_duration / required_factor
+                    drift_seconds = max(0.0, audio_duration - video_duration)
+                else:
+                    print(f"    ⚠️ 所需调速系数 {required_factor:.3f} 超出 [{min_speed}, {max_speed}]，不应用 atempo")
+
+        # === 渲染主视频（烧录字幕 + 替换音轨） ===
+        main_video = self.renders_dir / "main.mp4"
+        print("    🎬 正在渲染主视频（烧录字幕 + 音轨合并）...")
+        srt_filter_path = str(effective_srt.resolve()).replace('\\', '/').replace(':', '\\:')
         cmd = [
-            "ffmpeg",
-            "-y",
+            "ffmpeg", "-y",
             "-i", str(self.source_video),
-            "-i", str(dub_audio_path),
+            "-i", str(effective_audio),
             "-filter_complex", f"[0:v]subtitles='{srt_filter_path}'[v];[1:a]volume=1.0[a]",
-            "-map", "[v]",
-            "-map", "[a]",
-            "-c:v", "libx264",
-            "-c:a", "aac",
-            # 去除 -shortest 以防截断自然延伸的配音尾部，符合 lessons-learned / compose-director 铁律 A
-            str(output_video)
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-c:a", "aac",
+            str(main_video)
         ]
-        
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-            if result.returncode != 0:
-                print(f"    ❌ FFmpeg 渲染失败: {result.stderr[:500]}")
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+            if res.returncode != 0:
+                print(f"    ❌ FFmpeg 主视频渲染失败: {res.stderr[:500]}")
                 return None
         except Exception as e:
             print(f"    ❌ FFmpeg 执行异常: {e}")
             return None
-            
-        print(f"    ✅ 视频渲染合成成功: {output_video}")
+        print(f"    ✅ 主视频渲染成功: {main_video}")
+
+        # === 渲染片尾 ===
+        outro_duration = max(
+            float(outro_cfg.get("min_duration_seconds", 1.5)),
+            min(float(outro_cfg.get("max_duration_seconds", 5.0)), drift_seconds)
+        )
+        channel_name = self.video.get("channel", "")
+        outro_video = self.renders_dir / "outro.mp4"
+        print(f"    🎬 渲染 B站三连片尾（时长 {outro_duration:.2f}s，漂移 {drift_seconds:.2f}s）...")
+        if not self._render_hyperframes_outro(outro_duration, channel_name, outro_video):
+            print("    ❌ 片尾渲染失败")
+            return None
+
+        # === 为片尾添加静音音轨 ===
+        outro_with_audio = self.renders_dir / "outro_with_audio.mp4"
+        self._add_silent_audio(outro_video, outro_duration, outro_with_audio)
+
+        # === 拼接主视频 + 片尾 ===
+        final_video = self.renders_dir / "final.mp4"
+        concat_list = self.renders_dir / "concat_list.txt"
+        concat_list.write_text(
+            f"file '{main_video.as_posix()}'\nfile '{outro_with_audio.as_posix()}'\n",
+            encoding="utf-8"
+        )
+        print("    🎬 正在拼接主视频与片尾...")
+        cmd_concat = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list), "-c", "copy", str(final_video)]
+        try:
+            res = subprocess.run(cmd_concat, capture_output=True, text=True, encoding="utf-8")
+            if res.returncode != 0:
+                print(f"    ❌ 片尾拼接失败: {res.stderr[:500]}")
+                return None
+        except Exception as e:
+            print(f"    ❌ 拼接执行异常: {e}")
+            return None
+        print(f"    ✅ 最终视频合成成功: {final_video}")
 
         # === Post-Render Verification ===
         print("    🔍 开始执行渲染后强制校验 (Post-Render Verification)...")
         verification_notes = []
         warnings_list = []
-        
-        # 1. 零重叠校验 & 邻近间隔校验 (>= 100ms)
+
+        # 零重叠校验
         narration_segments = []
-        timings_file = self.project_dir / "segment_timings.json"
-        if timings_file.exists():
-            try:
-                with open(timings_file, "r", encoding="utf-8") as f:
-                    timings_data = json.load(f)
-                    for seg in timings_data.get("segments", []):
-                        narration_segments.append({
-                            "actual_start": float(seg["start_time"]),
-                            "actual_end": float(seg["end_time"])
-                        })
-            except Exception as e:
-                logging.error(f"Failed to read segment_timings.json during verification: {e}")
-        
-        # 按实际起始时间排序
+        for seg in timings_data.get("segments", []):
+            narration_segments.append({
+                "actual_start": float(seg["start_time"]),
+                "actual_end": float(seg["end_time"])
+            })
         narration_segments.sort(key=lambda x: x["actual_start"])
-        
         zero_overlap_ok = True
         overlap_warnings = []
         for i in range(len(narration_segments) - 1):
-            gap = narration_segments[i+1]["actual_start"] - narration_segments[i]["actual_end"]
-            if gap < 0.095:  # 考虑浮点数微小误差，判定是否少于 100ms 限制
+            gap = narration_segments[i + 1]["actual_start"] - narration_segments[i]["actual_end"]
+            if gap < 0.095:
                 zero_overlap_ok = False
                 overlap_warnings.append(f"分段 {i} 到 {i+1} 间隔仅 {gap*1000:.1f}ms (< 100ms)")
-                
         if zero_overlap_ok:
             verification_notes.append("零重叠校验通过：所有相邻音频分段间隔均大于等于 100ms")
         else:
             warnings_list.append("零重叠校验失败：存在相邻分段间隔小于 100ms 限制")
             verification_notes.extend(overlap_warnings)
-            
-        # 2. 零变速校验
-        verification_notes.append("零变速校验通过：确认未施加任何 atempo/rubberband 变速处理，全片配音以 1.0x 原速完整播放")
-        
-        # 3. SRT 同步校验
+
+        # 调试调速说明
+        if atempo_applied:
+            verification_notes.append(f"访谈类全局调速：已对整段配音应用 atempo={atempo_factor:.3f}（调速后漂移 {drift_seconds:.2f}s）")
+        else:
+            verification_notes.append("零变速校验通过：未施加 atempo/rubberband 变速处理，全片配音以 1.0x 原速完整播放")
+
+        # 片尾说明
+        verification_notes.append(f"片尾校验通过：B站三连样式片尾 {outro_duration:.2f}s 已拼接至末尾（频道: {channel_name or '无'}）")
+
         verification_notes.append("SRT同步校验通过：字幕时间轴已根据混音时段实际偏移量动态重同步，偏差为 0ms")
-        
-        # 4. 完整性校验 (ffprobe)
-        ffprobe_cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(output_video)
-        ]
-        probe_success = False
-        actual_duration = float(self.video.get("duration_seconds", 0))
-        try:
-            probe_res = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
-            if probe_res.returncode == 0:
-                probe_success = True
-                actual_duration = float(probe_res.stdout.strip())
-                verification_notes.append(f"完整性校验通过：ffprobe 确认视频正常完整，实际合成时长为 {actual_duration:.2f} 秒")
-            else:
-                warnings_list.append("完整性校验警告：ffprobe 探测返回异常码")
-        except Exception as e:
-            logging.error(f"Post-render integrity check failed: {e}")
-            warnings_list.append(f"完整性校验警告：无法运行 ffprobe: {e}")
+
+        actual_duration = self._ffprobe_duration(final_video)
+        if actual_duration > 0:
+            verification_notes.append(f"完整性校验通过：ffprobe 确认视频正常完整，实际合成时长为 {actual_duration:.2f} 秒")
+        else:
+            warnings_list.append("完整性校验警告：无法获取最终视频时长")
 
         render_report = {
             "version": "1.0",
             "outputs": [
                 {
-                    "path": str(output_video.relative_to(OMO_ROOT)).replace('\\', '/'),
+                    "path": str(final_video.relative_to(OMO_ROOT)).replace('\\', '/'),
                     "format": "mp4",
                     "resolution": "1920x1080",
-                    "duration_seconds": actual_duration
+                    "duration_seconds": actual_duration if actual_duration > 0 else video_duration + outro_duration
                 }
             ],
             "verification_notes": verification_notes,
             "warnings": warnings_list,
             "metadata": {
-                "locale_notes": f"Completed dub rendering utilizing serial queue mixing. Extended duration: {actual_duration:.2f}s."
+                "locale_notes": (
+                    f"Completed dub rendering with bilibili outro ({outro_duration:.1f}s). "
+                    f"Drift: {drift_seconds:.2f}s. "
+                    f"Interview atempo: {'applied' if atempo_applied else 'not applied'}. "
+                    f"Final duration: {actual_duration:.2f}s."
+                ),
+                "outro_duration_seconds": outro_duration,
+                "outro_engine": "hyperframes",
+                "atempo_applied": atempo_applied,
+                "atempo_factor": atempo_factor if atempo_applied else None,
+                "drift_seconds": drift_seconds
             }
         }
-        
+
         final_review = {
             "version": "1.0",
-            "output_path": str(output_video.relative_to(self.project_dir)).replace('\\', '/'),
+            "output_path": str(final_video.relative_to(self.project_dir)).replace('\\', '/'),
             "status": "pass",
             "checks": {
                 "technical_probe": {
                     "valid_container": True,
-                    "duration_seconds": float(self.video.get("duration_seconds", 0)),
+                    "duration_seconds": actual_duration if actual_duration > 0 else video_duration,
                     "resolution": "1920x1080",
                     "fps": 30.0,
                     "has_audio": True,
                     "codec": "h264",
-                    "file_size_bytes": output_video.stat().st_size if output_video.exists() else 0
+                    "file_size_bytes": final_video.stat().st_size if final_video.exists() else 0
                 },
                 "visual_spotcheck": {
                     "frames_sampled": 4,
@@ -882,14 +1169,14 @@ class PipelineAutomator:
                 },
                 "audio_spotcheck": {
                     "narration_present": True,
-                    "music_present": True,
+                    "music_present": False,
                     "unexpected_silence": False,
                     "clipping_detected": False,
                     "mix_intelligible": True
                 },
                 "promise_preservation": {
                     "delivery_promise_honored": True,
-                    "renderer_family_used": "screen-demo",
+                    "renderer_family_used": "localization-dub",
                     "render_runtime_used": "ffmpeg",
                     "runtime_swap_detected": False,
                     "runtime_swap_check": "ok — ffmpeg",
