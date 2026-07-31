@@ -1,0 +1,279 @@
+---
+name: auto-dub
+description: >
+  YouTube 视频自动搬运与中文 AI 配音系统（Auto-Dub）的完整操作指南。
+  适用于：下载英文 YouTube 视频、自动转录（Whisper）、LLM 中文翻译、
+  本地 GPU TTS 配音（VoxCPM）、混音合成（FFmpeg）、字幕烧录与归档。
+  触发词：搬运视频、自动配音、auto-dub、处理视频、中文配音、
+  导入播放列表、查看进度、发布视频。
+metadata:
+  tags: "auto-dub, youtube, localization, tts, voxcpm, ffmpeg, bilibili, chinese-dub"
+---
+
+# Auto-Dub — YouTube 视频自动搬运与中文 AI 配音系统
+
+## 📌 系统概述
+
+Auto-Dub 是内置于 OpenMontage 的批量视频搬运与中文配音系统。
+它从 YouTube 下载英文视频，经过 **转录 → 翻译 → 配音 → 混音 → 压制** 五个阶段，
+输出可直接上传至 B 站的中文配音版视频（含字幕）。
+
+**项目根目录：** `e:/YifuAIForge/OpenMontage`  
+**主入口 CLI：** `bin/auto_dub.py`  
+**App 源码：** `apps/auto-dub/`  
+**配置文件：** `apps/auto-dub/config.yaml`  
+**数据库：** `projects/auto-dub/tracking.db`
+
+---
+
+## 🗂️ 目录结构
+
+```
+OpenMontage/
+├── bin/
+│   └── auto_dub.py              # CLI 主入口（所有操作都走这里）
+├── apps/auto-dub/
+│   ├── config.yaml              # 频道订阅、筛选规则、术语表
+│   ├── batch/
+│   │   └── batch_runner.py      # 批量处理核心逻辑
+│   └── discovery/               # 视频发现与筛选模块
+└── projects/auto-dub/
+    ├── tracking.db              # SQLite 状态数据库
+    ├── review/                  # 成品视频（待审核）+ 封面图
+    ├── published/               # 已归档发布文件
+    └── auto-dub-{video_id}/     # 每个视频的工作目录
+        ├── assets/
+        │   ├── audio/           # VoxCPM 合成的单句 WAV 文件
+        │   ├── video/           # 原始下载视频
+        │   └── subtitles.srt    # 中文字幕
+        └── renders/
+            └── final.mp4        # 最终压制成品
+```
+
+---
+
+## 📊 数据库状态机（tracking.db → videos 表）
+
+```
+pending → downloading → transcribing → translating → tts_synthesis
+       → mixing → rendering → review → published
+```
+
+| 状态 | 含义 |
+|------|------|
+| `pending` | 待处理队列 |
+| `downloading` | yt-dlp 正在下载 |
+| `transcribing` | Whisper 转录英文 |
+| `translating` | LLM 翻译为中文 |
+| `tts_synthesis` | VoxCPM GPU 配音合成 |
+| `mixing` | FFmpeg 100ms 串行排队混音 |
+| `rendering` | FFmpeg 字幕烧录 + 音画压制 |
+| `review` | 成品已生成，等待人工审核 |
+| `published` | 已标记发布 |
+
+---
+
+## 🚀 CLI 命令速查
+
+所有命令在 `e:/YifuAIForge/OpenMontage` 目录下执行：
+
+```bash
+# 一键全流程（scan + filter + process）
+python bin/auto_dub.py run
+
+# 仅扫描新视频（更新候选池）
+python bin/auto_dub.py scan
+
+# 仅筛选候选视频（LLM 相关性判断）
+python bin/auto_dub.py filter
+
+# 仅处理待处理队列（推进流水线）
+python bin/auto_dub.py process
+
+# 查看当前状态统计
+python bin/auto_dub.py status
+
+# 标记某视频为已发布
+python bin/auto_dub.py mark-done {video_id}
+```
+
+> ⚠️ **AGENTS.md 红线**：禁止写 ad-hoc 脚本直接调用工具。
+> 所有生产操作必须通过 `bin/auto_dub.py` 或 `bin/omo.py`。
+
+---
+
+## 🎙️ TTS 引擎：VoxCPM 本地 GPU
+
+- **引擎**：VoxCPM2（本地 GPU，无需 API Key）
+- **调用方式**：通过 `voxcpm_tts` 工具（MCP 工具，不要直接 import）
+- **Skill 参考**：`.agents/skills/voxcpm-tts/SKILL.md`
+- **特性**：支持中文语音、多段音色一致性、字符级时间戳
+
+### 已知问题与修复方案
+
+**问题：静音伪文件**
+
+批量合成时，VoxCPM 在某些句子上可能生成静音 WAV（`rms_amplitude < 100`）。
+
+```python
+# 检测静音文件
+from scipy.io import wavfile
+import numpy as np
+rate, data = wavfile.read(wav_path)
+rms = np.sqrt(np.mean(data.astype(np.float32)**2))
+if rms < 100:  # 静音阈值
+    # 删除并重新合成
+```
+
+**修复步骤：**
+1. 扫描所有 WAV 文件，找出 `rms < 100` 的静音伪文件
+2. 删除静音伪文件
+3. 重新触发 `process` 命令，系统会自动重新合成
+
+---
+
+## 🔊 混音策略：100ms 串行排队
+
+为避免声音重叠，使用严格串行排队模式：
+
+```
+句1_audio [duration] → +100ms 间隔 → 句2_audio → +100ms → ...
+```
+
+- **不做音频拉伸**（不变速）
+- **不压缩原始视频帧率**
+- **字幕通过 SRT 重同步** 与配音对齐
+- 最终用 FFmpeg 烧录字幕并混入配音音轨
+
+---
+
+## ⚙️ 配置文件要点（`apps/auto-dub/config.yaml`）
+
+### 添加新频道
+
+```yaml
+channels:
+  - name: "频道显示名"
+    url: "https://www.youtube.com/@channel_handle"
+```
+
+### 添加新播放列表（直接导入）
+
+通过 `yt-dlp` 手动下载播放列表元数据后，将视频记录插入 `tracking.db`：
+
+```sql
+-- 查看当前待处理视频
+SELECT video_id, title, status FROM videos WHERE status = 'pending';
+
+-- 查看整体状态分布
+SELECT status, COUNT(*) FROM videos GROUP BY status;
+```
+
+### 调整筛选规则
+
+```yaml
+filters:
+  min_duration_seconds: 180    # 最短 3 分钟
+  max_duration_seconds: 1200   # 最长 20 分钟
+  max_age_days: 30             # 仅处理最近 30 天
+  exclude_languages: ["zh"]    # 排除已是中文的视频
+```
+
+### 术语表维护
+
+```yaml
+glossary:
+  keep_english:     # 这些词保留英文，不翻译
+    - "YourTool"
+  translations:     # 这些词固定翻译
+    "your term": "你的翻译"
+```
+
+---
+
+## 🗣️ 用户自然语言指令 → 操作映射
+
+当用户说以下内容时，执行对应操作：
+
+| 用户说 | 对应操作 |
+|--------|---------|
+| "开始处理" / "启动配音" / "跑一下 auto-dub" | `python bin/auto_dub.py run` |
+| "扫描新视频" / "更新候选池" | `python bin/auto_dub.py scan` |
+| "处理待处理队列" / "推进流水线" | `python bin/auto_dub.py process` |
+| "查看进度" / "现在处理到哪了" | `python bin/auto_dub.py status` |
+| "处理视频 {video_id}" | 检查状态后推进该视频 |
+| "标记 {video_id} 已发布" | `python bin/auto_dub.py mark-done {video_id}` |
+| "有哪些视频还没完成" | 查询 `tracking.db` 中非 `published` 状态的视频 |
+| "添加频道/播放列表" | 修改 `config.yaml` 中的 `channels` 列表 |
+
+---
+
+## 📁 成品文件位置
+
+```
+projects/auto-dub/review/
+├── {video_id}.mp4          # 中文配音成品视频
+├── {video_id}_cover.png    # 4:3 封面图（1200×900px）
+└── {video_id}_meta.json    # 元数据（标题、时长、集数等）
+
+projects/auto-dub/published/
+└── (同上，已归档)
+```
+
+---
+
+## 🐞 常见问题排查
+
+### 1. VoxCPM 静音问题
+
+**症状**：视频某段没有声音，或配音时间明显不够  
+**原因**：VoxCPM 对某些句子生成了静音 WAV  
+**修复**：
+
+```bash
+# 扫描并清理静音文件，然后重新 process
+python bin/auto_dub.py process
+```
+
+### 2. 混音后声音重叠
+
+**症状**：两段配音同时播放  
+**原因**：配音时间戳计算错误，未使用串行排队  
+**修复**：检查 `batch/batch_runner.py` 中的混音逻辑，确认使用 100ms 串行间隔
+
+### 3. 字幕与配音不同步
+
+**症状**：字幕比说话早或晚  
+**原因**：SRT 时间戳未重同步  
+**修复**：触发 SRT 重同步步骤，将字幕时间戳对齐至实际配音时间
+
+### 4. yt-dlp 下载失败
+
+**症状**：视频卡在 `downloading` 状态  
+**原因**：网络问题或视频受地区限制  
+**修复**：手动运行 `yt-dlp {url}` 测试，检查代理设置
+
+---
+
+## 🔗 相关技能文档
+
+| 技能 | 路径 | 用途 |
+|------|------|------|
+| VoxCPM TTS | `.agents/skills/voxcpm-tts/SKILL.md` | 本地 GPU 语音合成详细用法 |
+| FFmpeg | `.agents/skills/ffmpeg/SKILL.md` | 视频处理、混音、字幕烧录 |
+| video-edit | `.agents/skills/video-edit/SKILL.md` | 视频剪辑操作 |
+| video-download | `.agents/skills/video-download/SKILL.md` | yt-dlp 下载 YouTube 视频 |
+
+---
+
+## ✅ 新会话快速启动清单
+
+在新会话开始时，完成以下步骤：
+
+1. **确认项目根目录**：`e:/YifuAIForge/OpenMontage`
+2. **查看当前状态**：`python bin/auto_dub.py status`
+3. **查看成品**：`ls projects/auto-dub/review/*.mp4`
+4. **按用户指令执行**：使用上方的「用户指令映射表」
+
+> 💡 **任何新 AI 工具（OpenClaw, Cursor, Windsurf 等）** 读取本 Skill 后，
+> 即可无缝接手 Auto-Dub 任务，无需用户重复解释项目背景。

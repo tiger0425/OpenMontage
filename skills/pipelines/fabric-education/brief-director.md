@@ -12,9 +12,6 @@
 
 > **⚠️ 路径规范**：所有相对路径必须带 `projects/{project_name}/` 前缀。
 
-### Step 0: 读取 Provider Lockdown
-**强制动作**：在执行任何生成任务前，必须加载 `.agents/skills/provider-lockdown/SKILL.md`。
-
 ### Step 1: 接收用户输入
 ```
 用户提供的面料信息：

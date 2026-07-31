@@ -8,26 +8,6 @@ Skipping it WILL cause you to take the wrong action.
 
 There are no instructions in this file. All instructions are in AGENT_GUIDE.md.
 
-## Provider Lockdown
-
-**MANDATORY: Before any generation task, read `.agents/skills/provider-lockdown/SKILL.md`.**
-
-# OpenMontage
-
-**MANDATORY: Read `AGENT_GUIDE.md` before responding to ANY user message.**
-
-Do not act on the user's request until you have read AGENT_GUIDE.md.
-It contains routing rules that determine your first action based on what the user asked.
-Skipping it WILL cause you to take the wrong action.
-
-There are no instructions in this file. All instructions are in AGENT_GUIDE.md.
-
-## Provider Lockdown
-
-**MANDATORY: Before any generation task, read `.agents/skills/provider-lockdown/SKILL.md`.**
-
-This skill locks which providers to use for image generation, TTS, music, video generation, and video composition. Providers listed there are the ONLY allowed ones — all others are prohibited regardless of availability. Violating the lockdown will produce output the user explicitly rejected.
-
 ## Universal Harness Enforcement (For ALL Agents)
 
 **MANDATORY**: Any external intelligent agent (Cursor, Windsurf, OpenClaw, Codex, etc.) is strictly FORBIDDEN from attempting to execute the workflow manually or writing custom ad-hoc scripts to generate assets. 
@@ -53,3 +33,29 @@ To prevent agents from hallucinating code or skipping the pipeline, you MUST fol
    - **Step 2 (Understand)**: Understand the holistic context. Do not just look at your current stage; understand what the previous stages produced and what the next stages need.
    - **Step 3 (Cross-Reference Assets)**: Explicitly list out all required asset types (Images, Video, Text Overlays, Audio). Cross-reference the input JSONs (e.g., `frame_blueprint`) against your target schema to ensure no field (like `overlay_notes`) is dropped.
    - **Step 4 (Execute)**: Only AFTER mapping the data completely may you begin writing code or calling tools to generate the JSON artifact.
+
+## Auto-Dub Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/auto-dub/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 搬运视频 / 搬运 / 自动配音 / 中文配音
+- auto-dub / auto dub / autodub
+- 处理视频 / 处理队列 / 推进流水线
+- 查看配音进度 / 配音状态
+- 导入播放列表 / 添加频道
+- 发布视频 / 标记已发布
+- 有哪些视频没完成 / 还有多少视频
+
+**What the skill teaches you:**
+- Full directory layout and database schema
+- All CLI commands (`bin/auto_dub.py`)
+- VoxCPM TTS silent-file detection and repair
+- 100 ms serial-queue mixing strategy
+- Natural-language → CLI command mapping
+- Quick-start checklist for new sessions
+
+**CRITICAL**: For Auto-Dub tasks, the ONLY permitted execution entry point is
+`python bin/auto_dub.py <subcommand>`. Do NOT write ad-hoc Python scripts
+to call pipeline internals directly.

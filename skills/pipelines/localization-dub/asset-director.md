@@ -8,6 +8,7 @@ This stage produces the localized asset kit: translated subtitle files, dubbed a
 
 | Layer | Resource | Purpose |
 |-------|----------|---------|
+| Guidelines | `skills/pipelines/localization-dub/lessons-learned.md` | Core dubbing & voice cloning rules (Anchor lock, max speed cap, zero-overlap) |
 | Schema | `schemas/artifacts/asset_manifest.schema.json` | Artifact validation |
 | Prior artifacts | `state.artifacts["scene_plan"]["scene_plan"]`, `state.artifacts["script"]["script"]`, `state.artifacts["idea"]["brief"]` | Language plan and transcript package |
 | Tools | `tts_selector`, `subtitle_gen`, `lip_sync`, `audio_enhance` — `tts_selector` auto-discovers all available TTS providers from the registry | Dubbed audio, subtitle, and optional lip-sync production |

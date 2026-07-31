@@ -309,6 +309,12 @@ class VoxCPMTTS(BaseTool):
             text = f"({voice_description}). {text}"
 
         # --- generate ---
+        import torch
+        if seed != -1:
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
         generate_kwargs: dict[str, Any] = {
             "text": text,
             "cfg_value": cfg_value,

@@ -24,6 +24,7 @@ extensions:
 
 required_skills:
   - pipelines/localization-dub/executive-producer
+  - pipelines/localization-dub/lessons-learned
   - pipelines/localization-dub/idea-director
   - pipelines/localization-dub/script-director
   - pipelines/localization-dub/scene-director

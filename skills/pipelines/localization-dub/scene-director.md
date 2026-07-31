@@ -6,6 +6,7 @@ Plan how each localized deliverable will handle timing, visible speech, subtitle
 
 ## Reference Inputs
 
+- `skills/pipelines/localization-dub/lessons-learned.md` — **必读**，包含铁律 A（禁止变速）和铁律 B（串行排队混音）
 - `docs/localization-dubbing-best-practices.md`
 - `skills/creative/video-editing.md`
 
@@ -22,7 +23,7 @@ Use one of:
 
 `hybrid_covered` means using B-roll, graphics, or text coverage during sections where visible mouth mismatch would be distracting.
 
-### 2. Map Timing Risk
+### 2. Map Timing Risk & Drift Budget
 
 Identify scenes likely to drift because of:
 
@@ -31,6 +32,11 @@ Identify scenes likely to drift because of:
 - multiple speakers,
 - fast cuts,
 - visible close-up mouths.
+
+**漂移预算 (Drift Budget)**：
+- 目标语言配音允许的最大总时长漂移 ≤ 原片时长的 **5%**
+- 对密集段落（每秒 > 4 个英文单词）提前标注 `drift_risk: high`，通知 Script 阶段重点精简该段落的翻译
+- 记录到 `timing_risk_map` 中供下游阶段参考
 
 ### 3. Note On-Screen Language Dependencies
 

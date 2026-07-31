@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+venv/
+.venv/
 
 # Local model downloads (e.g. Piper TTS voices, fetched at runtime — not source)
 *.onnx
@@ -21,6 +23,8 @@ htmlcov/
 .vscode/
 .opencode/
 .playwright-mcp/
+.scratch/
+.pilotdeck/
 
 # Pipeline outputs (regenerable — never commit large media)
 output/
@@ -75,6 +79,15 @@ _check_*.py
 /list_*.py
 fix_*.py
 /test_*.py
+probe_*.py
+ffmpeg_*.py
+copy_*.py
+render_*.py
+run_*.py
+gen_*.py
+check_*.py
+download_model.py
+update_manifest.py
 
 # Stray test artifacts (agent debugging outputs)
 fabric.jpg
@@ -83,15 +96,12 @@ models_out.txt
 tool_status.txt
 tools_check.txt
 video_result.txt
+hf_check.txt
+tool_check.txt
 
 # Agent temp directories
 .tmp/
 .tmp/**
-run_*.py
-gen_*.py
-check_*.py
-download_model.py
-update_manifest.py
 test.txt
 test_output.txt
 test_imagen.*
@@ -109,14 +119,26 @@ internal/
 skills-lock.json
 
 # Sisyphus/oh-my-opencode agent working state (drafts, plans, session continuation)
-.omo/
+omo/
 
 # Generated images (logo drafts — final logo lives in assets/)
 logo_*.png
 generated_image.png
+diagram.png
+_analysis_result.json
+_clipboard_analysis.png
 
 # Downloaded music files (Pixabay, Freesound — not source code)
 pixabay_music_*
+
+# Temporary generated files in root
+product_analysis.json
+product_three_views_*.jpg
+semiconductor-cooling-neck-fan.mp4
+semiconductor-cooling-neck-fan_frames/
+
+# Render demo scripts
+render-demo.sh
 
 # OS
 .DS_Store
@@ -138,13 +160,6 @@ remotion-composer/public/demo-props/test-*
 remotion-composer/public/demo-props/talking-head-*
 remotion-composer/public/demo-props/caption-burn-*
 
-venv/
-.venv/
----
-hf_check.txt
-tool_check.txt
-probe_*.py
-ffmpeg_*.py
-copy_*.py
+# Silk audio files
 /silk_*/
 *.silk/

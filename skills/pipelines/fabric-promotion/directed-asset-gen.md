@@ -150,7 +150,7 @@ result = tool.execute({
 ### Step 4: 成衣视频（image_to_video）
 对 frame_blueprint 中所有 `asset_kind = "garment_video"` 的帧生成动作视频。
 **必须使用 frame Blueprint 的 motion_rule**——不再从 brief.beat_plan 推断：
-- 若该帧 `comfyui_workflow` 未指定，默认使用 `tools/_comfyui/workflows/ltx23_i2v.json`（强制按 provider-lockdown 规则 5）
+- 若该帧 `comfyui_workflow` 未指定，默认使用 `tools/_comfyui/workflows/ltx23_i2v.json`
 - 若 frame 的 `comfyui_steps` / `comfyui_denoise_strength` 字段缺失，
   从 `brief.metadata.tunables_inherited` 取继承值，再不行才用 hardcode（12 步 / 0.85）
 

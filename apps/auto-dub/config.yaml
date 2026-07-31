@@ -1,0 +1,218 @@
+# Auto-Dub 配置文件
+# YouTube 视频自动发现、翻译配音与批量处理系统
+
+# ============================================================
+# 频道订阅列表
+# ============================================================
+channels:
+  - name: "AI For You"
+    url: "https://www.youtube.com/@AIForYou-y3p"
+  - name: "Fahd Mirza"
+    url: "https://www.youtube.com/@fahdmirza"
+  - name: "Prompt Engineer"
+    url: "https://www.youtube.com/@PromptEngineer48"
+  - name: "Matthew Berman"
+    url: "https://www.youtube.com/@matthew_berman"
+  - name: "WorldofAI"
+    url: "https://www.youtube.com/@intheworldofai"
+  - name: "Cole Medin"
+    url: "https://www.youtube.com/@ColeMedin"
+  - name: "Alejandro AO"
+    url: "https://www.youtube.com/@alejandro_ao"
+  - name: "Sam Witteveen"
+    url: "https://www.youtube.com/@samwitteveenai"
+  - name: "AI Anytime"
+    url: "https://www.youtube.com/@AIAnytime"
+
+# ============================================================
+# 搜索关键词
+# ============================================================
+keywords:
+  - "run LLM locally free Ollama LM Studio tutorial"
+  - "Google Colab free GPU fine tune LLM open source"
+  - "free AI API credits OpenRouter Gemini tier tutorial"
+  - "build local AI agent Ollama Open WebUI no cost"
+  - "free alternative Cursor GitHub Copilot local model"
+  - "Unsloth HuggingFace Google Colab tutorial free"
+  - "free cloud GPU for AI training Kaggle Colab Lambda"
+
+# ============================================================
+# 筛选规则
+# ============================================================
+filters:
+  min_duration_seconds: 180    # 3 分钟
+  max_duration_seconds: 1200   # 20 分钟
+  max_age_days: 30             # 最近 30 天
+  exclude_languages: ["zh"]    # 排除中文视频
+  # LLM 内容相关性判断 prompt
+  relevance_prompt: |
+    你是一个视频内容分类器。请判断以下 YouTube 视频是否讲解了
+    以下任意一个主题：
+    1. 如何利用免费的 AI 模型（如 Ollama, LM Studio, Hugging Face 开源模型）
+    2. 如何利用免费的云服务或 GPU（如 Google Colab, Kaggle, Lightning AI）
+    3. 如何利用免费的 API 额度（如 Gemini 免费层, OpenRouter 免费额度）
+    4. 免费的 AI 开发工具和资源（如免费编程助手、免费 Agent 框架）
+
+    视频标题: {title}
+    视频描述: {description}
+
+    只回答 yes 或 no。
+
+# ============================================================
+# 管线参数
+# ============================================================
+pipeline:
+  name: localization-dub
+  target_language: zh-CN
+  source_language: en-US
+  tts_engine: voxcpm
+  subtitle_style: "中文+术语英文标注"
+  output_format: "16:9"        # B站横屏
+  render_runtime: ffmpeg        # 使用 FFmpeg 合成（替换音轨+烧字幕）
+
+# ============================================================
+# 自动审核 (替代 human_approval)
+# ============================================================
+auto_review:
+  max_fix_loops: 3             # 每个阶段最多自动修复 3 轮
+  checks:
+    idea:
+      - brief_schema_valid
+      - target_language_set
+      - source_language_detected
+    script:
+      - transcript_not_empty
+      - translation_completeness
+      - glossary_terms_preserved
+      - no_untranslated_sentences
+    scene_plan:
+      - all_scenes_have_timing
+      - dub_mode_set
+      - subtitle_format_correct
+
+# ============================================================
+# 术语表 (保证多视频翻译一致性)
+# ============================================================
+glossary:
+  # 不翻译，保留英文原文
+  keep_english:
+    - GPU
+    - CPU
+    - API
+    - Docker
+    - Kubernetes
+    - GitHub
+    - Hugging Face
+    - HuggingFace
+    - Colab
+    - Google Colab
+    - Kaggle
+    - CUDA
+    - VRAM
+    - LLM
+    - LoRA
+    - QLoRA
+    - RAG
+    - Transformer
+    - GGUF
+    - ONNX
+    - Ollama
+    - LM Studio
+    - ComfyUI
+    - Stable Diffusion
+    - Midjourney
+    - Claude
+    - ChatGPT
+    - Gemini
+    - DeepSeek
+    - Llama
+    - Mistral
+    - Qwen
+    - Phi
+    - Gemma
+    - OpenRouter
+    - Groq
+    - Unsloth
+    - LangChain
+    - LangGraph
+    - LlamaIndex
+    - Streamlit
+    - Gradio
+    - FastAPI
+    - PyTorch
+    - TensorFlow
+    - Jupyter
+    - VS Code
+    - Cursor
+    - Copilot
+    - n8n
+    - Flowise
+    - Open WebUI
+    - Jan.ai
+    - AutoGen
+    - CrewAI
+    - Lightning AI
+
+  # 固定翻译映射
+  translations:
+    fine-tuning: "微调"
+    fine-tune: "微调"
+    inference: "推理"
+    deployment: "部署"
+    open-source: "开源"
+    open source: "开源"
+    pre-trained: "预训练"
+    pretrained: "预训练"
+    prompt engineering: "提示词工程"
+    prompt: "提示词"
+    embedding: "嵌入向量"
+    embeddings: "嵌入向量"
+    token: "token"
+    tokens: "token"
+    context window: "上下文窗口"
+    quantization: "量化"
+    quantize: "量化"
+    model weights: "模型权重"
+    weights: "权重"
+    checkpoint: "检查点"
+    batch size: "批次大小"
+    learning rate: "学习率"
+    epoch: "轮次"
+    dataset: "数据集"
+    pipeline: "管线"
+    serverless: "无服务器"
+    notebook: "笔记本"
+    runtime: "运行时"
+    container: "容器"
+    cloud instance: "云实例"
+    multi-modal: "多模态"
+    multimodal: "多模态"
+    agentic: "智能体化"
+    agent: "智能体"
+    workflow: "工作流"
+    retrieval: "检索"
+    vector database: "向量数据库"
+    vector store: "向量存储"
+    free tier: "免费层"
+
+# ============================================================
+# 批量处理
+# ============================================================
+batch:
+  max_per_run: 15              # 每次最多处理 15 个视频
+  download_quality: "best"     # yt-dlp 下载质量
+  search_max_results: 10       # 每个关键词最多搜索结果数
+
+# ============================================================
+# 输出路径
+# ============================================================
+output:
+  base_dir: "projects/auto-dub"
+  review_dir: "projects/auto-dub/review"
+  published_dir: "projects/auto-dub/published"
+
+# ============================================================
+# 数据库
+# ============================================================
+database:
+  path: "projects/auto-dub/tracking.db"

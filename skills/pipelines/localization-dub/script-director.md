@@ -6,6 +6,7 @@ Turn the approved localization brief into a transcript-backed, reviewable script
 
 ## Reference Inputs
 
+- `skills/pipelines/localization-dub/lessons-learned.md`
 - `docs/localization-dubbing-best-practices.md`
 - `skills/creative/storytelling.md`
 
@@ -21,9 +22,11 @@ Start with the source transcript and fix obvious errors in:
 - numbers,
 - CTA phrasing.
 
-### 2. Produce Reviewable Target Copy
+### 2. Produce Reviewable Target Copy (With Character Budgeting)
 
 For each target language, generate text that can be reviewed before synthesis. Record where terms should remain unchanged.
+**MANDATORY**: Strictly enforce **法则 1 (Character Budgeting)** from `lessons-learned.md`:
+Calculate `Max_Chars = max(2, int(duration * 3.8))` for each segment. Ensure Chinese character counts stay within timing budget to eliminate speed spikes and duration drift.
 
 ### 3. Preserve Structure Where Practical
 

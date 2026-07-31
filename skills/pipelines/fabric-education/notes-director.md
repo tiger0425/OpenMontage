@@ -11,9 +11,6 @@
 
 > **⚠️ 路径规范**：所有相对路径必须带 `projects/{project_name}/` 前缀。
 
-### Step 0: 读取 Provider Lockdown
-**强制动作**：在执行任何生成任务前，必须加载 `.agents/skills/provider-lockdown/SKILL.md`。
-
 ### Step 1: 编写核心长文（core_article）
 
 基于 `fabric_edu_brief` 的面料事实、pitfalls 和 educational_angle，写一篇完整的 Markdown 知识长文。
