@@ -872,6 +872,141 @@ class PipelineAutomator:
             pass
         return 0.0
 
+    @staticmethod
+    def _sanitize_filename(title: str, max_len: int = 60) -> str:
+        """将中文标题转为安全的文件名（保留中英文，去除特殊符号）。"""
+        safe = title.strip()
+        safe = safe.replace('/', '_').replace('\\', '_').replace(':', '_')
+        safe = safe.replace('*', '_').replace('?', '_').replace('"', '_')
+        safe = safe.replace('<', '_').replace('>', '_').replace('|', '_')
+        safe = safe.replace('\n', ' ').replace('\r', ' ')
+        safe = ' '.join(safe.split())
+        if len(safe) > max_len:
+            safe = safe[:max_len].rstrip()
+        return safe or "untitled"
+
+    def _get_original_description(self) -> str:
+        """用 yt-dlp 获取原视频简介。"""
+        try:
+            cmd = ["yt-dlp", "--print", "%(description)s", "--no-playlist", self.video["url"]]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 text=True, encoding="utf-8", errors="replace")
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    def _generate_cover_images(self, source_video: Path, title: str, channel: str,
+                                 output_dir: Path, base_name: str) -> Optional[Path]:
+        """生成 B站标题党风格封面 (16:9)，使用 HyperFrames 模板。"""
+        # 1. 下载 YouTube 缩略图
+        thumb_file = output_dir / f"{base_name}_thumb.jpg"
+        if not thumb_file.exists():
+            try:
+                subprocess.run([
+                    "yt-dlp", "--no-playlist", "-o", str(thumb_file.with_suffix("")),
+                    "--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg",
+                    self.video["url"]
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            for ext in [".webp", ".jpg"]:
+                candidate = thumb_file.with_suffix(ext)
+                if candidate.exists():
+                    candidate.rename(thumb_file)
+                    break
+            if not thumb_file.exists():
+                subprocess.run([
+                    "ffmpeg", "-y", "-ss", "10", "-i", str(source_video),
+                    "-vframes", "1", "-q:v", "2", str(thumb_file)
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 2. 渲染 HyperFrames 封面
+        npx_exe = shutil.which("npx") or shutil.which("npx.cmd")
+        if not npx_exe:
+            return self._generate_cover_fallback(title, channel, output_dir, base_name)
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="omo_cover_"))
+        tmpl_src = APPS_ROOT / "templates" / "cover.html"
+        if not tmpl_src.exists():
+            return self._generate_cover_fallback(title, channel, output_dir, base_name)
+
+        shutil.copy2(tmpl_src, tmp_dir / "index.html")
+        if thumb_file.exists():
+            shutil.copy2(thumb_file, tmp_dir / "thumb.jpg")
+            thumb_var = "thumb.jpg"
+        else:
+            thumb_var = ""
+
+        variables = json.dumps({
+            "title": title,
+            "channel": channel or "",
+            "thumb_path": thumb_var,
+        }, ensure_ascii=False)
+
+        out_path = output_dir / f"{base_name}_cover.png"
+        tmp_mp4 = tmp_dir / "out.mp4"
+        cmd = [
+            npx_exe, "hyperframes", "render", str(tmp_dir),
+            "--output", str(tmp_mp4),
+            "--quality", "high",
+            "--variables", variables,
+        ]
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding="utf-8", errors="replace")
+            if res.returncode == 0 and tmp_mp4.exists():
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", str(tmp_mp4), "-vframes", "1",
+                    "-q:v", "1", str(out_path)
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        if out_path.exists():
+            return out_path
+        return self._generate_cover_fallback(title, channel, output_dir, base_name)
+
+    def _generate_cover_fallback(self, title: str, channel: str,
+                                   output_dir: Path, base_name: str) -> Optional[Path]:
+        """Pillow 降级封面生成（单张 16:9）。"""
+        import textwrap
+        from PIL import Image, ImageDraw, ImageFont
+
+        font_paths = ["C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/msyh.ttc"]
+        font_path = font_paths[0]
+
+        bg = Image.new("RGB", (1920, 1080), "#0f0c29")
+        draw = ImageDraw.Draw(bg)
+        font = ImageFont.truetype(font_path, 72)
+        wrapped = textwrap.fill(title, width=16)
+        lines = wrapped.split('\n')
+        lh = 86
+        total_h = len(lines) * lh
+        y_start = (1080 - total_h) // 2
+
+        for li, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font)
+            tx = (1920 - (bbox[2] - bbox[0])) // 2
+            ty = y_start + li * lh
+            for dx, dy in [(-3, -3), (3, -3), (-3, 3), (3, 3)]:
+                draw.text((tx + dx, ty + dy), line, font=font, fill="#000")
+            draw.text((tx, ty), line, font=font, fill="#FFD700")
+
+        if channel:
+            cf = ImageFont.truetype(font_path, 28)
+            ctxt = f"@{channel}"
+            cbbox = draw.textbbox((0, 0), ctxt, font=cf)
+            cx = (1920 - (cbbox[2] - cbbox[0])) // 2
+            draw.text((cx, 1020), ctxt, font=cf, fill="rgba(255,255,255,180)")
+
+        out = output_dir / f"{base_name}_cover.png"
+        bg.save(out, "PNG")
+        return out
+
     # ==========================================
     # 阶段 4: edit
     # ==========================================
@@ -1220,46 +1355,81 @@ class PipelineAutomator:
             return cp["artifacts"]["publish_log"]
 
         video_path = OMO_ROOT / render_report_data["outputs"][0]["path"]
-        
-        # 复制到 review 和 publish 最终目录
-        dest_filename = f"{self.video['video_id']}.mp4"
-        
-        review_file = OMO_ROOT / self.config["output"]["review_dir"] / dest_filename
-        shutil.copy2(video_path, review_file)
-        
-        published_file = OMO_ROOT / self.config["output"]["published_dir"] / dest_filename
-        shutil.copy2(video_path, published_file)
-        
-        print(f"    📂 视频已归档到审核目录: {review_file}")
-        print(f"    📂 视频已归档到发布目录: {published_file}")
 
-        # 翻译标题和简介
+        # === 翻译标题和简介 ===
         original_title = self.video.get("title", "")
-        original_desc = self.video.get("description", "")
         translated_title = original_title
-        translated_desc = original_desc
-        
+        translated_desc = ""
+
         if original_title:
             try:
-                print("    📝 正在翻译视频标题为中文...")
-                prompt = f"Please translate the following YouTube video title to Chinese, keeping professional tech terminology (like Ollama, Ollama, LM Studio, Unsloth, etc.) in English as configured. Output ONLY the translated Chinese title, no extra text:\n\n{original_title}"
-                translated_title = self.llm.generate(prompt, system_instruction="You are a professional technology translator.").strip()
-                translated_title = translated_title.strip('"\'')
+                print("    📝 正在翻译视频标题为中文（标题党风格）...")
+                prompt = (
+                    "Please translate the following YouTube video title into a catchy, clickbait-style "
+                    "Chinese title suitable for Bilibili. Keep professional tech terminology in English. "
+                    "Make it attention-grabbing but accurate. Output ONLY the Chinese title, no quotes, no extra text:\n\n"
+                    f"{original_title}"
+                )
+                translated_title = self.llm.generate(
+                    prompt, system_instruction="You are a professional Chinese copywriter for Bilibili."
+                ).strip().strip('"\'').strip()
                 print(f"    ✅ 翻译标题: {translated_title}")
             except Exception as e:
                 print(f"      ⚠️ 翻译标题失败: {e}")
-                
+
+        # 获取原视频简介并翻译
+        original_desc = self._get_original_description()
         if original_desc:
             try:
                 print("    📝 正在翻译视频简介为中文...")
-                prompt = f"Please translate the following YouTube video description to Chinese. Maintain code snippets, URLs, and key technical terms (like Ollama, API, GPU, LM Studio, etc.) in English. Output ONLY the translated Chinese description, no extra text:\n\n{original_desc}"
-                translated_desc = self.llm.generate(prompt, system_instruction="You are a professional technology translator.").strip()
+                prompt = (
+                    "Please translate the following YouTube video description to Chinese suitable for Bilibili upload. "
+                    "Keep code snippets, URLs, and key technical terms in English. "
+                    "Add a line at the beginning: '原视频: [original English title]'\n"
+                    "Add a line at the end: '#AI #人工智能 #中文配音'\n"
+                    "Output ONLY the translated description, no extra text:\n\n"
+                    f"{original_desc}"
+                )
+                translated_desc = self.llm.generate(
+                    prompt, system_instruction="You are a professional technology translator."
+                ).strip()
                 print("    ✅ 视频简介翻译完成")
             except Exception as e:
                 print(f"      ⚠️ 翻译简介失败: {e}")
+                translated_desc = original_desc
+        else:
+            translated_desc = ""
 
-        # 保存翻译后的元数据到 JSON 文件
-        metadata_filename = f"{self.video['video_id']}_metadata.json"
+        # === 生成安全文件名 ===
+        safe_name = self._sanitize_filename(translated_title)
+        video_filename = f"{safe_name}.mp4"
+
+        # 复制视频到 review 和 publish 目录
+        review_dir = OMO_ROOT / self.config["output"]["review_dir"]
+        published_dir = OMO_ROOT / self.config["output"]["published_dir"]
+        review_dir.mkdir(parents=True, exist_ok=True)
+        published_dir.mkdir(parents=True, exist_ok=True)
+
+        review_file = review_dir / video_filename
+        published_file = published_dir / video_filename
+        shutil.copy2(video_path, review_file)
+        shutil.copy2(video_path, published_file)
+        print(f"    📂 视频已归档: {video_filename}")
+
+        # === 生成封面图 ===
+        print("    🎨 正在生成 B站标题党封面 (4:3)...")
+        try:
+            cover_path = self._generate_cover_images(
+                self.source_video, translated_title, self.video.get("channel", ""),
+                review_dir, safe_name
+            )
+            if cover_path:
+                shutil.copy2(cover_path, published_dir / cover_path.name)
+                print(f"    ✅ 封面已生成: {cover_path.name}")
+        except Exception as e:
+            print(f"      ⚠️ 封面生成失败: {e}")
+
+        # === 保存元数据 JSON + 简介 TXT ===
         metadata_payload = {
             "video_id": self.video["video_id"],
             "url": self.video.get("url", ""),
@@ -1268,17 +1438,16 @@ class PipelineAutomator:
             "original_description": original_desc,
             "translated_description": translated_desc
         }
-        
-        review_metadata_file = OMO_ROOT / self.config["output"]["review_dir"] / metadata_filename
-        with open(review_metadata_file, "w", encoding="utf-8") as f:
+        meta_json = review_dir / f"{safe_name}_meta.json"
+        with open(meta_json, "w", encoding="utf-8") as f:
             json.dump(metadata_payload, f, ensure_ascii=False, indent=2)
-            
-        published_metadata_file = OMO_ROOT / self.config["output"]["published_dir"] / metadata_filename
-        with open(published_metadata_file, "w", encoding="utf-8") as f:
-            json.dump(metadata_payload, f, ensure_ascii=False, indent=2)
-            
-        print(f"    📂 视频元数据已保存到审核目录: {review_metadata_file}")
-        print(f"    📂 视频元数据已保存到发布目录: {published_metadata_file}")
+        shutil.copy2(meta_json, published_dir / meta_json.name)
+
+        if translated_desc:
+            desc_txt = review_dir / f"{safe_name}_简介.txt"
+            desc_txt.write_text(translated_desc, encoding="utf-8")
+            shutil.copy2(desc_txt, published_dir / desc_txt.name)
+            print(f"    📂 简介已保存: {desc_txt.name}")
 
         publish_log = {
             "version": "1.0",
