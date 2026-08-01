@@ -57,6 +57,13 @@ class DedupDB:
         cur.execute("SELECT status FROM videos WHERE video_id = ?", (video_id,))
         row = cur.fetchone()
         return row['status'] if row else None
+
+    def get_by_id(self, video_id: str) -> dict | None:
+        """按 video_id 获取视频记录，不存在则返回 None"""
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM videos WHERE video_id = ?", (video_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
     
     def add_video(self, video_id: str, url: str, title: str, channel: str, channel_url: str, 
                   duration_seconds: int, published_at: str, language: str = None, metadata: dict = None) -> bool:

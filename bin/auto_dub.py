@@ -6,6 +6,7 @@ Auto-Dub 系统的命令行入口
 """
 
 import argparse
+import json
 import sys
 import logging
 from pathlib import Path
@@ -27,7 +28,7 @@ BANNER = r"""
   / /| |/ / / / __/ __ \_____/ / / / / / / __ \  
  / ___ / /_/ / /_/ /_/ /____/ /_/ / /_/ / /_/ /  
 /_/  |_\__,_/\__/\____/    /_____/\__,_/_.___/   
-                                                 
+                                                  
              OpenMontage Auto-Dub CLI            
 ==========================================================
 """
@@ -35,6 +36,12 @@ BANNER = r"""
 def print_banner():
     """打印 ASCII Banner"""
     print(BANNER)
+
+def _emit_json(obj: dict, quiet: bool = False):
+    """输出单行 JSON 摘要（Log Barrier：子 Agent 只回报这一行）。"""
+    if quiet:
+        return
+    print(json.dumps(obj, ensure_ascii=False))
 
 def main():
     parser = argparse.ArgumentParser(
@@ -48,6 +55,16 @@ def main():
         type=str, 
         default=str(APP_ROOT / 'config.yaml'),
         help="指定配置文件路径 (默认: apps/auto-dub/config.yaml)"
+    )
+    parser.add_argument(
+        '--json',
+        action='store_true',
+        help="输出结构化单行 JSON 摘要（供 Compute Worker 子 Agent 回报给主 Agent）"
+    )
+    parser.add_argument(
+        '--quiet',
+        action='store_true',
+        help="抑制心跳/进度输出（只保留 JSON 摘要或静默退出）"
     )
     
     subparsers = parser.add_subparsers(
@@ -74,6 +91,26 @@ def main():
     # 子命令: mark-done
     parser_mark_done = subparsers.add_parser('mark-done', help='标记视频为已发布')
     parser_mark_done.add_argument('video_id', type=str, help='需要标记为已发布的视频 ID')
+    
+    # ---- 重算力子命令（Compute Worker 执行，带 --json 回报） ----
+    parser_render_assets = subparsers.add_parser(
+        'render-assets', help='仅 TTS 合成 + 混音 + SRT（重算力 GPU，建议派发子 Agent）')
+    parser_render_assets.add_argument('--video-id', required=True, help='目标视频 ID')
+    
+    parser_render_video = subparsers.add_parser(
+        'render-video', help='仅 FFmpeg 压制 + 片尾 + 归档（重算力，建议派发子 Agent）')
+    parser_render_video.add_argument('--video-id', required=True, help='目标视频 ID')
+    
+    parser_run_heavy = subparsers.add_parser(
+        'run-heavy', help='assets + edit + compose 打包一条龙（重算力，建议派发子 Agent）')
+    parser_run_heavy.add_argument('--video-id', required=True, help='目标视频 ID')
+
+    # 让 --json / --quiet 在子命令前后都能使用（子命令后显式声明，覆盖全局同名参数）
+    for _sub in subparsers._name_parser_map.values():
+        _sub.add_argument('--json', action='store_true',
+                          help=argparse.SUPPRESS)
+        _sub.add_argument('--quiet', action='store_true',
+                          help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     
@@ -81,7 +118,8 @@ def main():
         parser.print_help()
         sys.exit(1)
         
-    print_banner()
+    if not args.quiet:
+        print_banner()
     
     # 检查配置文件是否存在
     config_path = Path(args.config)
@@ -90,27 +128,41 @@ def main():
         sys.exit(1)
         
     try:
-        # 初始化 BatchRunner
-        runner = BatchRunner(config_path)
+        # 初始化 BatchRunner（quiet 时抑制心跳）
+        runner = BatchRunner(config_path, quiet=args.quiet)
         
         # 根据子命令调用对应的方法
         if args.command == 'scan':
-            runner.scan()
+            result = runner.scan()
         elif args.command == 'filter':
-            runner.filter_videos()
+            result = runner.filter_videos()
         elif args.command == 'process':
-            runner.process()
+            result = runner.process()
         elif args.command == 'run':
-            runner.run()
+            result = runner.run()
         elif args.command == 'status':
-            runner.status()
+            result = runner.status()
         elif args.command == 'mark-done':
             runner.mark_published(args.video_id)
             print(f"成功: 视频 {args.video_id} 已被标记为已发布状态。")
+            result = {"command": "mark-done", "video_id": args.video_id, "success": True}
+        elif args.command == 'render-assets':
+            result = runner.render_assets(args.video_id)
+        elif args.command == 'render-video':
+            result = runner.render_video(args.video_id)
+        elif args.command == 'run-heavy':
+            result = runner.run_heavy(args.video_id)
+        else:
+            result = {"command": args.command, "success": False, "error": "未知子命令"}
+
+        if args.json:
+            _emit_json(result, quiet=args.quiet)
             
     except Exception as e:
         print(f"\n执行命令 '{args.command}' 时发生错误: {e}")
         logging.exception(e)
+        if args.json:
+            _emit_json({"command": args.command, "success": False, "error": str(e)}, quiet=False)
         sys.exit(1)
 
 if __name__ == '__main__':

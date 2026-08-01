@@ -70,6 +70,13 @@ class PipelineAutomator:
         self._drift_retry_count = 0
         self._drift_retry_max = 3
         self._drift_need_retry = False
+
+        # 分阶段执行状态跟踪（供 run-heavy / render-video --json 摘要）
+        self._last_error: Optional[str] = None
+        self._last_drift: Optional[float] = None
+        self._last_verification_notes: list = []
+        self._last_warnings: list = []
+        self._last_output_path: Optional[str] = None
         
         # 确定各文件路径
         self.source_video = self.project_dir / "source.mp4"
@@ -121,6 +128,107 @@ class PipelineAutomator:
                     return False
                 continue
             return False
+
+    # ==========================================
+    # 分阶段重算力执行（Compute Worker 子命令）
+    # ==========================================
+    def render_assets_only(self) -> Optional[dict]:
+        """仅执行 assets 阶段（TTS 合成 + 混音 + SRT）。
+
+        前置：script / scene_plan checkpoint 必须已完成。
+        漂移超标时返回结构化错误，建议改用 run-heavy 触发自动缩短重翻。
+        """
+        # 恢复 script / scene_plan
+        cp_script = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "script")
+        cp_scene = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "scene_plan")
+        if not (cp_script and cp_script.get("status") == "completed" and cp_script.get("artifacts", {}).get("script")):
+            self._last_error = "render-assets 前置缺失：script 阶段未完成，请先运行轻任务 (process) 生成剧本"
+            print(f"    ❌ {self._last_error}")
+            return None
+        if not (cp_scene and cp_scene.get("status") == "completed" and cp_scene.get("artifacts", {}).get("scene_plan")):
+            self._last_error = "render-assets 前置缺失：scene_plan 阶段未完成"
+            print(f"    ❌ {self._last_error}")
+            return None
+
+        script_data = cp_script["artifacts"]["script"]
+        scene_plan_data = cp_scene["artifacts"]["scene_plan"]
+        asset_manifest = self._run_assets_stage(script_data, scene_plan_data)
+        if not asset_manifest:
+            self._last_error = self._last_error or "assets 阶段执行失败"
+            return None
+
+        return {
+            "output_path": str(self.assets_dir / "dub_zh.wav"),
+            "drift_seconds": self._last_drift,
+            "verification_notes": self._last_verification_notes,
+            "warnings": self._last_warnings,
+            "error": None,
+        }
+
+    def render_video_only(self) -> Optional[dict]:
+        """仅执行 edit + compose + publish（FFmpeg 压制 + 片尾 + 归档）。
+
+        前置：assets checkpoint 必须已完成。
+        漂移超标时返回结构化错误，建议改用 run-heavy 触发自动缩短重翻。
+        """
+        cp_assets = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "assets")
+        cp_scene = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "scene_plan")
+        if not (cp_assets and cp_assets.get("status") == "completed" and cp_assets.get("artifacts", {}).get("asset_manifest")):
+            self._last_error = "render-video 前置缺失：assets 阶段未完成，请先运行 render-assets"
+            print(f"    ❌ {self._last_error}")
+            return None
+        if not (cp_scene and cp_scene.get("status") == "completed" and cp_scene.get("artifacts", {}).get("scene_plan")):
+            self._last_error = "render-video 前置缺失：scene_plan 阶段未完成"
+            print(f"    ❌ {self._last_error}")
+            return None
+
+        asset_manifest = cp_assets["artifacts"]["asset_manifest"]
+        scene_plan_data = cp_scene["artifacts"]["scene_plan"]
+
+        edit_decisions = self._run_edit_stage(scene_plan_data, asset_manifest)
+        if not edit_decisions:
+            self._last_error = self._last_error or "edit 阶段执行失败"
+            return None
+
+        render_report = self._run_compose_stage(edit_decisions, asset_manifest)
+        if not render_report:
+            if self._drift_need_retry:
+                self._last_error = f"漂移超标（{self._last_drift:.2f}s），请改用 run-heavy 触发自动缩短重翻"
+            else:
+                self._last_error = self._last_error or "compose 阶段执行失败"
+            return None
+
+        publish_log = self._run_publish_stage(render_report)
+        if not publish_log:
+            self._last_error = self._last_error or "publish 阶段执行失败"
+            return None
+
+        return {
+            "output_path": self._last_output_path,
+            "drift_seconds": self._last_drift,
+            "verification_notes": self._last_verification_notes,
+            "warnings": self._last_warnings,
+            "error": None,
+        }
+
+    def run_heavy(self) -> bool:
+        """重算力打包一条龙：assets + edit + compose + publish（漂移超标自动缩短重翻）。
+
+        语义等同 run_pipeline，但保留最后状态供 --json 摘要。
+        """
+        ok = self.run_pipeline()
+        if not ok and self._last_error is None:
+            self._last_error = "run-heavy 管线执行失败"
+        return ok
+
+    def get_last_drift(self) -> Optional[float]:
+        return self._last_drift
+
+    def get_last_verification_notes(self) -> list:
+        return self._last_verification_notes
+
+    def get_last_warnings(self) -> list:
+        return self._last_warnings
 
     # ==========================================
     # 阶段 1: script
@@ -624,6 +732,7 @@ class PipelineAutomator:
             
         # 将实际的起止时间信息写入独立的 segment_timings.json 供下游 compose 阶段使用
         drift_seconds = max(0.0, previous_end - float(script_data["total_duration_seconds"]))
+        self._last_drift = drift_seconds
         timings_data = {
             "version": "1.0",
             "segments": segments_manifest,
@@ -1609,6 +1718,13 @@ class PipelineAutomator:
                 "drift_seconds": drift_seconds
             }
         }
+
+        # 记录分阶段执行状态（供 render-video / run-heavy --json 摘要）
+        self._last_drift = drift_seconds
+        self._last_verification_notes = list(verification_notes)
+        self._last_warnings = list(warnings_list)
+        self._last_output_path = str(final_video.relative_to(OMO_ROOT)).replace('\\', '/')
+        self._last_error = None
 
         final_review = {
             "version": "1.0",

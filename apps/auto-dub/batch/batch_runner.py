@@ -38,12 +38,13 @@ class BatchRunner:
     整合视频发现、筛选、去重、localization-dub 管线调用。
     """
     
-    def __init__(self, config_path: Path = None):
+    def __init__(self, config_path: Path = None, quiet: bool = False):
         # 加载配置
         if config_path is None:
             config_path = APP_ROOT / 'config.yaml'
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
+        self.quiet = quiet
         
         # 初始化各模块
         self.projects_dir = OMO_ROOT / self.config['output']['base_dir']
@@ -201,6 +202,106 @@ class BatchRunner:
         self.scan()
         self.filter_videos()
         return self.process()
+
+    # ==========================================
+    # 重算力子命令（Compute Worker 执行）
+    # ==========================================
+    def _get_video(self, video_id: str) -> dict:
+        """按 video_id 取视频，不存在则抛错。"""
+        video = self.db.get_by_id(video_id)
+        if not video:
+            raise ValueError(f"视频 {video_id} 不存在于数据库")
+        return video
+
+    def _build_automator(self, video: dict):
+        """为单个视频构建 PipelineAutomator（复用 _process_single_video 的构造逻辑）。"""
+        from batch.pipeline_automator import PipelineAutomator
+        video_id = video['video_id']
+        project_id = f"auto-dub-{video_id}"
+        project_dir = self.projects_dir / project_id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        return PipelineAutomator(
+            project_id=project_id,
+            project_dir=project_dir,
+            video=video,
+            config=self.config,
+            db=self.db,
+            glossary=self.glossary,
+            auto_reviewer=self.auto_reviewer
+        )
+
+    def render_assets(self, video_id: str) -> dict:
+        """仅 TTS 合成 + 混音 + SRT（重算力 GPU）。前置依赖 script/scene_plan checkpoint。"""
+        video = self._get_video(video_id)
+        print(f"\n  🔊 [render-assets] {video_id}: {video.get('title', '')}")
+        automator = self._build_automator(video)
+        report = automator.render_assets_only()
+        summary = {
+            "project_id": f"auto-dub-{video_id}",
+            "stage": "assets",
+            "success": report is not None,
+            "output_path": report.get("output_path") if isinstance(report, dict) else None,
+            "drift_seconds": report.get("drift_seconds") if isinstance(report, dict) else None,
+            "verification_notes": (report or {}).get("verification_notes", []),
+            "warnings": (report or {}).get("warnings", []),
+            "error": (report or {}).get("error"),
+        }
+        if summary["success"]:
+            self.db.update_status(video_id, 'processing')
+            print("  ✅ render-assets 完成")
+        else:
+            self.db.update_status(video_id, 'failed', error_msg=str(summary["error"]))
+            print(f"  ❌ render-assets 失败: {summary['error']}")
+        return summary
+
+    def render_video(self, video_id: str) -> dict:
+        """仅 FFmpeg 压制 + 片尾 + 归档（重算力）。前置依赖 assets checkpoint。"""
+        video = self._get_video(video_id)
+        print(f"\n  🎬 [render-video] {video_id}: {video.get('title', '')}")
+        automator = self._build_automator(video)
+        report = automator.render_video_only()
+        summary = {
+            "project_id": f"auto-dub-{video_id}",
+            "stage": "video",
+            "success": report is not None,
+            "output_path": report.get("output_path") if isinstance(report, dict) else None,
+            "drift_seconds": report.get("drift_seconds") if isinstance(report, dict) else None,
+            "verification_notes": (report or {}).get("verification_notes", []),
+            "warnings": (report or {}).get("warnings", []),
+            "error": (report or {}).get("error"),
+        }
+        if summary["success"]:
+            self.db.update_status(video_id, 'done')
+            print("  ✅ render-video 完成")
+        else:
+            self.db.update_status(video_id, 'failed', error_msg=str(summary["error"]))
+            print(f"  ❌ render-video 失败: {summary['error']}")
+        return summary
+
+    def run_heavy(self, video_id: str) -> dict:
+        """assets + edit + compose 打包一条龙（重算力，漂移超标自动缩短重翻）。"""
+        video = self._get_video(video_id)
+        print(f"\n  🏗️ [run-heavy] {video_id}: {video.get('title', '')}")
+        automator = self._build_automator(video)
+        success = automator.run_heavy()
+        summary = {
+            "project_id": f"auto-dub-{video_id}",
+            "stage": "heavy",
+            "success": success,
+            "output_path": str(self.review_dir / video_id) if success else None,
+            "drift_seconds": automator.get_last_drift(),
+            "verification_notes": automator.get_last_verification_notes(),
+            "warnings": automator.get_last_warnings(),
+            "error": None if success else "run-heavy 管线执行失败",
+        }
+        self.db.update_status(video_id, 'done' if success else 'failed',
+                              error_msg=None if success else summary["error"])
+        if success:
+            print("  ✅ run-heavy 完成")
+        else:
+            print(f"  ❌ run-heavy 失败: {summary['error']}")
+        return summary
+
     
     def status(self) -> dict:
         """查看处理状态统计"""
