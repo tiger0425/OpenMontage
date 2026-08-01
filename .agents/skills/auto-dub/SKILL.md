@@ -78,7 +78,7 @@ pending → downloading → transcribing → translating → tts_synthesis
 所有命令在 `e:/YifuAIForge/OpenMontage` 目录下执行：
 
 ```bash
-# 一键全流程（scan + filter + process）
+# 一键全流程（scan + filter + process；process 为轻任务模式）
 python bin/auto_dub.py run
 
 # 仅扫描新视频（更新候选池）
@@ -87,7 +87,8 @@ python bin/auto_dub.py scan
 # 仅筛选候选视频（LLM 相关性判断）
 python bin/auto_dub.py filter
 
-# 仅处理待处理队列（推进流水线）
+# 轻任务：仅推进 script + scene_plan checkpoint（绝不碰 TTS/FFmpeg）
+# 完成后会打印下一步应派发的 run-heavy 命令
 python bin/auto_dub.py process
 
 # 查看当前状态统计
@@ -96,7 +97,7 @@ python bin/auto_dub.py status
 # 标记某视频为已发布
 python bin/auto_dub.py mark-done {video_id}
 
-# ---- 重算力子命令（应派发给 Compute Worker 子 Agent 执行） ----
+# ---- 重算力子命令（必须由 Compute Worker 子 Agent 执行，禁止主 Agent 内联跑） ----
 # 仅 TTS 合成 + 混音 + SRT（IndexTTS2 本地 GPU，重算力）
 python bin/auto_dub.py render-assets --video-id {video_id} [--json]
 
@@ -109,10 +110,47 @@ python bin/auto_dub.py run-heavy --video-id {video_id} [--json]
 
 > ⚠️ **AGENTS.md 红线**：禁止写 ad-hoc 脚本直接调用工具。
 > 所有生产操作必须通过 `bin/auto_dub.py` 或 `bin/omo.py`。
-> **长短解耦规则**：重算力命令（render-assets / render-video / run-heavy）必须由
-> Compute Worker 子 Agent 在独立会话中执行，回报用 `--json` 摘要，禁止把完整
-> stdout 进度流粘贴给主 Agent（见 AGENT_GUIDE.md「Multi-Agent Task Delegation &
-> Log Barrier Protocol」）。
+> **长短解耦硬边界（机制强制，非自觉）**：
+> - `process` / `run` 已改为**纯轻任务**——只跑到 script + scene_plan checkpoint，
+>   **在代码层面不可能执行 TTS/FFmpeg**。任何主 Agent 跑 process 都不会阻塞在重算力上。
+> - 重算力命令（render-assets / render-video / run-heavy）**只能由 Compute Worker
+>   子 Agent 执行**，回报用 `--json` 摘要，禁止把完整 stdout 进度流粘贴给主 Agent
+>   （见 AGENT_GUIDE.md「Multi-Agent Task Delegation & Log Barrier Protocol」）。
+
+---
+
+## 🤖 跨智能体派发 Compute Worker 指南（OpenCode / OpenClaw / Cursor 通用）
+
+任何 Agent 客户端读取本 SKILL 后，遇到以下情况**必须派发子 Agent 执行重命令**，
+而不是自己内联运行：
+
+**触发条件（必须派发）：**
+- `process` 输出 `🚀 下一步：请派发 Worker 执行重算力` 提示后
+- 用户要求"处理/跑完 {video_id}"且 script+scene_plan 已就绪
+- 任何需要 GPU TTS 合成或 FFmpeg 压制的时刻
+
+**各客户端派发方式：**
+
+| 客户端 | 派发机制 | 主 Agent 动作 |
+|--------|---------|--------------|
+| OpenCode | `task` 工具 / 子 Agent | 派发 Worker 执行 `run-heavy --json`，只接收 JSON 摘要 |
+| OpenClaw | 子 Agent / Worker 任务 | 同上 |
+| Cursor | Background Agent / Subagent | 同上 |
+| Claude Code | Agent / Task 工具 | 同上 |
+| 通用 | 独立终端进程 | `python bin/auto_dub.py run-heavy --video-id X --json > worker.log 2>&1`，主 Agent 只读 `worker.log` 末行 JSON |
+
+**Worker 回报契约（子 Agent 必须遵守）：**
+1. 在自身会话中保留完整 `[AutoDub]` 心跳流（可被人工检查）
+2. 向主 Agent 只回报**最后一行 JSON**（`success`/`output_path`/`drift_seconds`/`error`）
+3. 禁止粘贴心跳/ffprobe 原始输出
+
+**典型两段式流程（推荐给任何客户端）：**
+```
+主 Agent:  python bin/auto_dub.py process          # 轻任务，秒级~分钟级
+主 Agent:  看到 "🚀 派发 Worker 执行 run-heavy"
+主 Agent:  派发子 Agent → Worker 执行 run-heavy --json → 回报 JSON 摘要
+主 Agent:  用 status 复核，向用户汇报成品路径
+```
 
 ---
 
@@ -212,14 +250,14 @@ glossary:
 
 | 用户说 | 对应操作 |
 |--------|---------|
-| "开始处理" / "启动配音" / "跑一下 auto-dub" | `python bin/auto_dub.py run` |
+| "开始处理" / "启动配音" / "跑一下 auto-dub" | `python bin/auto_dub.py run`（轻任务：scan+filter+process） |
 | "扫描新视频" / "更新候选池" | `python bin/auto_dub.py scan` |
-| "处理待处理队列" / "推进流水线" | `python bin/auto_dub.py process` |
+| "处理待处理队列" / "推进流水线" | `python bin/auto_dub.py process`（轻任务，重算力另派 Worker） |
 | "查看进度" / "现在处理到哪了" | `python bin/auto_dub.py status` |
-| "处理视频 {video_id}" | 检查状态后推进该视频 |
-| "合成音频/配音" / "跑 TTS" | `python bin/auto_dub.py render-assets --video-id {video_id}`（重算力，派发子 Agent） |
-| "压制视频/出片" | `python bin/auto_dub.py render-video --video-id {video_id}`（重算力，派发子 Agent） |
-| "一口气跑完 {video_id}" | `python bin/auto_dub.py run-heavy --video-id {video_id}`（重算力，派发子 Agent） |
+| "处理视频 {video_id}" | 先 `process`（轻任务），就绪后**派发子 Agent** 执行 `run-heavy` |
+| "合成音频/配音" / "跑 TTS" | `render-assets --video-id {video_id}`（重算力，**必须派发子 Agent**） |
+| "压制视频/出片" | `render-video --video-id {video_id}`（重算力，**必须派发子 Agent**） |
+| "一口气跑完 {video_id}" | `run-heavy --video-id {video_id}`（重算力，**必须派发子 Agent**） |
 | "标记 {video_id} 已发布" | `python bin/auto_dub.py mark-done {video_id}` |
 | "有哪些视频还没完成" | 查询 `tracking.db` 中非 `published` 状态的视频 |
 | "添加频道/播放列表" | 修改 `config.yaml` 中的 `channels` 列表 |

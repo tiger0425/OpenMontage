@@ -230,6 +230,9 @@ class PipelineAutomator:
             self._last_error = self._last_error or "publish 阶段执行失败"
             return None
 
+        # 阶段可能全部由 checkpoint 跳过 → 恢复最后一次渲染摘要
+        self._restore_render_state_from_checkpoint()
+
         return {
             "output_path": self._last_output_path,
             "drift_seconds": self._last_drift,
@@ -244,9 +247,49 @@ class PipelineAutomator:
         语义等同 run_pipeline，但保留最后状态供 --json 摘要。
         """
         ok = self.run_pipeline()
-        if not ok and self._last_error is None:
+        if ok:
+            # 全部阶段已由 checkpoint 跳过（未实际执行 compose）时，
+            # 从 compose checkpoint 恢复渲染摘要状态
+            self._restore_render_state_from_checkpoint()
+        elif self._last_error is None:
             self._last_error = "run-heavy 管线执行失败"
         return ok
+
+    def _restore_render_state_from_checkpoint(self) -> None:
+        """从 compose checkpoint 恢复最后一次渲染摘要（供 --json 回报）。"""
+        try:
+            cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "compose")
+            if not (cp and cp.get("status") == "completed"):
+                return
+            rr = cp.get("artifacts", {}).get("render_report", {}) or {}
+            outputs = rr.get("outputs", [])
+            if outputs and isinstance(outputs[0], dict):
+                self._last_output_path = outputs[0].get("path")
+            meta = rr.get("metadata", {}) or {}
+            if "drift_seconds" in meta:
+                self._last_drift = float(meta["drift_seconds"])
+            if rr.get("verification_notes"):
+                self._last_verification_notes = list(rr["verification_notes"])
+            if rr.get("warnings"):
+                self._last_warnings = list(rr["warnings"])
+        except Exception:
+            pass
+
+    def run_light(self) -> bool:
+        """轻任务：script + scene_plan（剧本与场景计划就绪）。
+
+        只做转录/翻译/场景规划，**不执行任何重算力**（TTS 合成 / FFmpeg 压制）。
+        重算力必须由 Compute Worker 子 Agent 通过 run-heavy / render-assets /
+        render-video 执行 —— 这是长短解耦的硬边界：主 Agent 的 process 到此为止。
+        """
+        self._stage_print(f"  🏁 开始轻任务 {self.project_id}（script + scene_plan）...")
+        script_data = self._run_script_stage()
+        if not script_data:
+            return False
+        scene_plan_data = self._run_scene_plan_stage(script_data)
+        if not scene_plan_data:
+            return False
+        return True
 
     def get_last_drift(self) -> Optional[float]:
         return self._last_drift

@@ -149,9 +149,13 @@ class BatchRunner:
         return passed
     
     def process(self) -> dict:
-        """批量处理待处理队列"""
+        """批量处理待处理队列（轻任务模式：仅到 script+scene_plan checkpoint）。
+
+        长短解耦硬边界：主 Agent 的 process 绝不执行重算力（TTS/FFmpeg）。
+        轻任务就绪后，必须由 Compute Worker 子 Agent 派发 run-heavy / render-*。
+        """
         print("\n" + "="*60)
-        print("⚡ 开始批量处理...")
+        print("⚡ 开始批量处理（轻任务：script + scene_plan）...")
         print("="*60)
         
         max_per_run = self.config.get('batch', {}).get('max_per_run', 5)
@@ -166,6 +170,7 @@ class BatchRunner:
         print(f"本次处理: {len(batch)}/{len(queue)} 个视频")
         
         stats = {'processed': 0, 'success': 0, 'failed': 0}
+        next_heavy = []
         
         for i, video in enumerate(batch, 1):
             print(f"\n{'='*40}")
@@ -177,28 +182,38 @@ class BatchRunner:
             stats['processed'] += 1
             
             try:
-                success = self._process_single_video(video)
+                success = self._process_single_video(video, heavy=False)
                 if success:
-                    self.db.update_status(
-                        video['video_id'], 'done',
-                        output_path=str(self.review_dir / video['video_id'])
-                    )
+                    # 轻任务完成：保持 processing，等待 Worker 重算力
+                    self.db.update_status(video['video_id'], 'processing')
                     stats['success'] += 1
-                    print(f"✅ 处理成功")
+                    next_heavy.append({
+                        "video_id": video['video_id'],
+                        "title": video.get('title', ''),
+                        "command": f"python bin/auto_dub.py run-heavy --video-id {video['video_id']} --json"
+                    })
+                    print(f"✅ 轻任务完成（script+scene_plan 已就绪）")
+                    print(f"   ⚡ 重算力请派发 Compute Worker 子 Agent 执行:")
+                    print(f"      python bin/auto_dub.py run-heavy --video-id {video['video_id']} --json")
                 else:
-                    self.db.update_status(video['video_id'], 'failed', error_msg="管线执行失败")
+                    self.db.update_status(video['video_id'], 'failed', error_msg="轻任务执行失败")
                     stats['failed'] += 1
-                    print(f"❌ 处理失败")
+                    print(f"❌ 轻任务失败")
             except Exception as e:
                 self.db.update_status(video['video_id'], 'failed', error_msg=str(e))
                 stats['failed'] += 1
                 print(f"❌ 异常: {e}")
         
-        print(f"\n📊 批量处理结果: 处理 {stats['processed']}, 成功 {stats['success']}, 失败 {stats['failed']}")
+        print(f"\n📊 轻任务处理结果: 处理 {stats['processed']}, 成功 {stats['success']}, 失败 {stats['failed']}")
+        if next_heavy:
+            print(f"\n🚀 下一步：以下 {len(next_heavy)} 个视频的剧本已就绪，请派发 Worker 执行重算力：")
+            for item in next_heavy:
+                print(f"   {item['command']}")
+        stats['next_heavy_commands'] = next_heavy
         return stats
     
     def run(self) -> dict:
-        """一键执行: scan + filter + process"""
+        """一键执行: scan + filter + process（process 为轻任务模式）"""
         self.scan()
         self.filter_videos()
         return self.process()
@@ -366,15 +381,18 @@ class BatchRunner:
                     merged.append(v)
         return merged
     
-    def _process_single_video(self, video: dict) -> bool:
-        """处理单个视频：下载 -> localization-dub 管线
-        
+    def _process_single_video(self, video: dict, heavy: bool = False) -> bool:
+        """处理单个视频：下载 -> idea -> 管线（轻任务默认，heavy=True 时全流程）
+
         这是核心处理函数，调用 OpenMontage 的 localization-dub 管线。
         流程：
         1. 创建项目目录
         2. 下载视频 (yt-dlp)
         3. 构建 brief artifact
         4. 通过自动审核器运行各阶段
+
+        长短解耦：heavy=False（process 默认）只跑到 script+scene_plan checkpoint；
+        heavy=True（run-heavy / Worker）才执行 assets→compose→publish 重算力。
         """
         import subprocess
         
@@ -491,7 +509,9 @@ class BatchRunner:
             print(f"  ❌ idea 阶段审核失败: {issues}")
             return False
         
-        # === Step 4: 调用管线自动执行器执行后续所有阶段 ===
+        # === Step 4: 调用管线自动执行器 ===
+        # 长短解耦硬边界：process 只跑轻任务（script+scene_plan）；
+        # 重算力（assets/compose）只能由 Worker 的 run-heavy/render-* 执行。
         automator = PipelineAutomator(
             project_id=project_id,
             project_dir=project_dir,
@@ -499,8 +519,12 @@ class BatchRunner:
             config=self.config,
             db=self.db,
             glossary=self.glossary,
-            auto_reviewer=self.auto_reviewer
+            auto_reviewer=self.auto_reviewer,
+            quiet=self.quiet
         )
         
-        success = automator.run_pipeline()
+        if heavy:
+            success = automator.run_heavy()
+        else:
+            success = automator.run_light()
         return success

@@ -82,10 +82,12 @@ def main():
     parser_filter = subparsers.add_parser('filter', help='筛选候选视频')
     
     # 子命令: process
-    parser_process = subparsers.add_parser('process', help='批量处理待处理队列')
+    parser_process = subparsers.add_parser(
+        'process', help='轻任务批量处理：仅 script+scene_plan（重算力请派发 Worker 用 run-heavy）')
     
     # 子命令: run
-    parser_run = subparsers.add_parser('run', help='scan + filter + process 一键执行')
+    parser_run = subparsers.add_parser(
+        'run', help='scan + filter + process 一键执行（process 为轻任务模式）')
     
     # 子命令: status
     parser_status = subparsers.add_parser('status', help='查看处理状态统计')

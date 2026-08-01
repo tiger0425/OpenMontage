@@ -696,16 +696,18 @@ Two role types exist in every client:
 | Command | Weight | Owner |
 |---------|--------|-------|
 | `python bin/auto_dub.py scan` / `filter` | light, interactive | Executive Lead |
-| `python bin/auto_dub.py process` / `run` | mixed — 轻交互前段 + 重算力后段（TTS/FFmpeg） | Executive Lead 仅用于轻量推进；含重算力时须派发 Worker |
+| `python bin/auto_dub.py process` / `run` | **light only** — mechanism-enforced: stops at `script`+`scene_plan` checkpoints; cannot touch TTS/FFmpeg | Executive Lead |
 | `python bin/auto_dub.py render-assets --video-id <id>` | heavy (GPU TTS) | Compute Worker |
 | `python bin/auto_dub.py render-video --video-id <id>` | heavy (FFmpeg) | Compute Worker |
 | `python bin/auto_dub.py run-heavy --video-id <id>` | heavy (full) | Compute Worker |
 
 Rules:
 
+- **The split is enforced by the CLI, not by convention.** `process`/`run` only run light stages (download → idea → script → scene_plan) and then print the exact `run-heavy` command to dispatch. There is no code path where a main-agent command executes GPU TTS or FFmpeg.
 - Once a script/creative brief is approved and heavy compute begins, the Executive Lead MUST delegate to a Worker (or an OS background process it monitors) — never block its own session on the render.
 - A Worker MUST run heavy commands with `--json` so its final report is a single parseable summary line.
 - A Worker MUST NOT paste the raw stdout/stderr of a render or probe back to the Executive Lead. That stream lives in the Worker's own session/terminal only.
+- Dispatch guidance per client (OpenCode / OpenClaw / Cursor / Claude Code / Codex) is documented in `.agents/skills/auto-dub/SKILL.md` → 《跨智能体派发 Compute Worker 指南》.
 
 ### Log Barrier Protocol
 
