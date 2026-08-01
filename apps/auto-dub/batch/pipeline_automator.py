@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 from typing import Optional
 from pydub import AudioSegment
 
+# 单调时钟（跨平台），用于心跳耗时/ETA 计算
+from time import monotonic as _monotonic
+
 # 添加 OpenMontage 根目录和 auto-dub 根目录到 Python 路径
 OMO_ROOT = Path(__file__).resolve().parents[3]
 APPS_ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +44,7 @@ from batch.llm_client import LLMClient
 class PipelineAutomator:
     """管线自动执行器"""
 
-    def __init__(self, project_id: str, project_dir: Path, video: dict, config: dict, db, glossary, auto_reviewer):
+    def __init__(self, project_id: str, project_dir: Path, video: dict, config: dict, db, glossary, auto_reviewer, quiet: bool = False):
         self.project_id = project_id
         self.project_dir = Path(project_dir)
         self.video = video
@@ -50,6 +53,7 @@ class PipelineAutomator:
         self.glossary = glossary
         self.auto_reviewer = auto_reviewer
         self.llm = LLMClient()
+        self.quiet = quiet
         
         # 语速校准器（延迟初始化，首次 translate 时测速）
         cache = self.project_dir.parent / "voxcpm_cps_cache.json"
@@ -88,9 +92,25 @@ class PipelineAutomator:
         self.audio_dir.mkdir(parents=True, exist_ok=True)
         self.renders_dir.mkdir(parents=True, exist_ok=True)
 
+    def _heartbeat(self, msg: str, *, force: bool = False):
+        """结构化心跳输出：flush 实时可见 + [AutoDub] 前缀。
+
+        - 默认遵守 quiet 开关（quiet 时静默）
+        - force=True 即使 quiet 也输出（关键错误/最终摘要）
+        """
+        if self.quiet and not force:
+            return
+        print(f"[AutoDub] {msg}", flush=True)
+
+    def _stage_print(self, msg: str, *, force: bool = False):
+        """阶段进度输出（非心跳），quiet 时抑制。"""
+        if self.quiet and not force:
+            return
+        print(msg, flush=True)
+
     def run_pipeline(self) -> bool:
         """运行完整管线流程 (从 script 阶段到 publish 阶段)"""
-        print(f"  🏁 开始自动执行项目 {self.project_id} 的 localization-dub 管线...")
+        self._stage_print(f"  🏁 开始自动执行项目 {self.project_id} 的 localization-dub 管线...")
         
         # 1. script 阶段
         script_data = self._run_script_stage()
@@ -583,6 +603,8 @@ class PipelineAutomator:
         temp_segments = []
         
         # 逐段合成配音，并获取其实际音频长度 (不进行任何变速/atempo处理)
+        total_lines = len(lines)
+        tts_start_ts = _monotonic()
         for idx, line in enumerate(lines):
             line_id = line["id"]
             text = line["delivery_cues"]["provider_text"]
@@ -600,10 +622,24 @@ class PipelineAutomator:
                 except Exception:
                     is_valid_existing = False
 
-            if is_valid_existing:
-                print(f"      - ⚡ 复用有效音频 [{idx+1}/{len(lines)}]: seg_{line_id}.wav")
+            # 结构化心跳：进度百分比 + 已耗时 + ETA
+            progress_pct = (idx / total_lines) * 100.0 if total_lines else 100.0
+            elapsed = _monotonic() - tts_start_ts
+            if idx > 0 and elapsed > 0:
+                per_item = elapsed / idx
+                eta_remaining = per_item * (total_lines - idx)
+                eta_str = f"ETA~{eta_remaining:.0f}s"
             else:
-                print(f"      - 合成 [{idx+1}/{len(lines)}]: {text[:20]}...")
+                eta_str = "ETA~?"
+            status = "复用" if is_valid_existing else "合成"
+            self._heartbeat(
+                f"[{tts_engine.upper()}] 分段 {idx+1}/{total_lines} ({progress_pct:.1f}%) "
+                f"耗时{elapsed:.1f}s {eta_str} | {status}: {text[:20]}..."
+            )
+
+            if is_valid_existing:
+                pass  # 心跳已输出，无需再打印
+            else:
                 if tts_engine == "indextts":
                     ok = self._synthesize_indextts(
                         text=text, output_path=output_file,

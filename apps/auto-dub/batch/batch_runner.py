@@ -227,7 +227,8 @@ class BatchRunner:
             config=self.config,
             db=self.db,
             glossary=self.glossary,
-            auto_reviewer=self.auto_reviewer
+            auto_reviewer=self.auto_reviewer,
+            quiet=self.quiet
         )
 
     def render_assets(self, video_id: str) -> dict:
