@@ -680,6 +680,47 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 | How should this pipeline stage behave? | `skills/pipelines/<pipeline>/...` |
 | What is the checkpoint/review policy? | `skills/meta/` |
 
+## Multi-Agent Task Delegation & Log Barrier Protocol
+
+> Applies to **all** agent clients (OpenCode, OpenClaw, Cursor, Windsurf, Codex, Claude Code). Every one of them reads this file (see `CLAUDE.md`, `CODEX.md`, `CURSOR.md`, `.windsurfrules`, `AGENTS.md`), so the contract below is engine-agnostic by construction.
+
+### Multi-Agent Division of Labor
+
+Two role types exist in every client:
+
+- **Executive Lead (主 Agent)** — holds the conversation with the user: requirement analysis, brief/script review, state queries, and *dispatching* heavy work. MUST stay non-blocking: never run a 20–40 minute render command inline.
+- **Compute Worker (子 Agent / Subagent / Worker)** — executes heavy compute commands in an isolated context. Its detailed progress stays in its own session/log panel; it reports back only a concise JSON summary.
+
+**Short-vs-heavy command split (Auto-Dub):**
+
+| Command | Weight | Owner |
+|---------|--------|-------|
+| `python bin/auto_dub.py scan` / `filter` | light, interactive | Executive Lead |
+| `python bin/auto_dub.py process` (pre-assets stages) | light | Executive Lead |
+| `python bin/auto_dub.py render-assets --video-id <id>` | heavy (GPU TTS) | Compute Worker |
+| `python bin/auto_dub.py render-video --video-id <id>` | heavy (FFmpeg) | Compute Worker |
+| `python bin/auto_dub.py run-heavy --video-id <id>` | heavy (full) | Compute Worker |
+
+Rules:
+
+- Once a script/creative brief is approved and heavy compute begins, the Executive Lead MUST delegate to a Worker (or an OS background process it monitors) — never block its own session on the render.
+- A Worker MUST run heavy commands with `--json` so its final report is a single parseable summary line.
+- A Worker MUST NOT paste the raw stdout/stderr of a render or probe back to the Executive Lead. That stream lives in the Worker's own session/terminal only.
+
+### Log Barrier Protocol
+
+- **Verbose in sub-session (子会话完全透明):** A Worker running a long command must let its full stdout/stderr stream into its own session/log panel so a human can inspect progress, heartbeats (`[AutoDub] ... ETA`), and errors.
+- **Summary to parent only (向上通讯严格屏障):** The only thing a Worker sends back to the Executive Lead (or user dialog) is a **single JSON line** produced by the tool's `--json` mode — or, if the tool lacks `--json`, a 1–3 sentence summary. Copying hundreds of WAV progress lines or ffprobe dumps is PROHIBITED.
+- `--quiet` suppresses heartbeats; use it only when the caller needs a bare exit signal.
+
+### GPU Mutex Semantics
+
+Local GPU TTS (IndexTTS2 / VoxCPM) holds 8–16 GB VRAM. Multiple agents dispatching Workers concurrently would OOM. Therefore:
+
+- Any agent entering TTS inference MUST respect the file-level GPU mutex (`lib/gpu_lock.py`): acquire before starting the IndexTTS2 resident server, release after it stops.
+- While the lock is held, other agents' Workers queue and print a friendly waiting heartbeat (`[AutoDub] 等待 GPU 锁...`); on timeout (default 1800 s) they fail loudly rather than crash the host.
+- The lock file lives at `%LOCALAPPDATA%/openmontage/.gpu.lock` (override: `OPENMONTAGE_GPU_LOCK_PATH`), shared across engines and working directories.
+
 ## What Not To Do
 
 - **Do not bypass the pipeline.** Never write ad-hoc scripts to call tools directly. All production goes through pipeline stages with director skills. See Rule Zero.

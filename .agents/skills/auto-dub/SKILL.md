@@ -95,10 +95,24 @@ python bin/auto_dub.py status
 
 # 标记某视频为已发布
 python bin/auto_dub.py mark-done {video_id}
+
+# ---- 重算力子命令（应派发给 Compute Worker 子 Agent 执行） ----
+# 仅 TTS 合成 + 混音 + SRT（IndexTTS2 本地 GPU，重算力）
+python bin/auto_dub.py render-assets --video-id {video_id} [--json]
+
+# 仅 FFmpeg 压制 + 片尾 + 归档（重算力）
+python bin/auto_dub.py render-video --video-id {video_id} [--json]
+
+# assets + edit + compose 打包一条龙（20~40 分钟，漂移超标自动缩短重翻）
+python bin/auto_dub.py run-heavy --video-id {video_id} [--json]
 ```
 
 > ⚠️ **AGENTS.md 红线**：禁止写 ad-hoc 脚本直接调用工具。
 > 所有生产操作必须通过 `bin/auto_dub.py` 或 `bin/omo.py`。
+> **长短解耦规则**：重算力命令（render-assets / render-video / run-heavy）必须由
+> Compute Worker 子 Agent 在独立会话中执行，回报用 `--json` 摘要，禁止把完整
+> stdout 进度流粘贴给主 Agent（见 AGENT_GUIDE.md「Multi-Agent Task Delegation &
+> Log Barrier Protocol」）。
 
 ---
 
@@ -202,9 +216,43 @@ glossary:
 | "处理待处理队列" / "推进流水线" | `python bin/auto_dub.py process` |
 | "查看进度" / "现在处理到哪了" | `python bin/auto_dub.py status` |
 | "处理视频 {video_id}" | 检查状态后推进该视频 |
+| "合成音频/配音" / "跑 TTS" | `python bin/auto_dub.py render-assets --video-id {video_id}`（重算力，派发子 Agent） |
+| "压制视频/出片" | `python bin/auto_dub.py render-video --video-id {video_id}`（重算力，派发子 Agent） |
+| "一口气跑完 {video_id}" | `python bin/auto_dub.py run-heavy --video-id {video_id}`（重算力，派发子 Agent） |
 | "标记 {video_id} 已发布" | `python bin/auto_dub.py mark-done {video_id}` |
 | "有哪些视频还没完成" | 查询 `tracking.db` 中非 `published` 状态的视频 |
 | "添加频道/播放列表" | 修改 `config.yaml` 中的 `channels` 列表 |
+
+---
+
+## 🤝 子 Agent 汇报契约（Log Barrier）
+
+**重算力命令必须由 Compute Worker 子 Agent 执行，且回报使用 `--json`。**
+
+- Worker 会话中可以看到完整的 `[AutoDub]` 心跳进度流（进度/耗时/ETA），这些**只留在 Worker 自己的窗口/日志**。
+- 向主 Agent 回报时，只允许粘贴**单行 JSON 摘要**。禁止粘贴整个 stdout。
+
+示例（`render-assets --json` 的末行输出）：
+
+```json
+{"project_id":"auto-dub-abc123","stage":"assets","success":true,"output_path":"projects/auto-dub/review/abc123.mp4","drift_seconds":0.42,"verification_notes":["零重叠校验通过：所有相邻音频分段间隔均大于等于 100ms"],"warnings":[],"error":null}
+```
+
+字段说明：
+
+| 字段 | 含义 |
+|------|------|
+| `project_id` | 项目 ID（`auto-dub-{video_id}`） |
+| `stage` | 刚完成的阶段（assets / video / heavy） |
+| `success` | 是否成功 |
+| `output_path` | 成品相对路径 |
+| `drift_seconds` | 配音相对原视频的漂移秒数 |
+| `verification_notes` | 通过的核心校验项 |
+| `warnings` | 警告列表（零重叠失败等） |
+| `error` | 失败原因（无则 null） |
+
+> 主 Agent 收到 JSON 摘要后，用 `python bin/auto_dub.py status` 复核数据库状态即可，
+> 无需重复查看 Worker 的完整日志。
 
 ---
 
