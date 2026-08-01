@@ -28,7 +28,7 @@ BANNER = r"""
   / /| |/ / / / __/ __ \_____/ / / / / / / __ \  
  / ___ / /_/ / /_/ /_/ /____/ /_/ / /_/ / /_/ /  
 /_/  |_\__,_/\__/\____/    /_____/\__,_/_.___/   
-                                                  
+
              OpenMontage Auto-Dub CLI            
 ==========================================================
 """
@@ -37,10 +37,12 @@ def print_banner():
     """打印 ASCII Banner"""
     print(BANNER)
 
-def _emit_json(obj: dict, quiet: bool = False):
-    """输出单行 JSON 摘要（Log Barrier：子 Agent 只回报这一行）。"""
-    if quiet:
-        return
+def _emit_json(obj: dict):
+    """输出单行 JSON 摘要（Log Barrier：子 Agent 只回报这一行）。
+
+    注意：--quiet 只抑制心跳/进度，绝不抑制 JSON 摘要 ——
+    `--json --quiet` 组合必须仍输出 JSON（Worker 静默跑任务但上报摘要）。
+    """
     print(json.dumps(obj, ensure_ascii=False))
 
 def main():
@@ -105,11 +107,13 @@ def main():
         'run-heavy', help='assets + edit + compose 打包一条龙（重算力，建议派发子 Agent）')
     parser_run_heavy.add_argument('--video-id', required=True, help='目标视频 ID')
 
-    # 让 --json / --quiet 在子命令前后都能使用（子命令后显式声明，覆盖全局同名参数）
+    # 让 --json / --quiet 在子命令前后都能使用。
+    # default=argparse.SUPPRESS 是关键：子 parser 不覆盖全局已解析的值，
+    # 否则 `python bin/auto_dub.py --json status` 会被子 parser 默认 False 覆盖。
     for _sub in subparsers._name_parser_map.values():
-        _sub.add_argument('--json', action='store_true',
+        _sub.add_argument('--json', action='store_true', default=argparse.SUPPRESS,
                           help=argparse.SUPPRESS)
-        _sub.add_argument('--quiet', action='store_true',
+        _sub.add_argument('--quiet', action='store_true', default=argparse.SUPPRESS,
                           help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -156,13 +160,13 @@ def main():
             result = {"command": args.command, "success": False, "error": "未知子命令"}
 
         if args.json:
-            _emit_json(result, quiet=args.quiet)
+            _emit_json(result)
             
     except Exception as e:
         print(f"\n执行命令 '{args.command}' 时发生错误: {e}")
         logging.exception(e)
         if args.json:
-            _emit_json({"command": args.command, "success": False, "error": str(e)}, quiet=False)
+            _emit_json({"command": args.command, "success": False, "error": str(e)})
         sys.exit(1)
 
 if __name__ == '__main__':

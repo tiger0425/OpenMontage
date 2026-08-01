@@ -696,7 +696,7 @@ Two role types exist in every client:
 | Command | Weight | Owner |
 |---------|--------|-------|
 | `python bin/auto_dub.py scan` / `filter` | light, interactive | Executive Lead |
-| `python bin/auto_dub.py process` (pre-assets stages) | light | Executive Lead |
+| `python bin/auto_dub.py process` / `run` | mixed — 轻交互前段 + 重算力后段（TTS/FFmpeg） | Executive Lead 仅用于轻量推进；含重算力时须派发 Worker |
 | `python bin/auto_dub.py render-assets --video-id <id>` | heavy (GPU TTS) | Compute Worker |
 | `python bin/auto_dub.py render-video --video-id <id>` | heavy (FFmpeg) | Compute Worker |
 | `python bin/auto_dub.py run-heavy --video-id <id>` | heavy (full) | Compute Worker |

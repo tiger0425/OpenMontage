@@ -111,7 +111,14 @@ class PipelineAutomator:
     def run_pipeline(self) -> bool:
         """运行完整管线流程 (从 script 阶段到 publish 阶段)"""
         self._stage_print(f"  🏁 开始自动执行项目 {self.project_id} 的 localization-dub 管线...")
-        
+        try:
+            return self._run_pipeline_inner()
+        finally:
+            # 任何路径退出都确保释放 IndexTTS2 服务与 GPU 锁（含 script 测速失败等）
+            if self.tts_engine == "indextts":
+                self._stop_indextts_server()
+
+    def _run_pipeline_inner(self) -> bool:
         # 1. script 阶段
         script_data = self._run_script_stage()
         if not script_data:
@@ -249,6 +256,12 @@ class PipelineAutomator:
 
     def get_last_warnings(self) -> list:
         return self._last_warnings
+
+    def get_last_error(self) -> Optional[str]:
+        return self._last_error
+
+    def get_last_output_path(self) -> Optional[str]:
+        return self._last_output_path
 
     # ==========================================
     # 阶段 1: script
@@ -569,14 +582,25 @@ class PipelineAutomator:
     # 阶段 3: assets
     # ==========================================
     def _run_assets_stage(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
-        """assets 阶段入口：持有 GPU 物理互斥锁后执行（防止跨智能体并发 OOM）。"""
-        from lib.gpu_lock import gpu_lock
+        """assets 阶段入口。
+
+        - indextts 引擎：GPU 锁由 IndexTTS2 常驻服务生命周期持有（_get_indextts_server
+          启动时获取，此处无需重复获取；finally 保证异常时也停止服务并释放锁）。
+        - voxcpm 引擎：本阶段持 gpu_lock 覆盖整个 TTS 合成。
+        """
         try:
-            with gpu_lock("indextts-assets", timeout=1800, heartbeat=15):
+            if self.tts_engine == "indextts":
+                return self._do_assets_stage(script_data, scene_plan_data)
+            from lib.gpu_lock import gpu_lock
+            with gpu_lock("voxcpm-assets", timeout=1800, heartbeat=15):
                 return self._do_assets_stage(script_data, scene_plan_data)
         except TimeoutError as e:
             print(f"    ❌ {e}")
             return None
+        finally:
+            # 无论成功/失败/异常，都停止 IndexTTS2 常驻服务并释放 GPU 锁
+            if self.tts_engine == "indextts":
+                self._stop_indextts_server()
 
     def _do_assets_stage(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
         print("  ⚙️ 运行 [assets] 阶段...")
@@ -746,6 +770,8 @@ class PipelineAutomator:
         print(f"    ✅ 字幕已同步保存: {subtitles_srt}")
 
         # 4. 构造 asset_manifest
+        # provenance：按实际使用的 TTS 引擎登记 source_tool（indextts / voxcpm）
+        source_tool = "indextts_tts" if self.tts_engine == "indextts" else "voxcpm_tts"
         assets_list = []
         
         # 1. SRT subtitle asset
@@ -762,7 +788,7 @@ class PipelineAutomator:
             "id": "dub_audio_zh",
             "type": "audio",
             "path": str(dub_zh_wav.relative_to(self.project_dir)).replace('\\', '/'),
-            "source_tool": "voxcpm_tts",
+            "source_tool": source_tool,
             "scene_id": "global",
             "duration_seconds": float(duration_sec)
         })
@@ -773,7 +799,7 @@ class PipelineAutomator:
                 "id": seg["id"],
                 "type": "narration",
                 "path": seg["path"],
-                "source_tool": "voxcpm_tts",
+                "source_tool": source_tool,
                 "scene_id": f"scene_{seg['id'].replace('narr_', '')}",
                 "duration_seconds": float(seg["audio_len"])
             })
@@ -817,9 +843,6 @@ class PipelineAutomator:
             pipeline_type="localization-dub"
         )
         print("  ✅ assets 阶段自动提交成功")
-        # 释放 IndexTTS2 GPU 进程（若使用）
-        if self.tts_engine == "indextts":
-            self._stop_indextts_server()
         return asset_manifest
 
     def _write_srt(self, lines: list[dict], output_path: Path):
@@ -969,32 +992,51 @@ class PipelineAutomator:
             return False
 
     def _get_indextts_server(self):
-        """惰性启动 IndexTTS2 常驻服务进程（模型只加载一次）。"""
+        """惰性启动 IndexTTS2 常驻服务进程（模型只加载一次）。
+
+        启动即获取 GPU 物理互斥锁（GpuLockHandle），持有到 _stop_indextts_server()
+        释放 —— 覆盖 script 阶段测速校准与 assets 阶段合成全程，杜绝跨智能体并发 OOM。
+        """
         if getattr(self, "_indextts_proc", None) is not None:
             return self._indextts_proc
-        proc = subprocess.Popen(
-            [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, encoding="utf-8", errors="replace",
-        )
+        from lib.gpu_lock import GpuLockHandle
+        self._indextts_gpu_lock = GpuLockHandle("indextts", timeout=1800, heartbeat=15)
+        self._indextts_gpu_lock.acquire()
+        try:
+            proc = subprocess.Popen(
+                [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, encoding="utf-8", errors="replace",
+            )
+        except Exception:
+            self._indextts_gpu_lock.release()
+            self._indextts_gpu_lock = None
+            raise
         self._indextts_proc = proc
         self._indextts_lock = threading.Lock()
         return proc
 
     def _stop_indextts_server(self):
+        """停止 IndexTTS2 常驻服务并释放 GPU 锁（幂等，可安全多次调用）。"""
         proc = getattr(self, "_indextts_proc", None)
-        if proc is None:
-            return
-        try:
-            proc.stdin.write('{"cmd": "exit"}\n')
-            proc.stdin.flush()
-            proc.wait(timeout=10)
-        except Exception:
+        if proc is not None:
             try:
-                proc.kill()
+                proc.stdin.write('{"cmd": "exit"}\n')
+                proc.stdin.flush()
+                proc.wait(timeout=10)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._indextts_proc = None
+        gl = getattr(self, "_indextts_gpu_lock", None)
+        if gl is not None:
+            try:
+                gl.release()
             except Exception:
                 pass
-        self._indextts_proc = None
+            self._indextts_gpu_lock = None
 
     def _synthesize_indextts(
         self, text: str, output_path, voice_ref: str | None = None, seed: int = 42,
@@ -1126,7 +1168,9 @@ class PipelineAutomator:
                 resp = resp.strip()
                 results = json.loads(resp)
             except Exception as e:
-                print(f"    ⚠️ 重翻批次失败: {e}，保留原翻译")
+                # 批次失败：保留该批次原翻译（不得丢失 sections），日志明确提示
+                print(f"    ⚠️ 重翻批次失败: {e}，保留该批原翻译")
+                updated_lines.extend(batch)
                 continue
 
             trans_map = {}

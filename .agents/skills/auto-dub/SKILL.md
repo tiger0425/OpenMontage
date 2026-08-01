@@ -116,18 +116,19 @@ python bin/auto_dub.py run-heavy --video-id {video_id} [--json]
 
 ---
 
-## 🎙️ TTS 引擎：VoxCPM 本地 GPU
+## 🎙️ TTS 引擎：IndexTTS2 本地 GPU（默认）
 
-- **引擎**：VoxCPM2（本地 GPU，无需 API Key）
-- **调用方式**：通过 `voxcpm_tts` 工具（MCP 工具，不要直接 import）
-- **Skill 参考**：`.agents/skills/voxcpm-tts/SKILL.md`
-- **特性**：支持中文语音、多段音色一致性、字符级时间戳
+- **引擎**：IndexTTS2（本地 GPU，无需 API Key），`config.yaml → pipeline.tts_engine: indextts`
+- **调用方式**：auto-dub 通过 `pipeline_automator` 的 subprocess 常驻服务桥接调用（`D:/index-tts/indextts_server.py`），不要直接 import 底层模块
+- **特性**：中文/多语言语音、零样本音色克隆（自动从原视频提取声纹）、字符级时间戳
+- **GPU 互斥**：IndexTTS2 常驻服务占 8-16GB VRAM；服务启动时自动获取跨智能体 GPU 锁（`lib/gpu_lock.py`），合成结束/异常时自动释放
+- **备选引擎**：`tts_engine: voxcpm` 时走 `voxcpm_tts` 工具（见 `.agents/skills/voxcpm-tts/SKILL.md`）
 
 ### 已知问题与修复方案
 
 **问题：静音伪文件**
 
-批量合成时，VoxCPM 在某些句子上可能生成静音 WAV（`rms_amplitude < 100`）。
+批量合成时，TTS 引擎在某些句子上可能生成静音 WAV（`rms_amplitude < 100`）。
 
 ```python
 # 检测静音文件

@@ -237,21 +237,34 @@ class BatchRunner:
         print(f"\n  🔊 [render-assets] {video_id}: {video.get('title', '')}")
         automator = self._build_automator(video)
         report = automator.render_assets_only()
-        summary = {
-            "project_id": f"auto-dub-{video_id}",
-            "stage": "assets",
-            "success": report is not None,
-            "output_path": report.get("output_path") if isinstance(report, dict) else None,
-            "drift_seconds": report.get("drift_seconds") if isinstance(report, dict) else None,
-            "verification_notes": (report or {}).get("verification_notes", []),
-            "warnings": (report or {}).get("warnings", []),
-            "error": (report or {}).get("error"),
-        }
+        if report is not None:
+            summary = {
+                "project_id": f"auto-dub-{video_id}",
+                "stage": "assets",
+                "success": True,
+                "output_path": report.get("output_path"),
+                "drift_seconds": report.get("drift_seconds"),
+                "verification_notes": report.get("verification_notes", []),
+                "warnings": report.get("warnings", []),
+                "error": None,
+            }
+        else:
+            error = automator.get_last_error() or "assets 阶段执行失败"
+            summary = {
+                "project_id": f"auto-dub-{video_id}",
+                "stage": "assets",
+                "success": False,
+                "output_path": None,
+                "drift_seconds": None,
+                "verification_notes": [],
+                "warnings": [],
+                "error": error,
+            }
         if summary["success"]:
             self.db.update_status(video_id, 'processing')
             print("  ✅ render-assets 完成")
         else:
-            self.db.update_status(video_id, 'failed', error_msg=str(summary["error"]))
+            self.db.update_status(video_id, 'failed', error_msg=summary["error"])
             print(f"  ❌ render-assets 失败: {summary['error']}")
         return summary
 
@@ -261,21 +274,34 @@ class BatchRunner:
         print(f"\n  🎬 [render-video] {video_id}: {video.get('title', '')}")
         automator = self._build_automator(video)
         report = automator.render_video_only()
-        summary = {
-            "project_id": f"auto-dub-{video_id}",
-            "stage": "video",
-            "success": report is not None,
-            "output_path": report.get("output_path") if isinstance(report, dict) else None,
-            "drift_seconds": report.get("drift_seconds") if isinstance(report, dict) else None,
-            "verification_notes": (report or {}).get("verification_notes", []),
-            "warnings": (report or {}).get("warnings", []),
-            "error": (report or {}).get("error"),
-        }
+        if report is not None:
+            summary = {
+                "project_id": f"auto-dub-{video_id}",
+                "stage": "video",
+                "success": True,
+                "output_path": report.get("output_path"),
+                "drift_seconds": report.get("drift_seconds"),
+                "verification_notes": report.get("verification_notes", []),
+                "warnings": report.get("warnings", []),
+                "error": None,
+            }
+        else:
+            error = automator.get_last_error() or "video 阶段执行失败"
+            summary = {
+                "project_id": f"auto-dub-{video_id}",
+                "stage": "video",
+                "success": False,
+                "output_path": None,
+                "drift_seconds": None,
+                "verification_notes": [],
+                "warnings": [],
+                "error": error,
+            }
         if summary["success"]:
             self.db.update_status(video_id, 'done')
             print("  ✅ render-video 完成")
         else:
-            self.db.update_status(video_id, 'failed', error_msg=str(summary["error"]))
+            self.db.update_status(video_id, 'failed', error_msg=summary["error"])
             print(f"  ❌ render-video 失败: {summary['error']}")
         return summary
 
@@ -289,11 +315,12 @@ class BatchRunner:
             "project_id": f"auto-dub-{video_id}",
             "stage": "heavy",
             "success": success,
-            "output_path": str(self.review_dir / video_id) if success else None,
+            # 成功时指向最终 MP4 文件（automator 记录的 render_report 路径），不是目录
+            "output_path": automator.get_last_output_path() if success else None,
             "drift_seconds": automator.get_last_drift(),
             "verification_notes": automator.get_last_verification_notes(),
             "warnings": automator.get_last_warnings(),
-            "error": None if success else "run-heavy 管线执行失败",
+            "error": None if success else (automator.get_last_error() or "run-heavy 管线执行失败"),
         }
         self.db.update_status(video_id, 'done' if success else 'failed',
                               error_msg=None if success else summary["error"])
