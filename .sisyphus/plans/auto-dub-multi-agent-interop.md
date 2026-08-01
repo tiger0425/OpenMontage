@@ -92,8 +92,21 @@
 
 ## 成功标准
 
-- [ ] 三档拆分逻辑生效，短句不再被切碎，超长翻译时长按实测语速预测
-- [ ] `render-assets`/`render-video`/`run-heavy` 子命令可用，`--json` 输出单行摘要
-- [ ] TTS 合成循环 stdout 实时显示 `[AutoDub] ... ETA` 心跳
-- [ ] 双进程并发访问 GPU 时第二个进程排队等待，无 OOM
-- [ ] `AGENT_GUIDE.md` + `SKILL.md` 含完整主/子 Agent 协作契约与日志屏障协议
+- [x] 三档拆分逻辑生效，短句不再被切碎，超长翻译时长按实测语速预测
+- [x] `render-assets`/`render-video`/`run-heavy` 子命令可用，`--json` 输出单行摘要
+- [x] TTS 合成循环 stdout 实时显示 `[AutoDub] ... ETA` 心跳
+- [x] 双进程并发访问 GPU 时第二个进程排队等待，无 OOM（tests/auto_dub/test_gpu_lock.py）
+- [x] `AGENT_GUIDE.md` + `SKILL.md` 含完整主/子 Agent 协作契约与日志屏障协议
+
+## 执行结果
+
+| 阶段 | Commit | 状态 |
+|------|--------|------|
+| 0a 基线固化（IndexTTS2 迁移） | `3ef4887` | 完成 |
+| 0b 计划文档 | `c277575` | 完成 |
+| 1 规则契约层 | `747fc39` | 完成 |
+| 2 翻译拆分 bug 修复（TDD） | `d6b05c9` | 完成，8 测试 |
+| 3 CLI 长短解耦 | `57a37b9` | 完成 |
+| 4 日志心跳层 | `3461f73` | 完成 |
+| 5 GPU 物理互斥锁 | `38a4104` | 完成，2 测试 |
+| 6 综合回归 | — | 33 测试全绿 + CLI 冒烟通过 |
