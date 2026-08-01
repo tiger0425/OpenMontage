@@ -62,6 +62,10 @@ class PipelineAutomator:
         # TTS 引擎选择
         self.tts_engine = config.get("pipeline", {}).get("tts_engine", "voxcpm")
 
+        # 翻译预算配置（修复短句预算过小 + 超长翻译切碎放大）
+        self.min_char_budget = int(config.get("pipeline", {}).get("min_char_budget", 15))
+        self.max_single_line_chars = int(config.get("pipeline", {}).get("max_single_line_chars", 60))
+
         # 漂移超标重试计数
         self._drift_retry_count = 0
         self._drift_retry_max = 3
@@ -212,7 +216,7 @@ class PipelineAutomator:
             batch_data = []
             for item in batch:
                 dur = item["end"] - item["start"]
-                max_chars = measured_char_budget(dur, cps)
+                max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
                 words_count = len(item["text"].split())
                 wps = words_count / dur if dur > 0 else 0
                 is_dense = wps > 4.0
@@ -273,7 +277,7 @@ class PipelineAutomator:
                 for item in batch:
                     line_id = str(item["id"])
                     dur = item["end"] - item["start"]
-                    max_chars = measured_char_budget(dur, cps)
+                    max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
                     trans = self._get_segment_translation(line_id, translation_map)
 
                     if not trans or trans.strip() == "":
@@ -325,9 +329,12 @@ class PipelineAutomator:
                         else:
                             print(f"      ❌ 行 {line_id} 修复 3 次后仍失败，最终翻译: \"{trans}\"")
 
-                    # === 语义拆分（按从句边界拆分长句，避免硬截断） ===
-                    chunks = self._split_semantic(trans, max_chars)
-                    if len(chunks) == 1:
+                    # === 三档拆分决策（预算内单条 / ≤max_single_line 整句不拆 / 超长语义拆分） ===
+                    # 修复：短句预算下限、超长/错位翻译不再被盲目切碎、子段时长按 len/cps 预测
+                    plan = self.plan_split(
+                        trans, max_chars, self.max_single_line_chars, cps
+                    )
+                    if len(plan) == 1:
                         translated_lines.append({
                             "line_id": line_id,
                             "start": item["start"],
@@ -336,13 +343,11 @@ class PipelineAutomator:
                             "translated_text": trans
                         })
                     else:
-                        total_len = sum(len(c) for c in chunks)
                         offset = 0.0
-                        for ci, chunk in enumerate(chunks):
-                            sub_dur = dur * (len(chunk) / total_len) if total_len > 0 else dur / len(chunks)
+                        for ci, (chunk, sub_dur) in enumerate(plan):
                             sub_start = item["start"] + offset
-                            sub_end = sub_start + sub_dur
-                            offset += sub_dur
+                            sub_end = sub_start + (sub_dur or dur / len(plan))
+                            offset += sub_dur or dur / len(plan)
                             sub_id = f"{line_id}_c{ci}"
                             translated_lines.append({
                                 "line_id": sub_id,
@@ -934,7 +939,7 @@ class PipelineAutomator:
             batch_data = []
             for item in batch:
                 dur = item["end_seconds"] - item["start_seconds"]
-                budget = max(3, int(measured_char_budget(dur, cps) * budget_factor))
+                budget = max(self.min_char_budget, int(measured_char_budget(dur, cps, min_budget=self.min_char_budget) * budget_factor))
                 batch_data.append({
                     "id": item["id"],
                     "text": item["text"],
@@ -1043,6 +1048,29 @@ class PipelineAutomator:
         if current:
             chunks.append(current)
         return chunks if chunks else [text]
+
+    @staticmethod
+    def plan_split(trans: str, max_chars: int, max_single_line_chars: int, cps: float) -> list[tuple[str, float | None]]:
+        """三档拆分决策 + 子段时长预测。
+
+        修复问题链：
+        - 短句预算过小（max_chars 可能低至 8）→ 正常翻译被切碎
+        - 超长/错位翻译被盲目切碎放大 → 阈值内不拆
+        - 子段时长按字符比例均摊假设错误 → 改按 len(chunk)/cps 预测
+
+        返回 [(text, sub_duration_seconds | None), ...]：
+        - len(trans) <= max_chars          → [(trans, None)]  预算内，单条，时长由原句决定
+        - max_chars < len <= max_single    → [(trans, None)]  整句单条不拆，混音自然顺延
+        - len > max_single                 → 拆分，每段 (chunk, len(chunk)/cps)
+        """
+        trans = (trans or "").strip()
+        if len(trans) <= max_chars:
+            return [(trans, None)]
+        if len(trans) <= max_single_line_chars:
+            return [(trans, None)]
+        chunks = PipelineAutomator._split_semantic(trans, max_chars)
+        cps = cps if cps and cps > 0 else 4.0
+        return [(chunk, round(len(chunk) / cps, 3)) for chunk in chunks]
 
     @staticmethod
     def _get_segment_translation(line_id: str, translation_map: dict) -> str:

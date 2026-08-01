@@ -139,11 +139,12 @@ def _hash_text(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()[:8]
 
 
-def measured_char_budget(duration_seconds: float, cps: float, safety_factor: float = 0.95) -> int:
+def measured_char_budget(duration_seconds: float, cps: float, safety_factor: float = 0.95, min_budget: int = 15) -> int:
     """根据实测语速计算某段时长的中文字符预算。
 
-    Formula: max(2, int(duration * cps * safety_factor))
+    Formula: max(min_budget, int(duration * cps * safety_factor))
+    短句预算设下限（默认 15 字），避免 LLM 因预算过小无法正常翻译、或被切碎。
     """
     if duration_seconds <= 0:
-        return 2
-    return max(2, int(duration_seconds * cps * safety_factor))
+        return min_budget
+    return max(min_budget, int(duration_seconds * cps * safety_factor))

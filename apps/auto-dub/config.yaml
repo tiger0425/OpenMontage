@@ -66,6 +66,8 @@ pipeline:
   target_language: zh-CN
   source_language: en-US
   tts_engine: indextts
+  min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分
+  max_single_line_chars: 60      # 超过预算但在此阈值内不拆分（整句单条，混音自然顺延）
   subtitle_style: "中文+术语英文标注"
   output_format: "16:9"        # B站横屏
   render_runtime: ffmpeg        # 使用 FFmpeg 合成（替换音轨+烧字幕）
