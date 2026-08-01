@@ -569,6 +569,16 @@ class PipelineAutomator:
     # 阶段 3: assets
     # ==========================================
     def _run_assets_stage(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
+        """assets 阶段入口：持有 GPU 物理互斥锁后执行（防止跨智能体并发 OOM）。"""
+        from lib.gpu_lock import gpu_lock
+        try:
+            with gpu_lock("indextts-assets", timeout=1800, heartbeat=15):
+                return self._do_assets_stage(script_data, scene_plan_data)
+        except TimeoutError as e:
+            print(f"    ❌ {e}")
+            return None
+
+    def _do_assets_stage(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
         print("  ⚙️ 运行 [assets] 阶段...")
         
         cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "assets")
