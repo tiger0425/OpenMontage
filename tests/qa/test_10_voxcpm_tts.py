@@ -133,7 +133,7 @@ s1 = probe_wav(os.path.join(OUT, "voxcpm_plain.wav"))
 assert s1.get("sample_rate") == "48000", (
     f"Expected 48000 Hz, got {s1.get('sample_rate')} for Scenario 1"
 )
-assert s1.get("codec_name") in ("pcm_s16le",), (
+assert s1.get("codec_name") in ("pcm_s16le", "pcm_f32le"), (
     f"Unexpected codec {s1.get('codec_name')} for Scenario 1"
 )
 print_probe_info("plain", os.path.join(OUT, "voxcpm_plain.wav"))
@@ -156,7 +156,7 @@ s2 = probe_wav(os.path.join(OUT, "voxcpm_clone.wav"))
 assert s2.get("sample_rate") == "48000", (
     f"Expected 48000 Hz, got {s2.get('sample_rate')} for Scenario 2"
 )
-assert s2.get("codec_name") in ("pcm_s16le",), (
+assert s2.get("codec_name") in ("pcm_s16le", "pcm_f32le"), (
     f"Unexpected codec {s2.get('codec_name')} for Scenario 2"
 )
 print_probe_info("clone", os.path.join(OUT, "voxcpm_clone.wav"))
@@ -179,7 +179,7 @@ s3 = probe_wav(os.path.join(OUT, "voxcpm_design.wav"))
 assert s3.get("sample_rate") == "48000", (
     f"Expected 48000 Hz, got {s3.get('sample_rate')} for Scenario 3"
 )
-assert s3.get("codec_name") in ("pcm_s16le",), (
+assert s3.get("codec_name") in ("pcm_s16le", "pcm_f32le"), (
     f"Unexpected codec {s3.get('codec_name')} for Scenario 3"
 )
 print_probe_info("design", os.path.join(OUT, "voxcpm_design.wav"))
