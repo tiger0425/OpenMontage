@@ -4,7 +4,8 @@
 1. 调用 transcriber 进行转录。
 2. 批量调用 LLM (DeepSeek/Gemini) 进行翻译并应用术语表与字数控制（character budgeting）。
 3. 生成场景计划。
-4. 调用 voxcpm_tts 生成配音并用 pydub 进行音轨混合，生成 SRT 字幕。
+4. 按配置的 TTS 引擎（默认 indextts，经 subprocess 常驻服务桥接；可选 voxcpm）生成配音，
+   并用 pydub 进行音轨混合，生成 SRT 字幕。
 5. 生成剪辑决策。
 6. 使用 FFmpeg 进行音视频合成（烧录字幕和替换音轨）。
 7. 发布成品并生成 publish_log。
@@ -36,7 +37,6 @@ if str(OMO_ROOT) not in sys.path:
 
 from lib import checkpoint
 from tools.analysis.transcriber import Transcriber
-from tools.audio.voxcpm_tts import VoxCPMTTS
 from tools.audio.voxcpm_speed_calibrator import VoxCPMSpeedCalibrator, measured_char_budget
 from batch.llm_client import LLMClient
 
@@ -594,6 +594,8 @@ class PipelineAutomator:
         if tts_engine == "indextts":
             tts = None  # IndexTTS2 uses subprocess bridge
         else:
+            # 懒加载：仅 voxcpm 引擎才 import VoxCPM provider 工具（indextts 模式不触碰）
+            from tools.audio.voxcpm_tts import VoxCPMTTS
             tts = VoxCPMTTS()
         
         # === 从原视频自动提取说话人声纹 ===

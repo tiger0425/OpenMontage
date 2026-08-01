@@ -2,6 +2,12 @@
 
 Supports plain TTS, voice cloning (reference_wav_path), and voice design
 (voice_description).  Requires a CUDA GPU and the ``voxcpm`` Python package.
+
+NOTE (2026-08): auto-dub pipeline 当前默认使用 IndexTTS2（`tts_engine: indextts`，
+走 subprocess 常驻服务桥接，不经本文件）。本文件是 OpenMontage 工具注册表（registry）
+中的通用 VoxCPM provider 工具，服务于 tts_selector 路由与所有声明 voxcpm_tts 的
+pipeline（如 fabric-promotion）；仅在 `tts_engine: voxcpm` 时被 auto-dub 使用。
+请勿因 auto-dub 切换引擎而删除或重命名本文件。
 """
 
 from __future__ import annotations
