@@ -19,6 +19,7 @@ import logging
 import subprocess
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -57,6 +58,14 @@ class PipelineAutomator:
 
         # 访谈类判定
         self.is_interview = self._is_interview_video(video, config)
+
+        # TTS 引擎选择
+        self.tts_engine = config.get("pipeline", {}).get("tts_engine", "voxcpm")
+
+        # 漂移超标重试计数
+        self._drift_retry_count = 0
+        self._drift_retry_max = 3
+        self._drift_need_retry = False
         
         # 确定各文件路径
         self.source_video = self.project_dir / "source.mp4"
@@ -81,29 +90,33 @@ class PipelineAutomator:
         scene_plan_data = self._run_scene_plan_stage(script_data)
         if not scene_plan_data:
             return False
-            
-        # 3. assets 阶段
-        asset_manifest_data = self._run_assets_stage(script_data, scene_plan_data)
-        if not asset_manifest_data:
+
+        # 3-6. assets → edit → compose → publish（漂移超标时自动缩短重翻）
+        while True:
+            asset_manifest_data = self._run_assets_stage(script_data, scene_plan_data)
+            if not asset_manifest_data:
+                return False
+
+            edit_decisions_data = self._run_edit_stage(scene_plan_data, asset_manifest_data)
+            if not edit_decisions_data:
+                return False
+
+            render_report_data = self._run_compose_stage(edit_decisions_data, asset_manifest_data)
+            if render_report_data:
+                publish_log_data = self._run_publish_stage(render_report_data)
+                if not publish_log_data:
+                    return False
+                print(f"  🎉 项目 {self.project_id} 自动执行成功！")
+                return True
+
+            # compose 返回 None，检查是否因漂移需要重翻
+            if self._drift_need_retry and self._drift_retry_count <= self._drift_retry_max:
+                self._drift_need_retry = False
+                script_data = self._retranslate_shorter(script_data, scene_plan_data)
+                if not script_data:
+                    return False
+                continue
             return False
-            
-        # 4. edit 阶段
-        edit_decisions_data = self._run_edit_stage(scene_plan_data, asset_manifest_data)
-        if not edit_decisions_data:
-            return False
-            
-        # 5. compose 阶段
-        render_report_data = self._run_compose_stage(edit_decisions_data, asset_manifest_data)
-        if not render_report_data:
-            return False
-            
-        # 6. publish 阶段
-        publish_log_data = self._run_publish_stage(render_report_data)
-        if not publish_log_data:
-            return False
-            
-        print(f"  🎉 项目 {self.project_id} 自动执行成功！")
-        return True
 
     # ==========================================
     # 阶段 1: script
@@ -432,9 +445,13 @@ class PipelineAutomator:
 
         lines = script_data["sections"]
         
-        # 1. 调用 VoxCPM 生成配音音频
-        print("    🔊 开始调用 VoxCPM 本地 GPU 合成音频分段...")
-        tts = VoxCPMTTS()
+        # 1. 调用 TTS 引擎生成配音音频
+        tts_engine = self.tts_engine
+        print(f"    🔊 开始调用 {tts_engine.upper()} 本地 GPU 合成音频分段...")
+        if tts_engine == "indextts":
+            tts = None  # IndexTTS2 uses subprocess bridge
+        else:
+            tts = VoxCPMTTS()
         
         # === 从原视频自动提取说话人声纹 ===
         external_voice_ref = self.assets_dir / "voice_ref.wav"
@@ -448,21 +465,7 @@ class PipelineAutomator:
             except Exception as e:
                 logging.warning(f"voice_ref.wav 不可用, 将重新提取: {e}")
         if not use_external_ref:
-            try:
-                cmd = [
-                    "ffmpeg", "-y", "-i", str(self.source_video),
-                    "-t", "10", "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-                    str(external_voice_ref)
-                ]
-                subprocess.run(cmd, capture_output=True, check=True)
-                chk_ref = AudioSegment.from_wav(str(external_voice_ref))
-                if chk_ref.rms >= 100:
-                    use_external_ref = True
-                    print(f"    🎤 自动从原视频提取声纹: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s, RMS={chk_ref.rms})")
-                else:
-                    print(f"    ⚠️ 提取的声纹音量过低，使用内部锚点替代")
-            except Exception as e:
-                logging.warning(f"无法从原视频提取声纹: {e}，使用内部锚点")
+            use_external_ref = self._extract_voice_ref(external_voice_ref)
         
         temp_segments = []
         
@@ -487,26 +490,31 @@ class PipelineAutomator:
             if is_valid_existing:
                 print(f"      - ⚡ 复用有效音频 [{idx+1}/{len(lines)}]: seg_{line_id}.wav")
             else:
-                # 配音生成参数：统一音色来源
-                tts_params = {
-                    "text": text,
-                    "output_path": str(output_file),
-                    "seed": 42,
-                }
-                
-                if use_external_ref:
-                    tts_params["reference_wav_path"] = str(external_voice_ref)
-                    tts_params["cfg_value"] = 3.0
-                else:
-                    tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
-
                 print(f"      - 合成 [{idx+1}/{len(lines)}]: {text[:20]}...")
-                
-                # 执行合成
-                res = tts.execute(tts_params)
-                if not res.success:
-                    print(f"      ❌ 合成失败 (分段 {line_id}): {res.error}")
-                    self._create_silent_wav(dur, output_file)
+                if tts_engine == "indextts":
+                    ok = self._synthesize_indextts(
+                        text=text, output_path=output_file,
+                        voice_ref=str(external_voice_ref) if use_external_ref else None,
+                        seed=42,
+                        target_duration=dur,
+                    )
+                    if not ok:
+                        self._create_silent_wav(dur, output_file)
+                else:
+                    tts_params = {
+                        "text": text,
+                        "output_path": str(output_file),
+                        "seed": 42,
+                    }
+                    if use_external_ref:
+                        tts_params["reference_wav_path"] = str(external_voice_ref)
+                        tts_params["cfg_value"] = 3.0
+                    else:
+                        tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
+                    res = tts.execute(tts_params)
+                    if not res.success:
+                        print(f"      ❌ 合成失败 (分段 {line_id}): {res.error}")
+                        self._create_silent_wav(dur, output_file)
 
             # 载入生成的配音，获取其实际时长 (维持 1.0x 原速，禁止变速)
             try:
@@ -647,6 +655,9 @@ class PipelineAutomator:
             pipeline_type="localization-dub"
         )
         print("  ✅ assets 阶段自动提交成功")
+        # 释放 IndexTTS2 GPU 进程（若使用）
+        if self.tts_engine == "indextts":
+            self._stop_indextts_server()
         return asset_manifest
 
     def _write_srt(self, lines: list[dict], output_path: Path):
@@ -700,11 +711,296 @@ class PipelineAutomator:
     # 辅助方法
     # ==========================================
 
+    # IndexTTS2 venv Python 路径
+    INDEXTTS_VENV_PYTHON = r"D:/index-tts/.venv/Scripts/python.exe"
+    INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"
+    INDEXTTS_SERVER = r"D:/index-tts/indextts_server.py"
+
+    def _extract_voice_ref(self, external_voice_ref) -> bool:
+        """提取更长的干净声纹片段并归一化音量。
+
+        1. 用 silencedetect 找到视频中最长的一段连续人声
+        2. 截取 15-20 秒干净片段
+        3. 归一化音量到合理范围（RMS ~3000-5000）
+        """
+        try:
+            import tempfile as _tf
+            import numpy as _np
+            # 1. 先探测视频中的语音区间
+            detect_cmd = [
+                "ffmpeg", "-i", str(self.source_video),
+                "-af", "silencedetect=noise=-30dB:d=0.8",
+                "-f", "null", "-",
+            ]
+            res = subprocess.run(detect_cmd, capture_output=True, text=True, encoding="utf-8")
+            # 解析 silencedetect 输出，找到最长连续语音段
+            silences = []
+            cur_start = None
+            for m in re.finditer(r"silence_start:\s*([\d.]+)", res.stderr):
+                t = float(m.group(1))
+                if cur_start is not None:
+                    silences.append((cur_start, t))
+                cur_start = t
+            if cur_start is not None:
+                # 视频末尾也算一段结束
+                probe = subprocess.run(
+                    ["ffmpeg", "-i", str(self.source_video), "-f", "null", "-"],
+                    capture_output=True, text=True, encoding="utf-8")
+                m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
+                if m:
+                    total = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
+                    silences.append((cur_start, total))
+
+            voice_segments = []
+            prev_end = 0.0
+            for start, end in silences:
+                if start > prev_end + 0.5:
+                    voice_segments.append((prev_end, start))
+                prev_end = max(prev_end, end)
+            # 视频末尾的语音段
+            probe = subprocess.run(
+                ["ffmpeg", "-i", str(self.source_video), "-f", "null", "-"],
+                capture_output=True, text=True, encoding="utf-8")
+            m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
+            if m:
+                total = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
+                if total > prev_end + 0.5:
+                    voice_segments.append((prev_end, total))
+
+            # 选最长的一段作为声纹
+            best = None
+            for start, end in voice_segments:
+                dur = end - start
+                if dur >= 12 and (best is None or dur > best[2]):
+                    best = (start, end, dur)
+            if best is None:
+                # 回退：取前 15 秒
+                start, dur = 0.0, 15.0
+            else:
+                start, end, dur = best
+                start = max(0.0, start + 1.0)  # 避开语音边界
+                end = min(end, start + 15.0)
+                dur = end - start
+
+            print(f"    🎤 提取声纹: 从 {start:.1f}s 起 {dur:.1f}s")
+            cmd = [
+                "ffmpeg", "-y", "-i", str(self.source_video),
+                "-ss", str(start), "-t", str(dur),
+                "-vn", "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1",
+                str(external_voice_ref)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+
+            # 2. 音量归一化到 RMS ~3500
+            audio = AudioSegment.from_wav(str(external_voice_ref))
+            if audio.duration_seconds < 8:
+                return False
+            target_rms = 3500
+            if audio.rms > 0:
+                gain = target_rms / audio.rms
+                audio = audio.apply_gain(20 * _np.log10(gain))
+            audio.export(str(external_voice_ref), format="wav")
+            print(f"    🎤 声纹已提取并归一化: {external_voice_ref.name} ({audio.duration_seconds:.1f}s, RMS={audio.rms:.0f})")
+            return True
+        except Exception as e:
+            logging.warning(f"声纹提取失败: {e}，使用内部锚点")
+            return False
+
+    def _get_indextts_server(self):
+        """惰性启动 IndexTTS2 常驻服务进程（模型只加载一次）。"""
+        if getattr(self, "_indextts_proc", None) is not None:
+            return self._indextts_proc
+        proc = subprocess.Popen(
+            [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace",
+        )
+        self._indextts_proc = proc
+        self._indextts_lock = threading.Lock()
+        return proc
+
+    def _stop_indextts_server(self):
+        proc = getattr(self, "_indextts_proc", None)
+        if proc is None:
+            return
+        try:
+            proc.stdin.write('{"cmd": "exit"}\n')
+            proc.stdin.flush()
+            proc.wait(timeout=10)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        self._indextts_proc = None
+
+    def _synthesize_indextts(
+        self, text: str, output_path, voice_ref: str | None = None, seed: int = 42,
+        target_duration: float | None = None,
+    ) -> bool:
+        """通过常驻 IndexTTS2 服务进程合成单句音频（模型只加载一次，GPU 加速）。"""
+        try:
+            proc = self._get_indextts_server()
+            req = {
+                "id": str(hash((text, str(output_path)))),
+                "text": text,
+                "output_path": str(output_path),
+                "seed": seed,
+            }
+            if voice_ref:
+                req["voice_ref"] = voice_ref
+            with self._indextts_lock:
+                proc.stdin.write(json.dumps(req) + "\n")  # ensure_ascii 默认 True，Windows 管道安全
+                proc.stdin.flush()
+                resp_line = proc.stdout.readline()
+            if not resp_line:
+                print("      ❌ IndexTTS2 服务无响应")
+                return False
+            resp = json.loads(resp_line)
+            return bool(resp.get("ok"))
+        except Exception as e:
+            print(f"      ❌ IndexTTS2 服务异常: {e}")
+            return False
+
     def _get_cps(self) -> float:
-        """延迟校准并返回 VoxCPM 实测语速（cps）。"""
+        """延迟校准并返回实测语速（cps）。"""
         if self._cps is None:
-            self._cps = self._voxcpm_calibrator.get_cps()
+            if self.tts_engine == "indextts":
+                self._cps = self._calibrate_indextts_cps()
+            else:
+                self._cps = self._voxcpm_calibrator.get_cps()
         return self._cps
+
+    def _calibrate_indextts_cps(self) -> float:
+        """用 IndexTTS2 实测中文语速，结果缓存到 indextts_cps_cache.json。"""
+        import tempfile as _tf
+        cache = self.project_dir.parent / "indextts_cps_cache.json"
+        if cache.exists():
+            try:
+                data = json.loads(cache.read_text(encoding="utf-8"))
+                val = float(data.get("cps", 0))
+                if val > 0:
+                    print(f"    📏 使用缓存 IndexTTS2 cps={val:.2f}")
+                    return val
+            except Exception:
+                pass
+        ref_text = (
+            "今天我们要介绍如何在本地免费运行大语言模型。"
+            "首先你需要安装 Ollama 和 LM Studio 等工具。"
+            "然后下载一个开源模型加载即可开始对话。"
+        )
+        with _tf.TemporaryDirectory(prefix="indextts_cps_") as td:
+            out = Path(td) / "calib.wav"
+            voice_ref = self.assets_dir / "voice_ref.wav"
+            vr = str(voice_ref) if voice_ref.exists() else None
+            ok = self._synthesize_indextts(ref_text, out, voice_ref=vr)
+            if ok and out.exists():
+                from pydub import AudioSegment
+                audio = AudioSegment.from_wav(str(out))
+                dur = audio.duration_seconds
+                if dur > 0:
+                    cps = len(ref_text) / dur
+                    print(f"    📏 IndexTTS2 实测 cps={cps:.2f}（参考文本 {len(ref_text)} 字 / {dur:.2f}s）")
+                    try:
+                        cache.write_text(json.dumps({"cps": round(cps, 2), "text_len": len(ref_text)}, ensure_ascii=False), encoding="utf-8")
+                    except Exception:
+                        pass
+                    return cps
+        print("    ⚠️ IndexTTS2 测速失败，回退 cps=4.0")
+        return 4.0
+
+    # ==========================================
+    # 漂移超标时的缩短重翻
+    # ==========================================
+    def _retranslate_shorter(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
+        """漂移超标时，用更紧的字数预算重新翻译所有句子。"""
+        cps = self._get_cps()
+        budget_factor = 0.85 ** self._drift_retry_count
+        print(f"    🔄 缩短重翻：预算系数 {budget_factor:.2f}，目标更紧凑的中文...")
+
+        sections = script_data.get("sections", [])
+        batch_size = 20
+        updated_lines = []
+
+        system_prompt = (
+            "You are a professional video localization translator. "
+            "CRITICAL: Translate to concise Simplified Chinese. "
+            "Use fewer characters — every character counts. "
+            "Keep technical terms accurate but make sentences as short as naturally possible."
+        )
+
+        for i in range(0, len(sections), batch_size):
+            batch = sections[i:i + batch_size]
+            batch_data = []
+            for item in batch:
+                dur = item["end_seconds"] - item["start_seconds"]
+                budget = max(3, int(measured_char_budget(dur, cps) * budget_factor))
+                batch_data.append({
+                    "id": item["id"],
+                    "text": item["text"],
+                    "current_translation": item["delivery_cues"]["provider_text"],
+                    "duration": round(dur, 2),
+                    "max_chinese_characters": budget,
+                    "note": f"必须精简至{budget}字以内，比原翻译更短。"
+                })
+
+            prompt = (
+                f"{self.glossary.build_translation_prompt()}\n\n"
+                "## 缩短重翻规则：\n"
+                "1. 你的翻译必须比 current_translation 更短。\n"
+                "2. 精简冗余表达，使用更紧凑的中文句式。\n"
+                "3. 技术术语仍需准确，但可用简称（如'应用程序接口'→'API'）。\n"
+                "4. 返回 JSON 数组，每项包含 id 和 translated_text。\n\n"
+                f"输入:\n{json.dumps(batch_data, ensure_ascii=False)}"
+            )
+
+            try:
+                resp = self.llm.generate(prompt, system_instruction=system_prompt, json_mode=True)
+                resp = resp.strip()
+                if resp.startswith("```json"):
+                    resp = resp[7:]
+                if resp.endswith("```"):
+                    resp = resp[:-3]
+                resp = resp.strip()
+                results = json.loads(resp)
+            except Exception as e:
+                print(f"    ⚠️ 重翻批次失败: {e}，保留原翻译")
+                continue
+
+            trans_map = {}
+            for r in results:
+                rid = str(r.get("id", ""))
+                t = r.get("translated_text", r.get("translation", ""))
+                if rid and t:
+                    trans_map[rid] = t
+
+            for item in batch:
+                new_trans = trans_map.get(item["id"])
+                if new_trans:
+                    item["delivery_cues"]["provider_text"] = new_trans
+                updated_lines.append(item)
+
+        if updated_lines:
+            script_data["sections"] = updated_lines
+            script_file = self.project_dir / "script.json"
+            with open(script_file, "w", encoding="utf-8") as f:
+                json.dump(script_data, f, indent=2, ensure_ascii=False)
+            print(f"    ✅ 缩短重翻完成，{len(updated_lines)} 句已更新")
+
+        # 删除资产/剪辑/合成 checkpoint，强制重跑后续阶段
+        for stage in ("assets", "edit", "compose"):
+            cp = self.project_dir / f"checkpoint_{stage}.json"
+            if cp.exists():
+                cp.unlink()
+        # 同时清理旧的 TTS 音频文件
+        if self.audio_dir.exists():
+            shutil.rmtree(self.audio_dir, ignore_errors=True)
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+        dub_wav = self.assets_dir / "dub_zh.wav"
+        if dub_wav.exists():
+            dub_wav.unlink()
+
+        return script_data
 
     @staticmethod
     def _is_interview_video(video: dict, config: dict) -> bool:
@@ -1116,7 +1412,13 @@ class PipelineAutomator:
         outro_cfg = self.config.get("outro", {})
         max_drift = float(outro_cfg.get("drift_fail_threshold_seconds", 5.0))
         if drift_seconds > max_drift:
-            print(f"    ❌ 漂移 {drift_seconds:.2f}s 超过上限 {max_drift}s，标记失败")
+            self._drift_retry_count += 1
+            if self._drift_retry_count <= self._drift_retry_max:
+                print(f"    ⚠️ 漂移 {drift_seconds:.2f}s 超过上限 {max_drift}s，"
+                      f"第 {self._drift_retry_count}/{self._drift_retry_max} 次触发缩短重翻...")
+                self._drift_need_retry = True
+                return None
+            print(f"    ❌ 漂移 {drift_seconds:.2f}s 超过上限 {max_drift}s，已达最大重试次数")
             checkpoint.write_checkpoint(
                 pipeline_dir=self.project_dir.parent,
                 project_id=self.project_id,
@@ -1124,7 +1426,7 @@ class PipelineAutomator:
                 status="failed",
                 artifacts={"render_report": {"version": "1.0", "outputs": [], "verification_notes": [], "warnings": [], "metadata": {}}},
                 pipeline_type="localization-dub",
-                error=f"drift {drift_seconds:.2f}s > {max_drift}s"
+                error=f"drift {drift_seconds:.2f}s > {max_drift}s after {self._drift_retry_max} retries"
             )
             return None
 
