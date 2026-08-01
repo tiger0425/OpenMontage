@@ -67,3 +67,16 @@ class TestGpuLock:
         released.set()
         t.join(timeout=5)
         assert raised
+
+    def test_reentrant_same_thread_no_deadlock(self):
+        """同线程嵌套获取（pipeline assets 层 → voxcpm 工具层）直接放行，不死锁。"""
+        import time
+        tmp = Path(tempfile.mkdtemp(prefix="gpu_lock_reentrant_"))
+        lock_path = tmp / ".gpu.lock"
+
+        # 外层持锁，内层再进入同一把锁 → 必须立即返回（重入）
+        with gpu_lock("assets", timeout=10, heartbeat=1, lock_path=lock_path):
+            start = time.time()
+            with gpu_lock("voxcpm-tool", timeout=10, heartbeat=1, lock_path=lock_path):
+                pass
+            assert time.time() - start < 2.0  # 未等待锁 → 无死锁

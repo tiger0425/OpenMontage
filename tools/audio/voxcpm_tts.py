@@ -275,6 +275,16 @@ class VoxCPMTTS(BaseTool):
     def _generate(self, inputs: dict[str, Any]) -> ToolResult:
         import scipy.io.wavfile as wavfile
 
+        # GPU 物理互斥锁：任何入口（pipeline / 直接调用 / 其他智能体）合成前排队，
+        # 防止多进程并发加载 8-10GB 权重导致 VRAM OOM。
+        # pipeline assets 层已持锁时（同线程重入）直接放行，不会死锁。
+        from lib.gpu_lock import gpu_lock
+        with gpu_lock("voxcpm", timeout=1800, heartbeat=15):
+            return self._generate_locked(inputs)
+
+    def _generate_locked(self, inputs: dict[str, Any]) -> ToolResult:
+        import scipy.io.wavfile as wavfile
+
         model_id = os.environ.get("VOXCPM_MODEL", "openbmb/VoxCPM2")
         model = self._load_model(model_id)
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -30,6 +31,13 @@ try:
     _HAVE_FILELOCK = True
 except ImportError:
     _HAVE_FILELOCK = False
+
+# 线程本地重入标记：pipeline 层已持锁时，工具层嵌套 gpu_lock 直接放行（防同线程死锁）
+_tls = threading.local()
+
+
+def _thread_holds_lock() -> bool:
+    return getattr(_tls, "held", False)
 
 # 锁文件默认位置：用户级，跨智能体共享
 def _default_lock_path() -> Path:
@@ -58,43 +66,52 @@ def gpu_lock(
     path = lock_path or _default_lock_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if _HAVE_FILELOCK:
-        _lock = filelock.FileLock(str(path), timeout=timeout)  # type: ignore[union-attr]
-        try:
-            with _lock:
-                yield
-        except filelock.Timeout:  # type: ignore[union-attr]
-            raise TimeoutError(
-                f"[GPU Lock] 等待 {label} 超过 {timeout:.0f}s 仍无法获取锁 {path}"
-            )
+    # 重入保护：当前线程已持有（如 pipeline assets 层已持锁，工具层再进入）→ 直接放行
+    if _thread_holds_lock():
+        yield
         return
 
-    # Fallback: O_EXCL create-file lock（filelock 不可用时）
-    deadline = time.time() + timeout
-    last_notice = 0.0
-    while True:
-        try:
-            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.close(fd)
+    _tls.held = True
+    try:
+        if _HAVE_FILELOCK:
+            _lock = filelock.FileLock(str(path), timeout=timeout)  # type: ignore[union-attr]
             try:
-                yield
-            finally:
-                try:
-                    os.unlink(str(path))
-                except FileNotFoundError:
-                    pass
-            return
-        except FileExistsError:
-            now = time.time()
-            if now - last_notice >= heartbeat:
-                print(
-                    f"[AutoDub] 等待 GPU 锁（被其他任务占用），"
-                    f"最长 {int(timeout - (now - (deadline - timeout)))}s ...",
-                    flush=True,
-                )
-                last_notice = now
-            if now >= deadline:
+                with _lock:
+                    yield
+            except filelock.Timeout:  # type: ignore[union-attr]
                 raise TimeoutError(
                     f"[GPU Lock] 等待 {label} 超过 {timeout:.0f}s 仍无法获取锁 {path}"
                 )
-            time.sleep(1.0)
+            return
+
+        # Fallback: O_EXCL create-file lock（filelock 不可用时）
+        deadline = time.time() + timeout
+        last_notice = 0.0
+        while True:
+            try:
+                fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                try:
+                    yield
+                finally:
+                    try:
+                        os.unlink(str(path))
+                    except FileNotFoundError:
+                        pass
+                return
+            except FileExistsError:
+                now = time.time()
+                if now - last_notice >= heartbeat:
+                    print(
+                        f"[AutoDub] 等待 GPU 锁（被其他任务占用），"
+                        f"最长 {int(timeout - (now - (deadline - timeout)))}s ...",
+                        flush=True,
+                    )
+                    last_notice = now
+                if now >= deadline:
+                    raise TimeoutError(
+                        f"[GPU Lock] 等待 {label} 超过 {timeout:.0f}s 仍无法获取锁 {path}"
+                    )
+                time.sleep(1.0)
+    finally:
+        _tls.held = False
