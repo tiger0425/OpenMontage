@@ -13,6 +13,9 @@ You are the **Scene Director** for a series-adapt episode. Your job is to take t
 | `apps/series-adapt/config.yaml` | Visual style and color scheme |
 | **`projects/<series>/DESIGN_SYSTEM.md`** | **Series design system (authoritative)** — the series'落地 design decisions: palette, typography minimums, composition, pacing, subtitles, SFX. Read it before planning scenes. |
 | `styles/vox-collage.yaml` | Generic style-library playbook (shared across series) — the `image_prompt_prefix` style block |
+| `references/vox-story-library.md` | Narrative arcs, hooks, beat rhythm — used to place highlight beats |
+| `references/vox-look-library.md` | Image prompt 5-part structure + theme presets — how to write `generation_direction` |
+| `references/vox-motion-library.md` | camera_move vocab + element_motion engine + GSAP paper-feel moves |
 
 ## Scene Types
 
@@ -88,18 +91,31 @@ Consecutive scenes MUST NOT use the same entry animation. Repeated "slide in fro
 - **Negative space ≥ 30%**: images should occupy roughly 55-65% of frame width (e.g. 1180/1920 for a panorama, 820/1920 for a close-up), leaving generous paper margin around every photo. Full-bleed only for the establishing panorama and the night widescreen.
 - **Typography minimums** (at 1920×1080): typewriter strips ≥ 40px, headlines ≥ 64px (title card ≥ 110px), stamps ≥ 46px, captions ≥ 28px, subtitles ≥ 34px. Small animated text is unreadable at 1080p.
 
-### Step 3: Write generation directions
+### Step 3: Write generation directions (5-part structure)
 
-For each scene, write a concrete `generation_direction` that the asset stage can pass to `image_selector`:
+For each scene, write a concrete `generation_direction` that the asset stage can pass to `image_selector`. Use the **5-part structure** from `references/vox-look-library.md` — the collage look is born in the image step; every scene must read as a *real layered collage*, not a smooth illustration:
 
-- **Scene type first**: identify the real reference frame(s) needed (see asset-director Step 0). Every scene depicting a real person, vehicle, or place must name its source frame (e.g. `ref: oldman_04.jpg`).
-- **Style block**: append the Vox Paper Collage style block from `styles/vox-collage.yaml` → `asset_generation.image_prompt_prefix` verbatim to every prompt.
-- **Per-type starting points** (then restyle into collage):
+1. **Style block**: append the Vox Paper Collage style block from `styles/vox-collage.yaml` → `asset_generation.image_prompt_prefix` verbatim to every prompt (the asset stage does the concat — see asset-director).
+2. **Scene as layered paper cut-outs** (the most important part): describe the scene as *separate cut-out pieces* with clear edges and their own drop shadows: `{subject}, {a prop}, {a text strip}, {a decorative scrap}`. If the scene depicts a real person/vehicle/place, the subject phrase is `Keep the exact same [person/tank/place] from the reference photo, cut out as a black and white halftone print` (img2img — see asset-director Step 0).
+3. **One bold flat background color per scene**: pick from the series palette (`DESIGN_SYSTEM.md`); **adjacent scenes must use different background colors** (rotating the palette).
+4. **Baked-in label**: one English typewriter-strip/rubber-stamp label, ≤4 words, with the exact words in quotes — the text is rendered by the image model, never added later.
+5. **Tech**: 1920×1080, 2k resolution, matte finish.
+
+**Per-type starting points** (then fill into the 5-part structure):
   - **tank_illustration**: "Keep the exact same [tank/person] from the reference photo. [composition] as a black and white halftone cutout..."
   - **stat_chart**: "Halftone cutout diagram on newsprint, [metric] across [items], typewriter labels in English"
   - **map_timeline**: "Torn paper map of China highlighting [locations], red string and pins between [year] markers, typewriter labels"
   - **text_card**: "Typewriter strip and rubber stamp on aged newsprint, [text], red signal accent"
   - **comparison_grid**: "Two torn-paper panels on newsprint showing [item A] vs [item B], red string connecting labeled points"
+
+### Step 3b: Assign camera_move + element_motion (per-scene motion spec)
+
+Pair each scene with motion fields per `references/vox-motion-library.md`:
+
+- **`camera_move`** (one per scene, hard-constrained vocab): `static` | `push_in` | `pull_out` | `pan` | `tilt` | `parallax` | `element`. **Banned: orbit, dolly_zoom, roll, whip, handheld, fast_zoom** (break the flat paper language). Adjacent scenes must NOT reuse the same camera_move; `timeline`-arc scenes pan the same direction beat-to-beat; reserve `static` for the highlight/payoff scene.
+- **`element_motion`** (the energy engine): every scene needs **≥2 elements moving simultaneously** — safe verbs: drift/sway/ripple/flutter/slide/pivot/bob/pulse/shimmer/settle/parallax. **Banned: morph/warp/vortex/explode** (rigid paper only). Shot-size gating: WIDE → several elements move; CLOSE/DETAIL → that one element animates strongly. Elements settle then hold static (stop-motion cadence).
+- **`highlight: true`** (max ≤2 per episode): mark the episode's energy peak scene from `references/vox-story-library.md` (the 高光节拍). Highlight scenes get the hero flying element quota and the motion peak; use `static` camera + `pop_settle` entrances there.
+- **`visual_beat_seconds`**: scene-internal rhythm — at least one visual event (element entrance / chart update / sub-shot switch) every **4–7s**. Any scene longer than **12s must be split into 2+ sub-shots** (wide establishing + detail cut-in), each with its own camera_move/entrance — narration stays continuous, the picture cuts mid-sentence (this is the single biggest rhythm win from vox-director).
 
 ### Step 4: Produce scene_plan
 
@@ -114,10 +130,20 @@ Output `scene_plan.json`:
       "index": 1,
       "scene_type": "tank_illustration",
       "animation_type": "pan-zoom-in",
+      "camera_move": "push_in",
+      "element_motion": "the tank's road wheels bob, dust scraps drift, a paper label strip slides in from the right, halftone pulses gently",
+      "highlight": true,
+      "visual_beat_seconds": 6,
       "start_seconds": 0,
       "duration_seconds": 45,
       "narration_text": "In 1999, as the world watched...",
-      "generation_direction": "Flat vector illustration of ZTZ-99 main battle tank rolling through Tiananmen Square, dramatic low angle, military-green palette, technical blueprint aesthetic",
+      "generation_direction": {
+        "subject": "Keep the exact same ZTZ-99 main battle tank from the reference photo, cut out as a black and white halftone print",
+        "props": "a folded parade map strip, scattered rivet scraps, a torn '1999' number cutout",
+        "background": "bold flat military green",
+        "label": "PARADE 1999",
+        "tech": "1920x1080, 2k resolution, matte finish"
+      },
       "overlay_text": null
     }
   ],
@@ -130,6 +156,11 @@ Output `scene_plan.json`:
 }
 ```
 
+> `generation_direction` is stored as a structured object (subject/props/background/label/tech)
+> — the asset stage assembles the final prompt by prepending the verbatim style block
+> (`styles/vox-collage.yaml` → `image_prompt_prefix`) and mapping these 4 fields into the
+> 5-part structure (see asset-director Step 1b).
+
 Update tracking.db status to `scene_planned`.
 
 ## Quality Rules
@@ -140,3 +171,9 @@ Update tracking.db status to `scene_planned`.
 - Each generation_direction must be concrete enough for `image_selector` to produce a usable image
 - Overlay text (on-screen labels/captions) must be in English
 - **No consecutive asset reuse**: two adjacent scenes MUST NOT use the same image asset. Reuse is allowed for non-adjacent scenes (e.g. scene 3 and scene 7 may share a doorway), but back-to-back reuse of the same image reads as a cut error and breaks the "one continuous space" illusion. Check the previous scene's `generation_direction`/asset reference before assigning a new one; if an adjacent scene would repeat an asset, either generate a new variant (new angle/crop/subject detail) or swap scene order.
+- **No consecutive camera_move**: adjacent scenes MUST NOT reuse the same `camera_move` (vocab + banned list in `references/vox-motion-library.md`); `static` reserved for the highlight/payoff scene
+- **element_motion on every scene**: ≥2 elements moving per scene (rigid-paper verbs only — no morph/warp/vortex/explode); CLOSE/DETAIL scenes may concentrate motion on the single hero element
+- **Visual rhythm**: every scene has a visual event at least every 4–7s (`visual_beat_seconds`); scenes >12s carry 2+ sub-shots (wide + detail)
+- **Highlight quota**: `highlight: true` on ≤2 scenes per episode (the 高光节拍 from `references/vox-story-library.md`)
+- **Baked-in labels**: every `generation_direction.label` is ≤4 words, English, quoted — text rendered by the image model, never added in compose
+- **Adjacent background colors differ**: consecutive scenes pick different flat background colors from the series palette

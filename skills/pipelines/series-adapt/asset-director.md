@@ -15,6 +15,7 @@ This is a **generation-heavy** stage — every call to image_selector or tts_sel
 | `apps/series-adapt/config.yaml` | Voice reference path, image provider, color scheme |
 | **`projects/<series>/DESIGN_SYSTEM.md`** | Series design system — real-reference rule, palette, composition |
 | `styles/vox-collage.yaml` | Generic style-library playbook |
+| `references/vox-look-library.md` | 5-part image prompt assembly rules + consistency checklist |
 | `glossary.yaml` | Pronunciation overrides for military terminology |
 | `image_selector` → `flux_image` | AI image generation |
 | `tts_selector` → `indextts_tts` | English voice synthesis |
@@ -37,7 +38,6 @@ This pipeline produces **personal biography documentaries**. Every person, vehic
 ### Step 1: Generate images
 
 For each scene in `scene_plan.json`, call `image_selector` with:
-- The scene's `generation_direction` as the prompt
 - Size: 1920×1080
 - Provider: from config (`visual.image_provider`, default `flux_image`)
 - Style guidance: read `styles/vox-collage.yaml` — the series' default style is **Vox Paper Collage** (aged newsprint, halftone cutouts, red string/pins, typewriter labels). The `image_prompt_prefix` field there is the verbatim style block for every prompt.
@@ -53,6 +53,26 @@ projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}/assets/images/scen
 - If two scenes show the same tank model, reuse the same reference frame and seed for consistent appearance
 - Real person/object scenes MUST use img2img from a real source frame (Step 0); free-form generation is only allowed for abstract/mood scenes
 - Charts and maps must have English labels only
+
+### Step 1b: Assemble the 5-part image prompt (MANDATORY)
+
+`scene_plan.generation_direction` is stored as a structured object (subject / props / background / label / tech — see scene-director Step 3). Assemble the final prompt with the 5-part structure from `references/vox-look-library.md`:
+
+```
+[1 STYLE BLOCK]  styles/vox-collage.yaml → image_prompt_prefix, verbatim (never paraphrase)
+[2 SCENE]        "SCENE as layered paper cut-outs: {subject}, {props}; clear edges,
+                  distinct layers, each with its own drop shadow, visibly hand-cut."
+                 (subject already embeds the img2img keep-exact-same phrase for real subjects)
+[3 BACKGROUND]   "on a bold flat {background} paper background."
+[4 LABEL]        "A typewriter strip / rubber stamp reading "{label}" (English, max 4 words)."
+[5 TECH]         "{tech}"
+```
+
+Rules:
+- The style block is byte-identical across every prompt of the episode (diff against the source file). Only parts 2–4 change per scene.
+- Positive phrasing only — do NOT append negative words to Flux-style models; if the provider needs a negative prompt, use `styles/vox-collage.yaml` → `image_negative_prompt` in the tool's negative field, never inline.
+- Record the final assembled prompt in the manifest (`image_prompt`).
+- Self-check each prompt against the §4 checklist in `references/vox-look-library.md` (cut-outs/clear edges/drop shadow, single bold color, ≤4-word quoted label, no 3D/CGI words).
 
 ### Step 2: Generate narration
 

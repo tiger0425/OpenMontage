@@ -15,6 +15,7 @@ This stage bundles three sub-steps that in other pipelines are separate stages (
 | `apps/series-adapt/config.yaml` | Composition settings, color scheme |
 | **`projects/<series>/DESIGN_SYSTEM.md`** | Series design system — palette, typography, subtitles, SFX, transitions |
 | `styles/vox-collage.yaml` | Generic style-library playbook |
+| `references/vox-motion-library.md` | camera_move implementations + element_motion engine + GSAP paper-feel moves |
 | `hyperframes_compose` | Scaffold, lint, validate, render |
 | `video_compose` (optional) | ffprobe validation |
 
@@ -89,6 +90,46 @@ Write the HyperFrames composition with the following Vox design system:
 | map_timeline | Sequential `gsap.to('.marker', {opacity:1, scale:1, stagger:0.5})` with connecting line draw |
 | text_card | Typewriter via GSAP TextPlugin or CSS animation |
 | comparison_grid | Two panels slide in from opposite sides, `gsap.from('.left', {x:-100})` + `gsap.from('.right', {x:100})` simultaneously |
+
+### Step 2a: camera_move + element_motion (per-scene motion, from scene_plan)
+
+Each scene carries `camera_move` and `element_motion` from the scene plan — implement per `references/vox-motion-library.md`:
+
+**camera_move (one per scene, on the whole image layer):**
+- `static`: no transform on the image; only element micro-float
+- `push_in`: `gsap.to(img, {scale:1.07, duration:scene_dur, ease:'power1.out'})`
+- `pull_out`: `gsap.from(img, {scale:1.1, duration:scene_dur, ease:'power1.out'})`
+- `pan`: `gsap.to(img, {xPercent:-8, duration:scene_dur, ease:'power1.inOut'})` (over-wide images only)
+- `tilt`: `gsap.to(img, {yPercent:-8, duration:scene_dur, ease:'power1.inOut'})`
+- `parallax`: fg/mid/bg layers at different speeds (image as bg + 2-3 cutout layers)
+- `element`: image static; one element slides/hinges in (use an entry move from Step 2a2)
+- Banned (breaks flat paper language): orbit, dolly_zoom, roll, whip, handheld, fast_zoom — do NOT implement even though GSAP could
+
+**element_motion (the energy engine — ≥2 elements moving per scene):**
+- Give each scene ≥2 moving paper elements with safe rigid-paper verbs: drift / sway / ripple / flutter / slide / pivot / bob / pulse / shimmer / settle / layer parallax. **No morph / warp / vortex / explode.**
+- WIDE scenes: several elements move; CLOSE/DETAIL scenes: the single hero element animates strongly, others micro-move.
+- Elements **settle then hold static** (stop-motion cadence) — after landing, only micro-life (paper corner lift, halftone shimmer).
+- **Text-protection**: the label strip moves as one rigid piece (translate/scale only), never letter-by-letter or warped.
+
+**Visual beat rhythm:** every 4–7s a visual event (element entrance / chart update / sub-shot switch) — `visual_beat_seconds` from the scene plan. Scenes >12s are 2+ sub-shots; each sub-shot has its own camera_move/entrance, narration continues across the cut.
+
+### Step 2a2: Paper-feel entrances (GSAP implementation from vox-motion-library)
+
+Entry moves, mapped by scene `animation_type` — the paper-feel comes from these easing choices:
+
+| Entrance | GSAP snippet | Used for |
+|---|---|---|
+| `fly_in` | `gsap.from(el, {x:-600, rotation:-12, ease:'back.out(1.7)', duration:0.9})` | photos, boards |
+| `slap` | `gsap.from(el, {scale:1.3, ease:'power3.in', duration:0.25})` | stamps, labels |
+| `drop` | `gsap.from(el, {y:-260, ease:'bounce.out', duration:1.1})` | objects falling |
+| `pop_settle` | `gsap.from(el, {scale:1.35, autoAlpha:0, ease:'power3.out', duration:0.7})` | focus reveal, no off-screen travel — no ghost |
+| `stamp-appear` | `gsap.from(el, {scale:1.25, autoAlpha:0, duration:0.35, ease:'power2.out'})` + `stagger:0.08` | title/closing cards |
+
+**Anti-ghost rule** (from vox-director's local engine): when an element flies in to a spot on a photo, blur that region on the image with a placeholder block (`filter: blur(6px)`) until the element lands, then hide the blur block — luminance/color preserved, no dark patch. For scale-settles over a full backdrop use `power3.out` (a `back` overshoot dips below 1.0 and reveals a copy).
+
+**Hero flying element (highlight scenes only):** the episode's ≤2 `highlight: true` scenes (from scene_plan) get one hero element flying across the frame (paper bird / shell / badge / arrow): `gsap.fromTo(el, {x:-300, rotate:-15}, {x:600, rotate:10, duration:2.5, ease:'power1.inOut'})` with a slight arc (sinusoidal y), settling with a small `back.out` overshoot. Never on non-highlight scenes.
+
+**Anti-monotony:** adjacent scenes MUST NOT reuse the same camera_move nor the same entrance family — rotate scale-family (slap/pop_settle/scale-in) ↔ translate-family (fly_in/drop/poster-rise) ↔ opacity-family (stamp-appear/vignette-in). `static` + `pop_settle` combos are reserved for highlight/closing beats.
 
 ### Step 2b: Scene transitions = cross dissolve (not hard cuts, not wipes)
 
@@ -186,3 +227,8 @@ Update tracking.db status to `rendered`.
 - Every scene from scene_plan must be present in the output
 - No raw Chinese text visible on screen (all labels/overlays in English)
 - The HyperFrames workspace is self-contained (no external URL dependencies for assets)
+- **Motion rules (per `references/vox-motion-library.md`):** every scene has ≥2 moving elements (rigid-paper verbs only); adjacent scenes differ in camera_move AND entrance family; no morph/warp/vortex/explode anywhere; no orbit/roll/whip camera moves
+- **Highlight quota:** hero flying elements appear only on `highlight: true` scenes (≤2 per episode), never on ordinary scenes
+- **Anti-ghost:** any element flying in over a photo has a blurred placeholder at its landing spot until it lands; scale-settles over a full backdrop use `power3.out` (no `back` undershoot)
+- **Visual rhythm:** no scene plays >7s without a visual event; scenes >12s carry 2+ sub-shots with distinct camera moves
+- **Entrance SFX mapping** (Step 2d) fires on element landings at volume ~0.28, under the narration
