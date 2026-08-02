@@ -1,25 +1,33 @@
 """IndexTTS2 local GPU text-to-speech provider tool.
 
-Supports zero-shot voice cloning (spk_audio_prompt), 8-dim emotion
-control (emo_vector), and FP16 inference.  Requires a CUDA GPU and
-IndexTTS-2 cloned from GitHub with ``uv sync --all-extras`` completed.
+Bridges to the IndexTTS-2 repo's own Python venv via the resident server
+script (<repo>/indextts_server.py): the model loads once in a subprocess
+and each synthesize call is one JSON request line on stdin / response
+line on stdout.  This keeps the GPU model inside its compatible Python
+env (the repo venv) instead of forcing it into the OpenMontage process.
+
+Supports zero-shot voice cloning (spk_audio_prompt -> voice_ref), 8-dim
+emotion control (emo_vector), seed reproducibility, and automatic RMS
+normalization (server-side).  GPU usage is protected by the shared GPU
+lock (lib.gpu_lock) for the whole server lifetime.
 """
 
 from __future__ import annotations
 
+import atexit
+import json
 import os
+import shutil
+import subprocess
+import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-_MODEL_CACHE: dict[str, Any] = {}
-
-_VOICE_ANCHOR_CACHE: dict[tuple[str, int], Path] = {}
-
-_ANCHOR_TEXT = "This is a voice identity anchor."
-
 from tools.base_tool import (
     BaseTool,
+    DependencyError,
     Determinism,
     ExecutionMode,
     ResourceProfile,
@@ -30,10 +38,192 @@ from tools.base_tool import (
     ToolTier,
 )
 
+from lib.gpu_lock import GpuLockHandle
+
+_DEFAULT_REPO_CANDIDATES = [Path("D:/index-tts"), Path("C:/Users/tiger/index-tts")]
+
+_SERVER_START_TIMEOUT_SECONDS = 600.0
+_SERVER_READY_MARKER = ">> model ready"
+
+_SERVER_PROC: subprocess.Popen | None = None
+_SERVER_LOCK = threading.Lock()
+_GPU_HANDLE: GpuLockHandle | None = None
+_SERVER_LAST_ERROR: str | None = None
+
+
+def _repo_root() -> Path:
+    root = os.environ.get("INDEXTTS_REPO")
+    if root:
+        return Path(root)
+    for candidate in _DEFAULT_REPO_CANDIDATES:
+        if candidate.is_dir():
+            return candidate
+    return Path(__file__).resolve().parent.parent.parent / "vendor" / "IndexTTS-2"
+
+
+def _venv_python(repo: Path) -> Path | None:
+    windows = repo / ".venv" / "Scripts" / "python.exe"
+    if windows.is_file():
+        return windows
+    posix = repo / ".venv" / "bin" / "python"
+    if posix.is_file():
+        return posix
+    return None
+
+
+def _server_script(repo: Path) -> Path:
+    return repo / "indextts_server.py"
+
+
+def _start_server() -> subprocess.Popen:
+    global _SERVER_PROC, _GPU_HANDLE, _SERVER_LAST_ERROR
+    repo = _repo_root()
+    venv_py = _venv_python(repo)
+    server = _server_script(repo)
+    if venv_py is None:
+        raise RuntimeError(
+            f"IndexTTS-2 venv python not found under {repo}/.venv. "
+            "Run 'uv sync --all-extras' inside the repo first."
+        )
+    if not server.is_file():
+        raise RuntimeError(
+            f"IndexTTS-2 bridge script not found: {server}. "
+            "The resident server script (indextts_server.py) must live in the repo root."
+        )
+
+    handle = GpuLockHandle("indextts", timeout=1800, heartbeat=15)
+    handle.acquire()
+    try:
+        proc = subprocess.Popen(
+            [str(venv_py), str(server)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+    except Exception:
+        handle.release()
+        raise
+
+    ready = threading.Event()
+    errors: list[str] = []
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            line = line.rstrip()
+            if line:
+                print(f"[IndexTTS2] {line}", flush=True)
+            if _SERVER_READY_MARKER in line:
+                ready.set()
+            if ">> ERROR" in line:
+                errors.append(line)
+
+    threading.Thread(target=_drain_stderr, daemon=True).start()
+
+    if not ready.wait(timeout=_SERVER_START_TIMEOUT_SECONDS):
+        if proc.poll() is not None:
+            handle.release()
+            raise RuntimeError(
+                "IndexTTS2 server exited during startup. "
+                f"Last stderr: {errors[-1] if errors else 'no output'}"
+            )
+        proc.terminate()
+        handle.release()
+        raise TimeoutError(
+            f"IndexTTS2 server did not become ready within {_SERVER_START_TIMEOUT_SECONDS:.0f}s"
+        )
+
+    _SERVER_PROC = proc
+    _GPU_HANDLE = handle
+    _SERVER_LAST_ERROR = None
+    return proc
+
+
+def _stop_server() -> None:
+    global _SERVER_PROC, _GPU_HANDLE
+    proc = _SERVER_PROC
+    handle = _GPU_HANDLE
+    _SERVER_PROC = None
+    _GPU_HANDLE = None
+    if proc is not None and proc.poll() is None:
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(json.dumps({"cmd": "exit"}) + "\n")
+            proc.stdin.flush()
+            proc.wait(timeout=30)
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    if handle is not None:
+        handle.release()
+
+
+atexit.register(_stop_server)
+
+
+def _synthesize_via_server(
+    text: str,
+    output_path: str,
+    voice_ref: str | None,
+    seed: int,
+    emo_vector: list[float],
+) -> dict[str, Any]:
+    global _SERVER_PROC, _SERVER_LAST_ERROR
+    with _SERVER_LOCK:
+        if _SERVER_PROC is None or _SERVER_PROC.poll() is not None:
+            _SERVER_PROC = _start_server()
+        proc = _SERVER_PROC
+
+    assert proc is not None and proc.stdin is not None and proc.stdout is not None
+
+    rid = uuid.uuid4().hex[:8]
+    req = {
+        "id": rid,
+        "text": text,
+        "output_path": output_path,
+        "voice_ref": voice_ref,
+        "seed": seed,
+        "emo_vector": emo_vector,
+    }
+    try:
+        proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        if not line:
+            raise RuntimeError("IndexTTS2 server closed stdout unexpectedly (crashed?)")
+        resp = json.loads(line)
+    except Exception as exc:
+        with _SERVER_LOCK:
+            if _SERVER_PROC is not None and _SERVER_PROC.poll() is not None:
+                _SERVER_PROC = _start_server()
+                proc = _SERVER_PROC
+                assert proc is not None and proc.stdin is not None and proc.stdout is not None
+                proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+                proc.stdin.flush()
+                line = proc.stdout.readline()
+                if not line:
+                    raise RuntimeError(
+                        "IndexTTS2 server closed stdout after restart"
+                    ) from exc
+                resp = json.loads(line)
+            else:
+                raise
+    if not resp.get("ok"):
+        _SERVER_LAST_ERROR = str(resp.get("error", "unknown error"))
+        raise RuntimeError(f"IndexTTS2 synthesis failed: {_SERVER_LAST_ERROR}")
+    return resp
+
 
 class IndexTTS2TTS(BaseTool):
     name = "indextts_tts"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.VOICE
     capability = "tts"
     provider = "indextts"
@@ -43,23 +233,18 @@ class IndexTTS2TTS(BaseTool):
     runtime = ToolRuntime.LOCAL_GPU
 
     dependencies = [
-        "python:indextts",
         "cmd:espeak-ng",
     ]
     install_instructions = (
-        "Install IndexTTS-2 for local GPU TTS with voice cloning:\n"
-        "  git clone https://github.com/IndexTeam/IndexTTS-2.git\n"
-        "  cd IndexTTS-2\n"
-        "  uv sync --all-extras\n"
-        "  # Install espeak-ng for phonemization:\n"
-        "  #   Windows: winget install espeak-ng\n"
-        "  #   Ubuntu:  sudo apt install espeak-ng\n"
-        "  #   macOS:   brew install espeak-ng\n"
-        "Download pretrained weights and place in IndexTTS-2/checkpoints/.\n"
-        "Set INDEXTTS_REPO env var to the IndexTTS-2 clone path.\n"
-        "Set INDEXTTS_CFG env var to override the config YAML path.\n"
-        "Set INDEXTTS_MODEL_DIR env var to override the model directory.\n"
-        "Requires a CUDA GPU (FP16: ~8-12 GB VRAM; FP32: ~16-22 GB VRAM)."
+        "IndexTTS2 local GPU TTS via the repo's resident server bridge:\n"
+        "  1. Clone https://github.com/IndexTeam/IndexTTS-2 and run 'uv sync --all-extras'\n"
+        "  2. Place checkpoints/ (config.yaml + weights) inside the repo\n"
+        "  3. The bridge runs <repo>/indextts_server.py with the repo venv python "
+        "(model loads once, JSON protocol on stdin/stdout)\n"
+        "  4. Set INDEXTTS_REPO to the clone path "
+        "(default candidates: D:/index-tts, C:/Users/tiger/index-tts)\n"
+        "  5. espeak-ng must be on PATH (winget install espeak-ng)\n"
+        "Requires a CUDA GPU (~8-12 GB VRAM in FP16)."
     )
     agent_skills: list[str] = ["indextts-tts"]
 
@@ -82,7 +267,7 @@ class IndexTTS2TTS(BaseTool):
         "emotion-controlled delivery (8-dim emo_vector)",
         "multilingual narration with cloned voice",
         "privacy-sensitive local-only voice generation",
-        "English / multilingual audio production at zero marginal cost",
+        "English / Chinese audio production at zero marginal cost",
     ]
     not_good_for = [
         "environments without a CUDA GPU",
@@ -106,9 +291,11 @@ class IndexTTS2TTS(BaseTool):
             "spk_audio_prompt": {
                 "type": "string",
                 "description": (
-                    "Path to a reference WAV for zero-shot voice cloning. "
-                    "A clean 5-30 second clip of the target speaker is sufficient. "
-                    "Use the same file across all segments for consistent timbre."
+                    "Path to a reference WAV for zero-shot voice cloning (required for "
+                    "synthesis; IndexTTS2 has no default voice). A clean 5-30 second "
+                    "clip of the target speaker is sufficient. Use the same file across "
+                    "all segments for consistent timbre. Falls back to INDEXTTS_VOICE_REF "
+                    "env var, then <repo>/voice_reference.wav."
                 ),
             },
             "emo_vector": {
@@ -116,11 +303,11 @@ class IndexTTS2TTS(BaseTool):
                 "items": {"type": "number"},
                 "minItems": 8,
                 "maxItems": 8,
-                "default": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                "default": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
                 "description": (
                     "8-dim emotion vector: "
-                    "[happy, angry, sad, fearful, disgusted, surprised, neutral, other]. "
-                    "Default is neutral [0,0,0,0,0,0,1,0]. "
+                    "[happy, angry, sad, fearful, disgusted, surprised, neutral, calm]. "
+                    "Default is calm [0,0,0,0,0,0,0,1], matching the documentary read. "
                     "Values are typically in [0, 1] range."
                 ),
             },
@@ -128,8 +315,8 @@ class IndexTTS2TTS(BaseTool):
                 "type": "boolean",
                 "default": True,
                 "description": (
-                    "Use FP16 inference to reduce VRAM (~8-12 GB vs ~16-22 GB). "
-                    "Quality loss is negligible for voice cloning."
+                    "Server runs FP16 fixed; this flag is accepted for schema compatibility "
+                    "and reported back."
                 ),
             },
             "speed": {
@@ -137,24 +324,25 @@ class IndexTTS2TTS(BaseTool):
                 "minimum": 0.5,
                 "maximum": 2.0,
                 "default": 1.0,
-                "description": "Speaking speed multiplier.",
+                "description": (
+                    "Speaking speed multiplier applied after synthesis via resampling. "
+                    "Keep at 1.0 for dubbing workflows (zero speed modification rule)."
+                ),
             },
             "seed": {
                 "type": "integer",
                 "default": 42,
                 "description": (
                     "Random seed for reproducibility. "
-                    "All segments sharing the same seed (and no explicit spk_audio_prompt) "
-                    "will be cloned from the same auto-generated anchor, ensuring consistent timbre. "
-                    "Set to -1 to skip anchoring."
+                    "Segments sharing the same seed and voice reference keep consistent timbre. "
+                    "Set to -1 to skip seeding."
                 ),
             },
             "max_text_tokens_per_segment": {
                 "type": "integer",
                 "default": 200,
                 "description": (
-                    "Max tokens per generation call. Longer text is split and "
-                    "reassembled automatically."
+                    "Accepted for schema compatibility; long text is handled server-side."
                 ),
             },
         },
@@ -167,12 +355,11 @@ class IndexTTS2TTS(BaseTool):
         "text",
         "spk_audio_prompt",
         "emo_vector",
-        "use_fp16",
         "speed",
         "seed",
     ]
     side_effects = ["writes audio file to output_path"]
-    fallback_tools = ["piper_tts", "elevenlabs_tts"]
+    fallback_tools = ["voxcpm_tts", "piper_tts", "google_tts"]
     user_visible_verification = [
         "Listen to generated audio for naturalness, clarity, and emotion accuracy",
         "Verify voice cloning fidelity against the reference speaker",
@@ -182,16 +369,32 @@ class IndexTTS2TTS(BaseTool):
     # Status
     # ------------------------------------------------------------------
 
+    def check_dependencies(self) -> None:
+        if shutil.which("espeak-ng") is None:
+            raise DependencyError(
+                "Command 'espeak-ng' not found. " + self.install_instructions
+            )
+        repo = _repo_root()
+        if not repo.is_dir():
+            raise DependencyError(
+                f"IndexTTS-2 repo not found (INDEXTTS_REPO unset, tried {_DEFAULT_REPO_CANDIDATES}). "
+                + self.install_instructions
+            )
+        if _venv_python(repo) is None:
+            raise DependencyError(
+                f"No venv python under {repo}/.venv. "
+                "Run 'uv sync --all-extras' inside the IndexTTS-2 repo first."
+            )
+        if not _server_script(repo).is_file():
+            raise DependencyError(
+                f"Bridge script {_server_script(repo)} missing. "
+                "The resident server script (indextts_server.py) must live in the repo root."
+            )
+
     def get_status(self) -> ToolStatus:
         try:
             self.check_dependencies()
         except Exception:
-            return ToolStatus.UNAVAILABLE
-        try:
-            import torch
-            if not torch.cuda.is_available():
-                return ToolStatus.UNAVAILABLE
-        except ImportError:
             return ToolStatus.UNAVAILABLE
         return ToolStatus.AVAILABLE
 
@@ -210,8 +413,7 @@ class IndexTTS2TTS(BaseTool):
             if status == ToolStatus.UNAVAILABLE:
                 return ToolResult(
                     success=False,
-                    error="IndexTTS2 TTS not available. Requires CUDA GPU and the "
-                    "indextts Python package. " + self.install_instructions,
+                    error="IndexTTS2 TTS not available. " + self.install_instructions,
                 )
             return ToolResult(
                 success=False,
@@ -222,110 +424,16 @@ class IndexTTS2TTS(BaseTool):
         try:
             result = self._generate(inputs)
         except Exception as exc:
-            return ToolResult(success=False, error=f"IndexTTS2 TTS generation failed: {exc}")
+            return ToolResult(
+                success=False,
+                error=f"IndexTTS2 TTS generation failed: {exc}",
+            )
 
         result.duration_seconds = round(time.time() - start, 2)
         return result
 
     # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _repo_root(self) -> Path:
-        root = os.environ.get("INDEXTTS_REPO")
-        if root:
-            return Path(root)
-        defaults = [Path("D:/index-tts"), Path("C:/Users/tiger/index-tts")]
-        for d in defaults:
-            if d.is_dir():
-                return d
-        return Path(__file__).resolve().parent.parent.parent / "vendor" / "IndexTTS-2"
-
-    def _cfg_path(self) -> Path:
-        env = os.environ.get("INDEXTTS_CFG")
-        if env:
-            return Path(env)
-        return self._repo_root() / "checkpoints" / "config.yaml"
-
-    def _model_dir(self) -> Path:
-        env = os.environ.get("INDEXTTS_MODEL_DIR")
-        if env:
-            return Path(env)
-        return self._repo_root() / "checkpoints"
-
-    def _load_model(self, use_fp16: bool) -> Any:
-        cache_key = f"fp16={use_fp16}"
-        if cache_key not in _MODEL_CACHE:
-            from indextts.infer_v2 import IndexTTS2
-
-            model = IndexTTS2(
-                cfg_path=str(self._cfg_path()),
-                model_dir=str(self._model_dir()),
-                use_fp16=use_fp16,
-                device="cuda",
-            )
-            _MODEL_CACHE[cache_key] = model
-        return _MODEL_CACHE[cache_key]
-
-    def _get_or_create_anchor(
-        self,
-        model: Any,
-        use_fp16: bool,
-        seed: int,
-        emo_vector: list[float],
-    ) -> tuple[Path, str]:
-        import hashlib
-
-        anchor_transcript = _ANCHOR_TEXT
-        emo_key = "_".join(f"{v:.2f}" for v in emo_vector)
-        cache_key = (f"fp16={use_fp16}", seed, emo_key)
-        if cache_key in _VOICE_ANCHOR_CACHE:
-            return _VOICE_ANCHOR_CACHE[cache_key], anchor_transcript
-
-        import tempfile
-        import numpy as np
-
-        anchor_dir = Path(tempfile.gettempdir()) / "indextts_anchors"
-        anchor_dir.mkdir(parents=True, exist_ok=True)
-
-        fp_tag = "fp16" if use_fp16 else "fp32"
-        seed_hash = hashlib.md5(f"{seed}{emo_key}".encode()).hexdigest()[:8]
-        anchor_path = anchor_dir / f"anchor_{fp_tag}_seed{seed}_{seed_hash}.wav"
-
-        if not anchor_path.exists():
-            print(f"[IndexTTS2] Generating voice anchor (seed={seed})...")
-            try:
-                import torch
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
-            except ImportError:
-                pass
-
-            anchor_audio = model.infer(
-                spk_audio_prompt=None,
-                text=anchor_transcript,
-                emo_vector=emo_vector,
-                verbose=False,
-            )
-
-            if isinstance(anchor_audio, np.ndarray):
-                import scipy.io.wavfile as wavfile
-                sample_rate = getattr(model, "sample_rate", 24000)
-                wavfile.write(str(anchor_path), sample_rate, anchor_audio)
-            else:
-                raise RuntimeError(
-                    f"IndexTTS2 model.infer() returned unexpected type: {type(anchor_audio)}"
-                )
-
-            print(f"[IndexTTS2] Voice anchor saved: {anchor_path}")
-
-        _VOICE_ANCHOR_CACHE[cache_key] = anchor_path
-        return anchor_path, anchor_transcript
-
-    # ------------------------------------------------------------------
     # Generation
-    # ------------------------------------------------------------------
 
     def _generate(self, inputs: dict[str, Any]) -> ToolResult:
         import numpy as np
@@ -336,67 +444,62 @@ class IndexTTS2TTS(BaseTool):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         spk_audio_prompt: str | None = inputs.get("spk_audio_prompt")
-        emo_vector: list[float] = list(inputs.get("emo_vector", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
+        emo_vector: list[float] = list(
+            inputs.get("emo_vector", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        )
         use_fp16: bool = bool(inputs.get("use_fp16", True))
         speed: float = float(inputs.get("speed", 1.0))
         seed: int = int(inputs.get("seed", 42))
 
         if len(emo_vector) != 8:
-            emo_vector = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+            emo_vector = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
 
-        model = self._load_model(use_fp16)
-
-        # ------------------------------------------------------------------
-        # Resolve spk_audio_prompt (voice-anchor priority)
-        # 1. User explicitly provides spk_audio_prompt → use directly
-        # 2. seed != -1                            → auto-generate / reuse anchor
-        # 3. seed == -1                            → no cloning (IndexTTS2 default voice)
-        # ------------------------------------------------------------------
-        effective_spk: str | None = spk_audio_prompt
-        anchor_used = False
-
-        if not effective_spk and seed != -1:
-            anchor_path, _ = self._get_or_create_anchor(
-                model, use_fp16, seed, emo_vector,
+        voice_ref = spk_audio_prompt
+        if not voice_ref:
+            env_ref = os.environ.get("INDEXTTS_VOICE_REF")
+            if env_ref and Path(env_ref).is_file():
+                voice_ref = env_ref
+            else:
+                repo_ref = _repo_root() / "voice_reference.wav"
+                if repo_ref.is_file():
+                    voice_ref = str(repo_ref)
+        if not voice_ref:
+            raise RuntimeError(
+                "IndexTTS2 requires a reference voice file to synthesize. "
+                "Pass spk_audio_prompt (a clean 5-30s speech WAV), or set "
+                "INDEXTTS_VOICE_REF, or drop a voice_reference.wav into the "
+                "IndexTTS-2 repo root."
             )
-            effective_spk = str(anchor_path)
-            anchor_used = True
 
-        # --- seed for reproducibility ---
-        if seed != -1:
-            try:
-                import torch
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
-            except ImportError:
-                pass
+        try:
+            resp = _synthesize_via_server(
+                text=text,
+                output_path=str(output_path),
+                voice_ref=voice_ref,
+                seed=seed,
+                emo_vector=emo_vector,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"IndexTTS2 synthesis failed (server restart handled internally): {exc}"
+            ) from exc
 
-        # --- generate ---
-        infer_kwargs: dict[str, Any] = {
-            "text": text,
-            "emo_vector": emo_vector,
-            "verbose": False,
-        }
-        if effective_spk:
-            infer_kwargs["spk_audio_prompt"] = effective_spk
-
-        audio_array = model.infer(**infer_kwargs)
-
-        sample_rate = getattr(model, "sample_rate", 24000)
-
+        sample_rate = 24000
         if speed != 1.0:
             try:
+                sr, data = wavfile.read(str(output_path))
+                audio = np.asarray(data, dtype=np.float32)
                 import scipy.signal
-                new_length = int(len(audio_array) / speed)
-                audio_array = scipy.signal.resample(audio_array, new_length)
-            except ImportError:
+                new_length = int(len(audio) / speed)
+                audio = np.asarray(
+                    scipy.signal.resample(audio, new_length), dtype=np.float32
+                )
+                audio = np.clip(audio, -1.0, 1.0)
+                out_i16 = (audio * 32767.0).astype(np.int16)
+                wavfile.write(str(output_path), sr, out_i16)
+                sample_rate = sr
+            except Exception:
                 pass
-
-        if not isinstance(audio_array, np.ndarray):
-            audio_array = np.array(audio_array, dtype=np.float32)
-
-        wavfile.write(str(output_path), sample_rate, audio_array)
 
         return ToolResult(
             success=True,
@@ -407,13 +510,15 @@ class IndexTTS2TTS(BaseTool):
                 "output": str(output_path),
                 "format": "wav",
                 "sample_rate": sample_rate,
-                "voice_cloning": bool(effective_spk),
-                "voice_anchor_used": anchor_used,
+                "voice_cloning": bool(voice_ref),
+                "voice_anchor_used": False,
                 "emo_vector": emo_vector,
                 "use_fp16": use_fp16,
                 "speed": speed,
                 "seed": seed,
-                "effective_spk_prompt": effective_spk,
+                "effective_spk_prompt": voice_ref,
+                "bridge": "indextts_server.py",
+                "rms_normalized": True,
             },
             artifacts=[str(output_path)],
             model="indextts-2",
