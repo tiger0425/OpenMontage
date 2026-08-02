@@ -1,0 +1,62 @@
+# series-adapt 坦克军事术语发音表
+# 用于 IndexTTS2 声音克隆合成时的术语发音控制
+# 格式: term -> { en: "English pronunciation hint" }
+
+terms:
+  # === 坦克型号 ===
+  ZTZ-99:    "zee tee zee ninety nine"
+  ZTZ-96:    "zee tee zee ninety six"
+  ZTZ-80:    "zee tee zee eighty"
+  T-62:      "tee sixty two"
+  T-72:      "tee seventy two"
+  T-54A:     "tee fifty four ay"
+  M1A2:      "em one ay two"
+  MBT-70:    "em bee tee seventy"
+  WZ-122:    "double u zee one twenty two"
+  WZ-111:    "double u zee one eleven"
+  VT-4:      "vee tee four"
+  L7:        "el seven"
+  JF-17:     "jay ef seventeen"
+  F-22:      "ef twenty two"
+  F-35:      "ef thirty five"
+  Su-27:     "soo twenty seven"
+  MiG-29:    "mig twenty nine"
+
+  # === 中国坦克编号体系 ===
+  "59式":    "type fifty nine"
+  "69式":    "type sixty nine"
+  "79式":    "type seventy nine"
+  "99式":    "type ninety nine"
+  "96式":    "type ninety six"
+  "59改":    "type fifty nine modified"
+  "69II":    "type sixty nine mark two"
+
+  # === 武器系统 ===
+  APFSDS:    "ay pee ef ess dee ess"
+  HEAT:      "heat"
+  HE:        "aitch ee"
+  ERA:       "ee are ay"
+  NERA:      "nee are ay"
+  "105mm":   "one oh five millimeter"
+  "120mm":   "one twenty millimeter"
+  "125mm":   "one twenty five millimeter"
+
+  # === 技术术语 ===
+  "滑膛炮":   "smoothbore cannon"
+  "线膛炮":   "rifled gun"
+  "复合装甲":  "composite armor"
+  "反应装甲":  "explosive reactive armor"
+  "燃气轮机":  "gas turbine engine"
+  "液力变矩器": "hydraulic torque converter"
+  "三液三机":  "three liquid three machine system"
+
+  # === 地名/机构 ===
+  "哈军工":   "harbin military engineering institute"
+  "包头":    "bao tow"
+  "洛阳":    "luo yang"
+  "大同":    "da tong"
+  "珍宝岛":   "zhen bao island"
+
+  # === 人名 ===
+  "祝榆生":   "zhu yu sheng"
+  "冯益柏":   "feng yi bai"

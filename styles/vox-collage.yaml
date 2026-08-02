@@ -1,0 +1,136 @@
+identity:
+  name: "Vox Paper Collage"
+  category: retro
+  mood: calm, archival, documentary, restrained tension
+  pace: deliberate
+  best_for: "Biography documentaries, historical narrations, true-crime docs, personal-history series"
+
+visual_language:
+  color_palette:
+    primary: ["#1C1917", "#6E675C"]
+    accent: ["#C0392B", "#C4A35A"]
+    background: "#D9C9A3"
+    text: "#1C1917"
+    muted: "rgba(28,25,23,0.55)"
+  composition: "central hero element at ~70% visual weight, 2-3 supporting elements max, generous negative space, torn-paper edges breaking the frame"
+  texture: "aged newsprint and archival map surfaces, halftone print grain, paper fiber, visible cutout edges, soft layered drop shadows, matte finish"
+
+typography:
+  headings:
+    font: "Arial Narrow"
+    weight: 900
+    tracking: "-0.01em"
+  body:
+    font: "Georgia"
+    weight: 400
+    line_height: 1.4
+  code:
+    font: "Courier New"
+    weight: 700
+  stat_card:
+    font: "Courier New"
+    weight: 700
+    size_multiplier: 1.2
+  scale_system: "minor_third"
+  weight_matrix:
+    title: 900
+    heading: 900
+    body: 400
+    caption: 700
+
+motion:
+  transitions: [paper-wipe, cut, crossfade]
+  animation_style: "paper settle: slide-in with power3.out, tiny handcrafted bounce on landing, then fully static (no motion after landing); stop-motion cadence, stepped easing, 2-3 frame holds"
+  pacing_rules:
+    min_scene_hold_seconds: 2.5
+    max_scene_hold_seconds: 12
+    text_card_hold_seconds: 3
+    stat_card_hold_seconds: 4
+    transition_duration_seconds: 0.45
+  entrance: "elements enter one by one back-to-front: background scraps, hero cutout (paper drag + settle), supporting cutouts, tape, typewriter strips, stamps slap on, red string draws itself pin to pin"
+  exit: "hard cut or paper wipe, no motion exit"
+
+audio:
+  voice_style: "calm deadpan male narrator, mid-range, mild gravitas, ~155 wpm, minimal emotion spikes, documentary read"
+  music_mood: "ambient documentary, low intensity, no percussion, string pads"
+  music_volume: 0.13
+  sfx_style: "close-up paper ASMR: paper sliding, cardstock taps, tape press, stamp thud, string zip, pin click, soft room tone (all subtle)"
+  ducking_threshold_db: -8
+
+asset_generation:
+  image_prompt_prefix: "hand-cut documentary paper collage on aged newsprint and archival map surfaces, black and white halftone photograph cutouts with rough scissor-cut edges and offset accent strokes, torn paper edges, masking tape fragments, typewriter caption strips, rubber stamp marks, red string and brass pins where the story calls for connections, desaturated archival palette of tan, ink black, and halftone gray with ONE hot red signal accent and a restrained mustard yellow secondary, condensed bold headline lettering only where a label is specified, visible print grain and paper fiber, matte, flat even documentary lighting with soft cutout drop shadows. Every element must appear physically hand-cut and layered from real paper, with visible cutout edges, halftone print texture, and soft shadow separation between layers. The composition stays clean, minimal, and editorial with generous negative space. NOT digital illustration, NOT cartoon, NOT 3D render, NOT glossy, no gradients, no clutter, no watermark, no logos, no text beyond the specified label. Premium documentary collage aesthetic, 16:9, ultra-detailed, 8K."
+  image_negative_prompt: "digital illustration, cartoon, 3D render, glossy, gradients, clutter, watermark, logos, extra text beyond specified label"
+  diagram_style: "halftone cutout diagrams on newsprint: torn paper shapes, red string connections, brass pins, typewriter labels, rubber stamps"
+  consistency_anchors:
+    - "Aged newsprint base (tan #D9C9A3) in every scene"
+    - "Black and white halftone photo cutouts with scissor-cut edges"
+    - "ONE hot red signal accent (#C0392B), restrained mustard secondary (#C4A35A)"
+    - "Real-person and real-object references preserved via img2img (biography accuracy)"
+    - "Typewriter caption strips for all on-screen labels"
+    - "Locked camera, elements settle then hold static"
+
+overlays:
+  stat_card:
+    bg: "#F1E8D0"
+    border: "#1C1917"
+    text: "#1C1917"
+    radius: 0
+    shadow: "0 4px 12px rgba(60,45,20,0.28)"
+  key_term:
+    bg: "#F1E8D0"
+    text: "#1C1917"
+    radius: 0
+    highlight: "#C0392B"
+  code_block:
+    bg: "#F1E8D0"
+    text: "#1C1917"
+    highlight: "#C0392B"
+
+quality_rules:
+  - "Every on-screen label is a typewriter strip or rubber stamp, max 4 words"
+  - "One hero element per frame at ~70% visual weight, max 3 supporting elements"
+  - "No gradients, no glossy surfaces, no 3D render, no cartoon"
+  - "All person/object depictions derive from real reference frames via img2img (biography accuracy)"
+  - "Camera locked: no zoom, no pan, no tilt for the whole clip"
+  - "Elements must stop moving after landing; only micro-life (paper corner lift, halftone shimmer) after 70% of scene"
+  - "No em dashes in any on-screen text (use commas, colons, parentheses, plain hyphens)"
+  - "Every scene keeps at least 30% negative space"
+  - "Images occupy 55-65% of frame width; full-bleed only for establishing panorama and night widescreen"
+  - "Typewriter strips >= 40px, headlines >= 64px, stamps >= 46px, captions >= 28px, subtitles >= 34px (at 1920x1080)"
+  - "Adjacent scenes must use different entry motion (slow-push / drop-in / scale-in / torn-unfold / pin-in / poster-rise / ...)"
+  - "Scene cuts never land mid-sentence; 0.5-0.7s hold after each sentence, more on emotional beats"
+  - "Subtitles are word-synced karaoke: spoken words turn red (#C0392B) + bold 800 and stay highlighted"
+  - "Paper SFX (slide/tap/tape/stamp/string/pin) play on element landings at volume ~0.28, under narration"
+
+subtitles:
+  en_font: "Courier New"
+  en_size_px: 34
+  zh_font: "PingFang SC, Microsoft YaHei"
+  zh_size_px: 34
+  bg: "rgba(28,25,23,0.82)"
+  position: "bottom: 76px, centered"
+  karaoke_highlight: "#C0392B"
+  karaoke_weight: 800
+  show_window: "voice_start + 0.1 to voice_end + 0.35"
+
+sfx:
+  paper_slide: "filtered pink noise 0.9s"
+  paper_tap: "180Hz 0.09s"
+  tape_press: "90Hz 0.28s"
+  stamp_thud: "75Hz 0.22s"
+  string_zip: "600Hz 0.18s"
+  pin_click: "2200Hz 0.06s"
+  volume: 0.28
+
+chart_palette:
+  - "#C0392B"
+  - "#C4A35A"
+  - "#1C1917"
+  - "#6E675C"
+  - "#D9C9A3"
+  - "#F1E8D0"
+
+color_rules:
+  harmony_type: "analogous"
+  contrast_validation: true
+  colorblind_safe: true

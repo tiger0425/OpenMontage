@@ -1,0 +1,111 @@
+# series-adapt 配置文件
+# 外语系列视频 → 新语言 Vox 风格纪录片管线
+
+# ============================================================
+# 系列配置
+# ============================================================
+series:
+  name: "ZTZ-99: The Iron Dragon"
+  slug: "series-adapt-99"
+  description: "Chinese tank development history from 59-type to ZTZ-99, recreated as English documentary"
+  source_playlist: "https://www.youtube.com/playlist?list=PL1cW_x46fy4TTDUk_5nrKZToywGMI9aVR"
+  source_channel: "https://www.youtube.com/@toby5906"
+  source_channel_name: "人畜无害小托比"
+  source_series_name: "99追忆"
+  target_language: "en"
+  episode_count: 100
+  episode_duration_target: 600          # 秒（10 分钟）
+  episode_words_per_minute: 150         # 英文旁白语速
+
+# ============================================================
+# TTS 配置（IndexTTS2 本地声音克隆）
+# ============================================================
+tts:
+  provider: "indextts_tts"
+  measured_wps: 2.98             # 实测语速（词/秒）: 用户音色 my_voice.wav 实测 36词/12.10s（indextts 常驻服务）
+  voice_reference: "D:/index-tts/my_voice.wav"   # 用户音色参考（已转换）
+  emotion: "calm"                                 # 纪录片风格：平静
+  emo_vector: [0, 0, 0, 0, 0, 0, 0, 1.0]          # [喜怒哀惧厌恶低落惊喜平静]
+  fp16: true                                       # 3090 推荐 FP16
+  model_dir: "D:/index-tts/checkpoints"
+  cfg_path: "D:/index-tts/checkpoints/config.yaml"
+  repo_root: "D:/index-tts"
+
+# ============================================================
+# 视觉配置（Vox 风格）
+# ============================================================
+visual:
+  style: "vox-documentary"
+  image_provider: "image_selector"       # 自动选择可用图片生成器
+  color_scheme:
+    bg: "#1a1a2e"
+    fg: "#e0e0e0"
+    accent: "#c1440e"
+    military_green: "#4a6741"
+    sand: "#c4a35a"
+    chart_blue: "#3a7ca5"
+  diagram_style: "flat-vector"
+  image_size: "1920x1080"
+
+# ============================================================
+# 组合配置（HyperFrames）
+# ============================================================
+composition:
+  runtime: "hyperframes"
+  hyperframes_version_check: true        # 每次会话执行能力自检
+  registry: "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry"
+
+# ============================================================
+# 管线阶段（对应 pipeline_defs/series-adapt.yaml）
+# ============================================================
+pipeline:
+  name: "series-adapt"
+  stages: ["fetch", "brief", "rewrite", "scene_plan", "assets", "compose", "review", "publish"]
+  human_approval_stages: ["rewrite", "review", "publish"]
+
+# ============================================================
+# 术语表（IndexTTS2 发音控制）
+# ============================================================
+glossary:
+  path: "apps/series-adapt/glossary.yaml"
+
+# ============================================================
+# 批量处理
+# ============================================================
+batch:
+  max_per_run: 1               # 每次处理 1 集（创意流程逐集审查）
+  download_quality: "best"
+  download_resolution: "1080p"
+
+# ============================================================
+# 输出路径
+# ============================================================
+output:
+  base_dir: "projects/series-adapt-99"
+  review_dir: "projects/series-adapt-99/review"
+  published_dir: "projects/series-adapt-99/published"
+
+# ============================================================
+# 数据库
+# ============================================================
+database:
+  path: "projects/series-adapt-99/tracking.db"
+
+# ============================================================
+# YouTube 发布配置
+# ============================================================
+youtube:
+  category: "Science & Technology"
+  language: "en"
+  default_tags:
+    - "tanks"
+    - "military history"
+    - "documentary"
+    - "Chinese defense"
+    - "ZTZ-99"
+    - "MBT"
+    - "main battle tank"
+    - "armored warfare"
+    - "PLA"
+    - "tank design"
+  disclosure: "This video features AI-generated visuals and synthetic voice narration cloned from the creator's own voice using IndexTTS2 technology."

@@ -1,0 +1,253 @@
+name: series-adapt
+version: "0.1.0"
+description: >
+  Adapt a foreign-language video series into a new-language documentary channel.
+  The agent downloads source episodes, extracts knowledge via transcription,
+  rewrites independent target-language scripts (not translation), generates
+  original AI visuals, produces Vox-style compositions via HyperFrames, and
+  narrates via local zero-shot voice-cloned TTS. Designed for multi-series
+  management via tracking.db state machine.
+category: custom
+stability: beta
+
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: true
+  analysis_depth: standard
+  analysis_tools:
+    - video_downloader
+    - transcriber
+    - scene_detect
+    - frame_sampler
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/series-adapt/fetch-director
+  - pipelines/series-adapt/brief-director
+  - pipelines/series-adapt/rewrite-director
+  - pipelines/series-adapt/scene-director
+  - pipelines/series-adapt/asset-director
+  - pipelines/series-adapt/compose-director
+  - pipelines/series-adapt/publish-director
+  - pipelines/series-adapt/lessons-protocol
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: guided
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 60
+
+stages:
+
+  # ── Source Ingestion ───────────────────────────────────────────
+
+  - name: fetch
+    skill: pipelines/series-adapt/fetch-director
+    produces:
+      - fetch_report
+    required_tools:
+      - video_downloader
+      - transcriber
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Source video downloaded with verified file integrity
+      - Whisper transcription complete with timestamps and language detected as zh
+      - Transcription covers full video duration without truncation
+    success_criteria:
+      - Source video file exists on disk (not empty)
+      - Transcription JSON contains full text with timestamps
+      - fetch_report records source_url, video_id, and file paths
+
+  - name: brief
+    skill: pipelines/series-adapt/brief-director
+    required_artifacts_in:
+      - fetch_report
+    produces:
+      - knowledge_brief
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - At least 3 core arguments extracted from the source transcript
+      - At least 5 key facts with specific data points (model names, dates, figures)
+      - Timeline nodes mapped for historical narrative coherence
+      - Terminology glossary populated for this episode
+      - No creative interpretation yet — raw extraction only
+      - "If this is the FIRST episode of the series: create projects/<series>/DESIGN_SYSTEM.md (pick a style from styles/, apply series-specific decisions, see the design-system contract in scene-director prerequisites)"
+    success_criteria:
+      - Schema-valid knowledge_brief with >=3 core_arguments and >=5 key_facts
+      - All facts have source_transcript_line references
+
+  # ── Creative Re-write ──────────────────────────────────────────
+
+  - name: rewrite
+    skill: pipelines/series-adapt/rewrite-director
+    required_artifacts_in:
+      - knowledge_brief
+    optional_artifacts_in:
+      - fetch_report
+    produces:
+      - adaptation_script
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - English script is an independent rewrite, not a line-by-line translation
+      - Duration target within +/-10% (English ~150 wpm)
+      - Military/technical terminology matches glossary.yaml pronunciations
+      - Visual directions included per paragraph (illustration / chart / map / text-card)
+      - "Narrative structure: hook → context → body → climax → conclusion"
+      - No traces of Chinese sentence structure or idioms in English prose
+    success_criteria:
+      - Schema-valid adaptation_script with narrative sections
+      - Each section includes visual_direction field
+      - Estimated duration within target range
+
+  # ── Scene Planning ─────────────────────────────────────────────
+
+  - name: scene_plan
+    skill: pipelines/series-adapt/scene-director
+    required_artifacts_in:
+      - adaptation_script
+    optional_artifacts_in:
+      - knowledge_brief
+    produces:
+      - scene_plan
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Full script duration covered with no timeline gaps
+      - "Visual variety: >=3 different scene types used"
+      - "No 3+ consecutive scenes of the same type"
+      - "Animation type specified per scene (GSAP: pan-zoom / slide-in / chart-reveal / map-marker / typewriter)"
+      - Asset generation directions are specific enough for the asset stage
+    success_criteria:
+      - Schema-valid scene_plan with required_resources per scene
+      - At least 3 different scene types (tank_illustration, stat_chart, map_timeline, text_card, comparison_grid)
+
+  # ── Asset Generation ───────────────────────────────────────────
+
+  - name: assets
+    skill: pipelines/series-adapt/asset-director
+    required_artifacts_in:
+      - scene_plan
+      - adaptation_script
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+      - image_selector
+    optional_tools:
+      - music_gen
+    tools_available:
+      - tts_selector
+      - image_selector
+      - music_gen
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - All image files exist on disk at >=1920x1080 resolution
+      - TTS narration covers all script sections without gaps
+      - Narration uses the cloned voice (reference_wav_path from series config)
+      - No silent WAV segments (RMS amplitude check on each audio file)
+      - Image style consistency across all generated visuals (flat-vector, military-green palette)
+      - Glossary pronunciations applied correctly in TTS output
+    success_criteria:
+      - Schema-valid asset_manifest with all required files generated
+      - All file paths in manifest resolve to existing files on disk
+
+  # ── Composition ────────────────────────────────────────────────
+
+  - name: compose
+    skill: pipelines/series-adapt/compose-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - adaptation_script
+    produces:
+      - composition_report
+    required_tools:
+      - hyperframes_compose
+      - video_compose
+    optional_tools:
+      - audio_mixer
+    tools_available:
+      - hyperframes_compose
+      - video_compose
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - HyperFrames workspace scaffolded with all assets staged
+      - index.html implements Vox-style composition (GSAP animation, dynamic charts, typography)
+      - hyperframes lint passes without errors
+      - hyperframes validate passes (browser-based check)
+      - Final render output exists at renders/final.mp4
+      - Duration within +/-5% of adaptation_script target
+      - Audio levels balanced (narration clear, no clipping)
+    success_criteria:
+      - Schema-valid composition_report with output path
+      - final.mp4 exists and passes ffprobe validation
+      - hyperframes lint exit 0, hyperframes render exit 0
+
+  # ── Review ─────────────────────────────────────────────────────
+
+  - name: review
+    skill: meta/reviewer
+    required_artifacts_in:
+      - composition_report
+      - adaptation_script
+    optional_artifacts_in:
+      - asset_manifest
+    produces:
+      - final_review
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "Voice clone fidelity: narration sounds like the reference speaker"
+      - "Military terminology pronounced correctly per glossary"
+      - "Vox-style visuals: >=5 tank illustrations, >=2 dynamic charts, >=1 map animation"
+      - English script arguments match source video viewpoints
+      - No direct translation traces (checking for Chinese sentence structures)
+      - Audio is clean with no static, clipping, or timing gaps
+      - Visual-to-audio sync is frame-accurate
+      - "LESSONS LOOP: this episode deviated from, or discovered something missing in, any director skill / styles playbook — record it in final_review.lessons (see skills/pipelines/series-adapt/lessons-protocol.md)"
+    success_criteria:
+      - Schema-valid final_review with approval status
+      - If rejected, specific revision items listed with target stages
+      - "final_review.lessons populated (empty array allowed only if nothing was learned)"
+
+  - name: publish
+    skill: pipelines/series-adapt/publish-director
+    required_artifacts_in:
+      - composition_report
+      - final_review
+    optional_artifacts_in:
+      - adaptation_script
+      - knowledge_brief
+    produces:
+      - publish_log
+    tools_available:
+      - export_bundle
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - YouTube title is keyword-rich and appeals to English-speaking military history audience
+      - Description contains 3-5 paragraphs + timestamp chapters + source attribution + AI disclosure
+      - Tags cover tanks, military history, Chinese defense, specific vehicle models
+      - Thumbnail concept is compelling and on-brand
+      - Export bundle contains video, metadata JSON, and thumbnail concept
+      - Source channel credited in description
+    success_criteria:
+      - Schema-valid publish_log
+      - Export directory contains all required files
+      - Description includes required disclosure statements
