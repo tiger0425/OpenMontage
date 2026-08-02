@@ -117,9 +117,10 @@ class GoogleImagen(BaseTool):
                     "imagen-4.0-fast-generate-001",
                     "imagen-4.0-ultra-generate-001",
                     "gemini-3.1-flash-lite-image",
+                    "gemini-3.1-flash-image",
                 ],
-                "default": "imagen-4.0-generate-001",
-                "description": "Imagen model variant or Gemini flash lite image model",
+                "default": "gemini-3.1-flash-lite-image",
+                "description": "Imagen model variant or Gemini flash image models. Default is gemini-3.1-flash-lite-image (imagen-4.0-* endpoints return 404 as of 2026-08).",
             },
             "number_of_images": {
                 "type": "integer",
@@ -160,13 +161,13 @@ class GoogleImagen(BaseTool):
         return ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        model = inputs.get("model", "imagen-4.0-generate-001")
+        model = inputs.get("model", "gemini-3.1-flash-lite-image")
         n = inputs.get("number_of_images", 1)
         if "ultra" in model:
             return 0.06 * n
         if "fast" in model:
             return 0.02 * n
-        if "gemini-3.1-flash-lite-image" in model:
+        if "gemini-3.1-flash-lite-image" in model or "gemini-3.1-flash-image" in model:
             return 0.00 * n  # Free tier available
         return 0.04 * n
 
@@ -175,7 +176,7 @@ class GoogleImagen(BaseTool):
         logger = logging.getLogger(__name__)
         start = time.time()
 
-        model = inputs.get("model", "imagen-4.0-generate-001")
+        model = inputs.get("model", "gemini-3.1-flash-lite-image")
         prompt = inputs["prompt"]
         image_path = inputs.get("image_path")
         output_path = Path(inputs.get("output_path", "generated_image.png"))
@@ -218,12 +219,14 @@ class GoogleImagen(BaseTool):
                 # Use generate_content API (v2+)
                 response = client.models.generate_content(
                     model=model,
-                    contents=contents,
+                    contents=contents,  # type: ignore[arg-type]
                 )
 
                 # Extract image from response
                 image_bytes = None
-                for candidate in response.candidates:
+                for candidate in response.candidates or []:
+                    if not candidate.content or not candidate.content.parts:
+                        continue
                     for part in candidate.content.parts:
                         if part.inline_data:
                             image_bytes = part.inline_data.data

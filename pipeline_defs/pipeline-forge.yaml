@@ -1,0 +1,135 @@
+name: pipeline-forge
+version: "1.0"
+description: >
+  Meta-pipeline that turns a style engine document (URL, local file, or pasted text)
+  into a complete OpenMontage pipeline. Extracts the style DNA (role declaration,
+  state machine rules, script rules, image prompt templates, universal video prompt,
+  thumbnail DNA, music prompt), maps it onto the standard stage structure with tool
+  bindings, generates the three-piece package (pipeline manifest + structured playbook
+  + director skills with long-text template files), and validates it before release.
+  Newly forged pipelines default to manual_all checkpoint policy; a promote sub-flow
+  downgrades to guided/auto_noncreative after 3 successful full runs.
+category: custom
+stability: beta
+default_checkpoint_policy: manual_all
+
+extensions:
+  custom_scripts: false
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/pipeline-forge/executive-producer
+  - pipelines/pipeline-forge/ingest-director
+  - pipelines/pipeline-forge/extract-director
+  - pipelines/pipeline-forge/map-director
+  - pipelines/pipeline-forge/generate-director
+  - pipelines/pipeline-forge/validate-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/pipeline-forge/executive-producer
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 30
+
+stages:
+  - name: ingest
+    skill: pipelines/pipeline-forge/ingest-director
+    produces:
+      - ingest_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Source document fully captured (URL export, local file, or pasted text)
+      - Original text archived verbatim for traceability
+      - Document format detected (engine state machine vs free-form style brief)
+    success_criteria:
+      - ingest_log artifact present with source_type and archived_path
+      - Full document text stored in the project workspace
+
+  - name: extract
+    skill: pipelines/pipeline-forge/extract-director
+    required_artifacts_in:
+      - ingest_log
+    produces:
+      - style_dna
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Template blocks (style block, closer, universal video prompt, thumbnail DNA, music prompt) preserved verbatim
+      - Script rules captured as executable rules (word math, sentence/beat rules, ending patterns)
+      - Role declaration and state machine mapped without loss
+      - Extraction completeness checked against the source document section by section
+    success_criteria:
+      - style_dna artifact present with all template blocks marked verbatim
+      - No template block shortened or paraphrased (verbatim preservation is a quality red line)
+
+  - name: map
+    skill: pipelines/pipeline-forge/map-director
+    required_artifacts_in:
+      - style_dna
+    optional_artifacts_in:
+      - ingest_log
+    produces:
+      - blueprint
+      - decision_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Stage mapping is complete (every engine state maps to a stage, no state dropped)
+      - Tool bindings match actual registry availability (checked at runtime, not assumed)
+      - Slug naming is valid kebab-case and collision-free
+      - Budget default and approval defaults are set explicitly
+      - narration_language parameter decided where the engine implies language
+    success_criteria:
+      - blueprint artifact present with stage_map, tool_bindings, slug, budget, approval defaults
+      - decision_log records naming and tool binding choices
+
+  - name: generate
+    skill: pipelines/pipeline-forge/generate-director
+    required_artifacts_in:
+      - blueprint
+      - style_dna
+    produces:
+      - pipeline_package
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Three-piece package written (pipeline_defs/<slug>.yaml, styles/<slug>.yaml, skills/pipelines/<slug>/)
+      - Director skills exist for every stage declared in the manifest
+      - Long-text templates stored as separate files under skills/pipelines/<slug>/templates/
+      - Template files reference the verbatim text from style_dna (no paraphrase)
+      - New pipeline must set default_checkpoint_policy to manual_all
+    success_criteria:
+      - pipeline_package artifact lists all generated file paths
+      - Every generated file exists on disk and is non-empty
+
+  - name: validate
+    skill: pipelines/pipeline-forge/validate-director
+    required_artifacts_in:
+      - pipeline_package
+      - blueprint
+    optional_artifacts_in:
+      - style_dna
+    produces:
+      - validation_report
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Pipeline manifest passes schema validation (schemas/pipelines/pipeline_manifest.schema.json)
+      - Playbook passes schema validation (schemas/styles/playbook.schema.json)
+      - Director skill structure checklist passes (one skill per stage, templates directory complete)
+      - Harness can load the pipeline via lib.pipeline_loader
+    success_criteria:
+      - validation_report artifact with per-check results and overall pass/fail
+      - All checks pass before the pipeline is released to the user
