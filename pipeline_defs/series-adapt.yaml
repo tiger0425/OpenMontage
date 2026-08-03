@@ -36,6 +36,7 @@ required_skills:
   - pipelines/series-adapt/compose-director
   - pipelines/series-adapt/publish-director
   - pipelines/series-adapt/lessons-protocol
+  - pipelines/series-adapt/known-issues
   - meta/reviewer
   - meta/checkpoint-protocol
 

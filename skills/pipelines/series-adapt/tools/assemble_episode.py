@@ -32,8 +32,12 @@ for i in range(1, num_scenes + 1):
     if os.path.exists(p):
         shutil.copy(p, os.path.join(ws, 'assets'))
 
-# audio (scene narration)
-shutil.copy(os.path.join(EP, 'assets', 'audio', '%s.wav' % sid), os.path.join(ws, 'assets', '%s.wav' % sid))
+# audio (scene narration) — 优先用去前导静音版
+clean_wav = os.path.join(EP, 'assets', 'audio', '%s_clean.wav' % sid)
+if os.path.exists(clean_wav):
+    shutil.copy(clean_wav, os.path.join(ws, 'assets', '%s.wav' % sid))
+else:
+    shutil.copy(os.path.join(EP, 'assets', 'audio', '%s.wav' % sid), os.path.join(ws, 'assets', '%s.wav' % sid))
 # bgm: from ep01 workspace if not specified
 if BGM is None:
     cand = os.path.join(r'E:\YifuAIForge\OpenMontage\projects\series-adapt-99\ep-01\hyperframes-vox\assets\ep01_bgm.mp3')
@@ -115,7 +119,7 @@ if BGM:
     <track kind="captions" label="Music" />
   </audio>
 '''
-html += '''  <audio id="vo" src="assets/%s.wav" data-start="3">
+html += '''  <audio id="vo" src="assets/%s.wav" data-start="2.6">
     <track kind="captions" label="Narration" />
   </audio>
 

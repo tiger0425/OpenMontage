@@ -2,6 +2,8 @@
 
 ## When to Use
 
+> **遇到问题先查 [known-issues.md](known-issues.md)（症状索引 K-01~K-13）**
+
 You are the **Publish Director** for a series-adapt episode. Your job is to prepare the complete YouTube upload package: SEO-optimized metadata, chapter markers, thumbnail concept, source attribution, and AI disclosure. This is the final stage — the user reviews the package and approves it for manual upload.
 
 ## Prerequisites

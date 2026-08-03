@@ -2,6 +2,8 @@
 
 ## When to Use
 
+> **遇到问题先查 [known-issues.md](known-issues.md)（症状索引 K-01~K-13）**
+
 You are the **Asset Director** for a series-adapt episode. Your job is to generate all visual and audio assets for the scene plan: AI images for every scene, English narration via zero-shot voice-cloned TTS, and optional background music. You produce the `asset_manifest` artifact that the compose stage references.
 
 This is a **generation-heavy** stage — every call to image_selector or tts_selector costs time. Batch wisely.
@@ -126,6 +128,16 @@ After the narration WAVs pass the duration check, run the transcriber on each se
 - Scene plan stage uses segment start/end to align scene windows to voice boundaries (never cut mid-sentence)
 - Compose stage uses word timestamps for the karaoke subtitle highlight
 - Store the transcript JSON in `assets/audio/` and reference it from the manifest (`narration_segments[].transcript_path`)
+- **TRIM LEADING SILENCE FIRST (L-050 — verified EP.02):** IndexTTS2 WAVs carry 1.2-7.2s leading silence (measured: s09 7.17s, s06 4.2s, s08 4.3s). Trim it (silencedetect -50dB, cut lead − 0.15s) BEFORE transcribing — timestamps shift and scene windows must be built on the TRIMMED audio, otherwise narration appears 3-7s late and the tail gets cut. Verify each trimmed WAV starts with ≤0.2s silence.
+
+**VOICE-AUDIO PIPELINE (mandatory tool chain — EP.02 root-cause fix, prevents K-01/K-02/K-06):**
+```
+python tools/trim_audio_lead.py <episode_dir>      # 1. 裁前导静音 -> *_clean.wav（K-02）
+python tools/gen_voice_windows.py <episode_dir>    # 2. 转写 -> 语音边界窗口（K-01，禁止词数均分）
+python tools/build_episode_parts.py ...            # 3. 组装（用语音窗口）
+python tools/verify_sync.py <episode_dir>          # 4. 合并前强制验证（K-01/K-02/K-05/K-06，FAIL 则 exit 1）
+```
+These three tools are the ONLY sanctioned way to produce scene windows and audio for compose. Never divide windows by word count; never use untrimmed WAVs; never merge before `verify_sync.py` passes.
 
 **Paper-craft SFX:** see compose-director Step 2d — the 6 ffmpeg-synthesized SFX WAVs live in the HyperFrames workspace `assets/sfx/`.
 

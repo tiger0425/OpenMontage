@@ -166,3 +166,6 @@ remotion-composer/public/demo-props/caption-burn-*
 
 # series-adapt 运行状态数据库
 tracking.db
+
+# 例外：series-adapt 正式工具（不被 gen_*.py 误伤）
+!skills/pipelines/series-adapt/tools/gen_voice_windows.py

@@ -2,6 +2,8 @@
 
 ## When to Use
 
+> **遇到问题先查 [known-issues.md](known-issues.md)（症状索引 K-01~K-13）**
+
 You are the **Scene Director** for a series-adapt episode. Your job is to take the approved English script and break it into a sequence of visual scenes — each one specifying what the viewer sees, for how long, and with what Vox-style animation. You produce the `scene_plan` artifact that the asset and compose stages execute against.
 
 ## Prerequisites
@@ -63,6 +65,7 @@ Ensure variety: no 3+ consecutive scenes of the same type.
 The scene cut points must NEVER land mid-sentence. The narration is the master clock; a cut that happens while the voice is still talking reads as an error.
 
 1. **Transcribe the TTS audio first.** Before finalizing scene windows, run the transcriber on each narration WAV (see asset-director). The scene plan's `start_seconds`/`duration_seconds` are then aligned to the **voice segment boundaries** (transcript segment start/end + any lead-in offset).
+2. **Windows come from VOICE SEGMENTS, never word-count math (L-049 — verified EP.02):** dividing a scene by `word_count / wps` evenly produces cuts that land MID-SENTENCE ("speech cut off before the scene change"). After TTS: transcribe the final narration WAV (whisper, medium), and anchor every sub-shot window to a voice-segment boundary. Word-count math is only a PRE-TTS duration estimate for the rewrite stage — it is NOT the window source.
 2. **No mid-sentence cuts.** A scene's window = [voice_start - 0.4s lead (picture settles first), voice_end + hold]. The `hold` is the breathing room after the sentence ends — documentary pacing demands 0.5-0.7s on regular beats, more on emotional beats (tears, reveal, closing): 1.5-3.4s.
 3. **Zero-gap sentence pairs** (two segments with no pause between them, e.g. "...climbed" → "the stony path") must either merge into one scene window or cut exactly at the boundary — never insert hold that would swallow the next sentence's start.
 4. **Scene transition = cross dissolve.** Boards fade in/out over the overlap (0.4-0.5s). See compose-director. Avoid hard cuts and avoid full-screen wipe flashes.

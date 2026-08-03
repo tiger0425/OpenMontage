@@ -37,11 +37,18 @@
 
 ## 回写动作（审批通过后，Reviewer 执行）
 
+**三处登记缺一不可（新增规则，EP.02 后强制）：**
+- `final_review.json` → lessons（记录：发生了什么/规则）
+- **`known-issues.md` → 症状索引表 + 完整条目**（检索：下次遇到同类问题的第一查找点，按症状查）
+- director skill → 规则正文（执行：生成时 agent 读到）
+
 1. 按 `target_file`/`target_section` 定位文档
 2. 把 `rule` 合并进对应章节——**优先合并进已有段落**，避免文档无限膨胀；同主题规则超过 5 条时归档到该文件的 `## Historical notes` 一节
 3. 若规则涉及跨阶段（如 rewrite 词数影响 scene_plan），在相关各 director skill 各写一句互相引用
 4. 更新 `final_review.lessons[].approved = true`，在 `final_review.summary` 里说明"已回写 N 条经验到 X"
 5. 若规则只对单一剧集有效（不通用），标记 `approved: false` 并写进 `projects/<series>/<ep>/notes.md` 留存即可，不回写全局规范
+
+**下次生产前预检（新规则）：** 每个阶段开始前，agent 浏览 `known-issues.md` 的症状索引表，确认本阶段相关的已知问题（如 scene_plan 阶段查 K-01/K-12，asset 阶段查 K-02/K-03/K-04/K-10/K-13，compose 阶段查 K-05/K-06/K-07/K-08/K-09，合并后查 K-05/K-06/K-11），按修复流程核对避免复发。
 
 ## 防膨胀规则
 

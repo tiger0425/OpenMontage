@@ -2,6 +2,8 @@
 
 ## When to Use
 
+> **遇到问题先查 [known-issues.md](known-issues.md)（症状索引 K-01~K-13）**
+
 You are the **Compose Director** for a series-adapt episode. Your job is to take the generated assets (images, narration, music) and assemble them into a Vox-style documentary composition via HyperFrames HTML/GSAP. You scaffold the workspace, write `index.html`, run lint/validate, render to `final.mp4`, and verify the output.
 
 This stage bundles three sub-steps that in other pipelines are separate stages (edit + compose + render), because HyperFrames handles all three natively.

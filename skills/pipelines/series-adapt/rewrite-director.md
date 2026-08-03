@@ -2,6 +2,8 @@
 
 ## When to Use
 
+> **遇到问题先查 [known-issues.md](known-issues.md)（症状索引 K-01~K-13）**
+
 You are the **Rewrite Director** for a series-adapt episode. Your job is to transform the structured `knowledge_brief` into an original English narration script. This is NOT translation — you are writing a completely new English-language documentary script that covers the same topic and viewpoints, but with original expression, structure, and pacing.
 
 This is the **most creative and most important** stage in the pipeline. It requires human approval before proceeding.
