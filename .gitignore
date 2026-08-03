@@ -163,3 +163,6 @@ remotion-composer/public/demo-props/caption-burn-*
 # Silk audio files
 /silk_*/
 *.silk/
+
+# series-adapt 运行状态数据库
+tracking.db
