@@ -1766,14 +1766,23 @@ class PipelineAutomator:
         self._add_silent_audio(outro_video, outro_duration, outro_with_audio)
 
         # === 拼接主视频 + 片尾 ===
+        # 注意：必须使用 concat filter 重建时间戳，不能用 concat demuxer + stream copy。
+        # 当 main 与 outro 的 time_base 不同（如 25fps 的 1/12800 vs 30fps 的 1/15360）时，
+        # concat demuxer 对第二个文件的偏移计算会出错，产生数百秒的时间戳跳变空档
+        # （表现为视频中间长时间定格黑屏/静音）。concat filter 会为所有包重建连续时间戳。
         final_video = self.renders_dir / "final.mp4"
-        concat_list = self.renders_dir / "concat_list.txt"
-        concat_list.write_text(
-            f"file '{main_video.as_posix()}'\nfile '{outro_with_audio.as_posix()}'\n",
-            encoding="utf-8"
-        )
-        print("    🎬 正在拼接主视频与片尾...")
-        cmd_concat = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list), "-c", "copy", str(final_video)]
+        print("    🎬 正在拼接主视频与片尾（concat filter 重建时间戳）...")
+        cmd_concat = [
+            "ffmpeg", "-y",
+            "-i", str(main_video),
+            "-i", str(outro_with_audio),
+            "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(final_video),
+        ]
         try:
             res = subprocess.run(cmd_concat, capture_output=True, text=True, encoding="utf-8")
             if res.returncode != 0:

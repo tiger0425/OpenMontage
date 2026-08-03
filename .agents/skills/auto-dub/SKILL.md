@@ -185,6 +185,37 @@ if rms < 100:  # 静音阈值
 
 ---
 
+## 🎨 封面生成（两种方式，按需选择）
+
+### 方式 A：HyperFrames 模板渲染（默认，流水线自动执行）
+
+- `pipeline_automator._generate_cover_images` → `apps/auto-dub/templates/cover.html`
+- 输出 1200×900 (4:3) 到 `review/` 与 `published/` 的 `{中文标题}_cover.png`
+- 特点：快、稳定、无外部依赖；样式固定（模板化）
+
+### 方式 B：AI 生图工具直接生成标题党封面（推荐用于高流量选题）
+
+2026-08-03 验证可行，效果优于模板。流程：
+
+1. **工具路由**：必须走 `image_selector`（禁用直接 import 底层 provider，遵守 AGENTS.md 红线）。
+   当前可用：`google_imagen`（GOOGLE_API_KEY / GEMINI_API_KEY 已配置）。
+2. **模型选择**：封面核心是中文大字标题 → 选 `gemini-3.1-flash-lite-image` 的上级
+   `gemini-3.1-flash-image`（文字渲染更强）；勿用默认 lite 做标题党封面。
+3. **prompt 要点**：
+   - 明确 `4:3`、`YouTube/Bilibili thumbnail`、`clickbait` 风格
+   - 逐行给出**精确的中文标题文字**，并声明 "CRITICAL: all Chinese characters must be spelled EXACTLY as given"
+   - 标题行数控制在 2 行内、每行 ≤10 字，减少文字错误率
+4. **输出规格**：生成后 `ffmpeg -vf scale=1200:900` 归一化为 B站标准封面
+   （生图模型输出约 1200×896，差 4px 需归一）。
+5. **人工确认**：封面文字（尤其中文标题）必须由用户人工确认无误后才可替换归档；
+   若 Agent 模型不支持图像输入，直接给用户路径让其打开确认。
+6. **替换归档**：同步覆盖 `review/` 与 `published/` 的 `{中文标题}_cover.png`。
+
+> ⚠️ PowerShell 中文件名含 `$`（如「告别$20订阅！」）时，字符串里必须转义为
+> `` `$20 ``，否则 `$20` 会被当作变量吞掉导致文件名错误。
+
+---
+
 ## 🔊 混音策略：100ms 串行排队
 
 为避免声音重叠，使用严格串行排队模式：
@@ -339,6 +370,34 @@ python bin/auto_dub.py process
 **症状**：视频卡在 `downloading` 状态  
 **原因**：网络问题或视频受地区限制  
 **修复**：手动运行 `yt-dlp {url}` 测试，检查代理设置
+
+### 5. 成品时间戳跳变（播放中途长时间定格/黑屏）
+
+**症状**：视频播放到约 2/3 处画面定格数分钟（画面冻结、无声音），
+文件时长明显大于「原视频 + 片尾」之和（如 670s 原片 + 3s 片尾却得到 808s）。
+上传 B 站审核/播放器会报「时间戳跳变」。
+
+**原因**（2026-08-03 定位）：`concat demuxer + stream copy` 拼接主视频与片尾时，
+当两者的 `time_base` 不同（例如 main 为 25fps 的 1/12800、outro 为 30fps 的 1/15360），
+concat 对第二个文件的时间戳偏移计算错误，把 3s 片尾偏移到数百秒之后，
+产生超长空档（表现为单个包的 duration 高达 100+ 秒）。
+
+**修复**：已改为 `concat filter` 重建时间戳（`pipeline_automator.py` 的
+compose 拼接段，`[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1` + libx264 CRF 18 重编码）。
+**禁止回退为 concat demuxer + `-c copy`。**
+
+**排查命令**（检测跳变，阈值 1.5s）：
+
+```powershell
+ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 final.mp4 |
+  ForEach-Object { [double]$_ } |
+  ForEach-Object { $prev=$null } { if ($prev -ne $null -and ($_-$prev) -gt 1.5) {
+    Write-Output ("JUMP at {0:N2}s -> {1:N2}s" -f $prev, $_) }; $prev = $_ }
+```
+
+**重压替换流程**（修复后对已损坏成品）：用修复后的拼接命令重压
+`renders/final.mp4` → 校验时长 = 原视频 + 片尾、零跳变 →
+同步覆盖 `review/` 与 `published/` 下的 `{中文标题}.mp4`（删除旧错误文件）。
 
 ---
 
