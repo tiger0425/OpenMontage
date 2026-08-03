@@ -1,0 +1,2 @@
+<!-- verbatim from https://docs.google.com/document/d/1SoixUKeC00uwMZYNrMLJnXSq6luq5JPm9Opqaek5QBk/, hash f789d113 -->
+Epic Egyptian blockbuster trailer score, dark and ominous, impending doom, massive braams, thunderous taiko and frame drums, driving string ostinato, wailing ney flute and oud, exotic darbuka, ancient Middle Eastern charm, minor key, slow menacing build to huge climax, instrumental

@@ -1,0 +1,252 @@
+name: vox-paper-collage
+version: "1.0"
+description: >
+  Old-newspaper archival paper-collage documentary engine (VOX ANIMATIONS).
+  Fern-style continuous narration, one handcrafted editorial collage image per beat,
+  10s deterministic HyperFrames paper-collage animation per image (locked camera,
+  0-7s build-on assembly, 7-10s living paper poster, final frame exactly matches the
+  image), IndexTTS2 narration after script approval, Pixabay music, Freesound paper
+  ASMR, and VOX 3-thumbnail publish. Forged by the pipeline-forge meta-pipeline.
+category: custom
+stability: beta
+default_checkpoint_policy: manual_all
+
+extensions:
+  custom_scripts: false
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/vox-paper-collage/executive-producer
+  - pipelines/vox-paper-collage/idea-director
+  - pipelines/vox-paper-collage/proposal-director
+  - pipelines/vox-paper-collage/script-director
+  - pipelines/vox-paper-collage/scene-plan-director
+  - pipelines/vox-paper-collage/assets-director
+  - pipelines/vox-paper-collage/edit-director
+  - pipelines/vox-paper-collage/compose-director
+  - pipelines/vox-paper-collage/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/vox-paper-collage/executive-producer
+  budget_default_usd: 3.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 30
+
+compatible_playbooks:
+  recommended:
+    - vox-paper-collage
+  also_works: []
+  custom_allowed: true
+
+stages:
+  - name: idea
+    skill: pipelines/vox-paper-collage/idea-director
+    produces:
+      - brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Niche selection follows engine STATE 1 options (crime default plus 7 options plus custom)
+      - Ten ideas follow engine STATE 2 rules (title shapes, no two ideas in same sub-territory, concrete hook per idea)
+      - Each idea carries a concrete hook (date, name, number, or place)
+      - Optional Source Material PDF absorbed at idea stage when provided (writing DNA and thumbnail DNA override)
+      - Idea proposal uses engine title shapes - no clickbait
+    success_criteria:
+      - Schema-valid brief artifact
+      - Brief contains at least 10 candidate ideas with hooks
+      - One idea selected by the human with a clear hook
+
+  - name: proposal
+    skill: pipelines/vox-paper-collage/proposal-director
+    required_artifacts_in:
+      - brief
+    produces:
+      - proposal_packet
+      - decision_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Duration locked from engine STATE 3 options (30s, 1, 2, 3, 5 min)
+      - Word target computed at 2.5 words per second (30s about 75 words, 5 min about 750)
+      - render_runtime locked to hyperframes (remotion not available on this machine, engine FINAL RULE requires deterministic animation)
+      - Budget estimated from image count (image count times $0.05) plus music/SFX free paths
+      - narration_language decided (default en, switchable to zh)
+      - Cost estimate itemized and honest
+    success_criteria:
+      - Schema-valid proposal_packet artifact
+      - selected_concept includes duration, word_target, render_runtime
+      - cost_estimate has itemized line_items
+      - approval.status is approved or approved_with_changes before proceeding
+
+  - name: script
+    skill: pipelines/vox-paper-collage/script-director
+    required_artifacts_in:
+      - proposal_packet
+    optional_artifacts_in:
+      - brief
+    produces:
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Fern DNA rules enforced (continuous narration only, no chapter labels, no camera directions)
+      - Cold open within first 3-4 sentences (30-40 words, precise date, location, one small concrete action)
+      - Word count within 5 percent of target at 2.5 wps
+      - Every sentence ends cleanly on a full stop and carries one self-contained idea
+      - Real-tragedy restraint - no gore, no suffering close-ups, no mockery of victims
+      - Mandatory cliffhanger ending, final line 12 words or fewer, one of the five patterns
+      - Facts stay accurate - never invent names, dates, or numbers
+    success_criteria:
+      - Schema-valid script artifact
+      - Total word count within 5 percent of proposal word_target
+      - Script is one continuous narration block
+      - Cliffhanger ending present
+
+  - name: scene_plan
+    skill: pipelines/vox-paper-collage/scene-plan-director
+    required_artifacts_in:
+      - script
+    optional_artifacts_in:
+      - proposal_packet
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Beat rules enforced (one beat 2-3 seconds of narration, 5-8 words at 2.5 wps)
+      - Every beat carries one visual idea only
+      - Timecodes computed cumulatively at 2.5 wps
+      - Beat count sanity ranges (30s about 12-15, 1 min about 22-30, 2 min about 45-60, 3 min about 70-90, 5 min about 115-150)
+      - Beat table shows beat number, timecode start, exact narration words covered
+    success_criteria:
+      - Schema-valid scene_plan artifact
+      - Every beat maps to exact narration words and a timecode
+      - Beat count within engine sanity range for the selected duration
+
+  - name: assets
+    skill: pipelines/vox-paper-collage/assets-director
+    required_artifacts_in:
+      - scene_plan
+      - script
+    optional_artifacts_in:
+      - proposal_packet
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+    optional_tools:
+      - image_selector
+      - music_search
+      - freesound_music
+    tools_available:
+      - tts_selector
+      - image_selector
+      - music_search
+      - freesound_music
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - One collage image per beat via image_selector (no .txt hand-feed)
+      - Every image prompt = SCENE description + style_block.md verbatim + closer.md verbatim (template red line)
+      - Narration via tts_selector after script approval (calm deadpan male, about 155 wpm, 20-25 second batches)
+      - Reference voice convention followed (spk_audio_prompt, INDEXTTS_VOICE_REF, repo/voice_reference.wav)
+      - Music from pixabay_music with Epic Egyptian trailer search terms
+      - Paper ASMR SFX from freesound_music (paper slide, cardstock tap, tape press, stamp thud, string zip, pin click)
+      - Layer 3 skills read for every generation tool before writing prompts
+      - Use selector tools - never call provider tools directly
+    success_criteria:
+      - Schema-valid asset_manifest artifact
+      - One image asset per scene beat, all referenced files exist on disk
+      - Narration, music, and SFX assets present with provenance
+      - layer3_skills_read list present and includes all tools used
+
+  - name: edit
+    skill: pipelines/vox-paper-collage/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Every image becomes a 10-second clip (0-7s build-on assembly, 7-10s living paper poster)
+      - Camera strictly locked for the entire clip - no zoom, pan, tilt, rotation, orbit, cuts, transitions
+      - Final frame of animation exactly matches the source image (FINAL RULE)
+      - Element entrance order follows narrative order (background scraps, hero cutout, supporting cutouts, tape, typewriter strips, stamps, red string, marker)
+      - Audio plan per clip (paper ASMR only in clips, no music or narration inside the 10s animation)
+      - render_runtime in edit_decisions matches proposal (hyperframes)
+    success_criteria:
+      - Schema-valid edit_decisions artifact
+      - Every beat has a 10-second clip decision
+      - Locked camera and exact-final-frame rules recorded per clip
+
+  - name: compose
+    skill: pipelines/vox-paper-collage/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    optional_artifacts_in:
+      - scene_plan
+    produces:
+      - render_report
+      - final_review
+    required_tools:
+      - video_compose
+    optional_tools:
+      - audio_mixer
+      - video_stitch
+    tools_available:
+      - video_compose
+      - audio_mixer
+      - video_stitch
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - HyperFrames renders MUST pass hyperframes lint and hyperframes validate before render
+      - Narration, music, and paper ASMR mixed with narration prominent
+      - Clip sequence matches scene_plan beat order
+      - Duration within 5 percent of target
+      - Final frame check per clip (matches source image)
+      - Post-render self-review with keyframe extraction and visual inspection
+    success_criteria:
+      - Schema-valid render_report artifact
+      - Output file exists and passes ffprobe validation
+      - self_review_completed is true with per-clip quality notes
+
+  - name: publish
+    skill: pipelines/vox-paper-collage/publish-director
+    required_artifacts_in:
+      - render_report
+      - final_review
+    optional_artifacts_in:
+      - proposal_packet
+      - script
+    produces:
+      - publish_log
+    tools_available:
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 3 thumbnail prompts follow Thumbnail DNA (louder treatment, bigger type, hotter red, harder contrast, built to read at 200px wide)
+      - Thumbnail CLOSER adjusted to no text beyond the specified thumbnail words
+      - Text in thumbnails maximum 2 elements, maximum 3 words each, huge condensed all-caps
+      - Same newsprint collage world as the video
+    success_criteria:
+      - Schema-valid publish_log artifact
+      - 3 thumbnail images generated per Thumbnail DNA
+      - Export package contains video and thumbnail outputs

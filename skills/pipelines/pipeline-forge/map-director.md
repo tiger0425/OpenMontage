@@ -45,6 +45,7 @@
 - `budget_default_usd`：按引擎规模估（30s 冒烟 ≈ $0.6，1 分钟 ≈ $1.5，按图数 × $0.05 估算）
 - 语言：`narration_language` 参数（默认英文；引擎规则需双语化时注明）
 - 非标准阶段名（如果有）：列出需在 `lib/checkpoint.py` `CANONICAL_STAGE_ARTIFACTS` 补充的映射
+- **scene_plan 必须 spec-driven（2026-08 冒烟沉淀）**：scene_plan 阶段产出完整元素清单（每元素 kind/box/rot/z/family/micro/sfx），compose 按清单自动组装。禁止 compose 阶段临场发挥
 
 ### 4. 产出 `blueprint`：
 

@@ -1,0 +1,75 @@
+identity:
+  name: vox-paper-collage
+  category: custom
+  mood: "calm, precise, documentary, archival, hand-made editorial"
+  pace: deliberate
+  best_for: "Old-newspaper archival paper-collage documentaries (VOX ANIMATIONS engine): Fern-style narration with one handcrafted editorial collage image per beat"
+
+visual_language:
+  color_palette:
+    primary:
+      - "#D8C7A3"
+      - "#B8A87F"
+    accent:
+      - "#C33B2E"
+      - "#D4A83D"
+    background: "#D8C7A3"
+    text: "#1A1A1A"
+    muted: "#8A7F6B"
+  composition: "One hero element dominant (about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. Torn paper edges, halftone cutouts with rough scissor-cut edges, tape fragments, stamps, red string and brass pins for connections. Clean, minimal, editorial."
+  texture: "Aged newsprint and archival map surfaces, visible print grain and paper fiber, halftone gray, matte flat even documentary lighting with soft cutout drop shadows"
+
+typography:
+  headings:
+    font: "Condensed bold headline lettering (system condensed sans, e.g. 'Archivo Narrow', 'Roboto Condensed')"
+    weight: 700
+    tracking: "0.02em"
+  body:
+    font: "Typewriter caption strips (system monospace, e.g. 'Courier New', 'IBM Plex Mono')"
+    weight: 400
+  stat_card:
+    font: "Condensed bold headline lettering"
+    weight: 700
+
+motion:
+  transitions:
+    - "None inside a clip: camera stays completely locked, no cuts, no transitions, one continuous static shot"
+    - "Between clips: hard cut on beat boundary"
+  animation_style: "Hand-cut documentary paper collage in motion. Elements move as rigid physical paper pieces with visible cutout thickness. Stop-motion cadence, stepped easing, 2-3 frame holds, the hand-made cutting on twos feel. Never smooth CGI motion. 0-7s build-on assembly (empty background plate first, then elements enter one by one back to front with paper drag, settle, tiny handcrafted bounce, layered shadows; no element moves again after landing). 7-10s living paper poster (corners lift a millimeter, halftone dots shimmer, string tension quivers once, shadows breathe). Final frame exactly matches the provided image."
+  pacing_rules:
+    min_scene_hold_seconds: 10
+    max_scene_hold_seconds: 10
+  entrance: "Paper drag with small settle and tiny handcrafted bounce, casts a real layered shadow"
+  exit: "No exit: no element leaves after landing (FINAL RULE)"
+
+audio:
+  voice_style: "Calm deadpan male narrator, mid-range, mild gravitas, about 155 wpm, minimal emotion spikes, documentary read"
+  music_mood: "Epic Egyptian blockbuster trailer score, dark and ominous, impending doom, massive braams, thunderous taiko and frame drums, minor key, slow menacing build to huge climax"
+  music_volume: 0.25
+  sfx_style: "Close-up paper ASMR only: paper sliding, cardstock taps, tape press, stamp thud, string zip, pin click, soft room tone. All subtle. No music or narration inside the 10s clips."
+  ducking_threshold_db: -14
+  voice_variation_allowed: false
+  hero_moment_voice_shift: "None: minimal emotion spikes, calm deadpan throughout"
+
+asset_generation:
+  image_prompt_prefix: "See templates/style_block.md and templates/closer.md - both must be appended verbatim to every image prompt. SCENE: one hero element (dominant, about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. One short label of 1-4 words on a paper strip or stamp only if the beat carries a date, a name, or a number. Otherwise no text."
+  image_negative_prompt: "NOT digital illustration, NOT cartoon, NOT 3D render, NOT glossy, no gradients, no clutter, no watermark, no logos, no text beyond the specified label"
+  consistency_anchors:
+    - "templates/style_block.md verbatim in every prompt"
+    - "templates/closer.md verbatim at the end of every prompt"
+    - "hand-cut documentary paper collage on aged newsprint and archival map surfaces"
+    - "black and white halftone photograph cutouts with rough scissor-cut edges"
+    - "desaturated archival palette of tan, ink black, halftone gray with ONE hot red signal accent"
+    - "16:9, ultra-detailed, 8K"
+
+quality_rules:
+  - "Template blocks must be used verbatim from templates/ - never shorten, paraphrase, or merge (extract red line)"
+  - "Every image prompt ends with the full CLOSER from templates/closer.md"
+  - "Camera strictly locked for the entire 10s clip - no zoom, pan, tilt, rotation, orbit, dolly, tracking, shake, focus pulls, reframing, cuts, transitions, morphing, object replacement, time skips"
+  - "FINAL RULE: final frame of each clip must exactly match the source image from 7 seconds to the end"
+  - "No element moves again after it lands (before 7s)"
+  - "No music, no narration, no voices inside the 10s animation clips - paper ASMR only"
+  - "No text beyond the specified label in images"
+  - "Never use em dashes anywhere in any output - use commas, colons, parentheses, or plain hyphens"
+  - "Facts stay accurate - never invent names, dates, or numbers"
+  - "Real-tragedy restraint: no gore, no suffering close-ups, no mockery of victims"
