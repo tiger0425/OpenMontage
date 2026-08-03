@@ -37,6 +37,7 @@ tts:
 visual:
   style: "vox-documentary"
   image_provider: "image_selector"       # 自动选择可用图片生成器
+  image_model: "gemini-3.1-flash-lite-image"   # 系列统一生图模型（google_imagen，2026-08 验证可用）
   color_scheme:
     bg: "#1a1a2e"
     fg: "#e0e0e0"

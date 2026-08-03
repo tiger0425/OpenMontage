@@ -98,8 +98,27 @@ projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}/publish/
 ├── final.mp4
 ├── metadata.json
 ├── thumbnail_concept.txt
-└── publish_log.json
+├── publish_log.json
+└── srt/
+    ├── ep01.en.srt        # English captions (from script narration, not whisper text)
+    └── ep01.zh.srt        # Chinese captions (aligned 1:1 with EN segments)
 ```
+
+**SRT generation (mandatory — L-032):** videos ship WITHOUT burned-in subtitles; captions are SRT sidecars only. Generate `srt/ep01.en.srt` + `srt/ep01.zh.srt` from the per-scene word-level transcripts (whisper timestamps) + script narration text (EN display words) + `{sid}_zh.json` (ZH lines), offset by the merge timeline (s01 full, s02+ trimmed by head-trim seconds, 0.5s xfade overlaps between scenes).
+
+### Step 7: Execute upload
+
+Run the upload script (L-033 — verified on EP.01):
+
+```bash
+python bin/upload_youtube.py projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}
+```
+
+The script automatically: uploads the video (private), attaches `ep01.en.srt` + `ep01.zh.srt`, creates/reuses the series playlist ("Iron Dragon - The Story of China's Tanks") and adds the video, then updates `publish_log.json` (video_id, upload_status).
+
+- **Human gate:** video uploads PRIVATE. The user reviews on YouTube Studio, then either runs the same command with `--publish` or flips visibility manually. Never upload public without user confirmation.
+- **Metadata tweaks:** `python bin/upload_youtube.py <episode_dir> --update-only` re-applies title/description/tags to the already-uploaded video (no re-upload needed).
+- One-time setup: `client_secret.json` (OAuth Desktop app) at `%USERPROFILE%\.youtube-upload\`, API enabled in Google Cloud Console, user added as test user on the OAuth consent screen.
 
 ### Step 7: Produce publish_log
 

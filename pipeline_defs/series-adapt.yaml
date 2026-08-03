@@ -238,6 +238,7 @@ stages:
       - publish_log
     tools_available:
       - export_bundle
+      - upload_youtube
     checkpoint_required: true
     human_approval_default: true
     review_focus:
@@ -247,6 +248,8 @@ stages:
       - Thumbnail concept is compelling and on-brand
       - Export bundle contains video, metadata JSON, and thumbnail concept
       - Source channel credited in description
+      - "SRT sidecar files generated (ep01.en.srt + ep01.zh.srt) — video has NO burned-in subtitles (L-032)"
+      - "Upload command ready: python bin/upload_youtube.py <episode_dir> (uploads private, attaches captions, adds to series playlist) (L-033)"
     success_criteria:
       - Schema-valid publish_log
       - Export directory contains all required files

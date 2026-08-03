@@ -48,6 +48,12 @@ projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}/hyperframes/
 
 Call `hyperframes_compose` operation=`scaffold` with the episode's scene_plan and asset_manifest. Stage all image and audio assets into the workspace.
 
+**Generator pipeline (L-018 — verified s04, one-pass no rework):** for episodes 2+, do NOT hand-write per-scene index.html. Use the parameterized generators (keep them in `skills/pipelines/series-adapt/tools/`):
+1. write `{sid}_windows.json` (L-009 continuous windows) + `{sid}_design.json` (per-scene layout/label/camera) + `{sid}_zh.json` (per-segment Chinese subtitles)
+2. `python build_episode_parts.py {sid} {num_scenes} {total_dur}` → parts json
+3. `python assemble_episode.py {sid} {total_dur} {num_scenes}` → workspace + index.html
+4. lint + render. The generators already encode: cross-dissolve boards, finite-repeat continuous micro-motion, multi-element entrances, word-synced karaoke subtitles, per-landing SFX.
+
 ### Step 2: Write Vox-style index.html
 
 Write the HyperFrames composition with the following Vox design system:
@@ -131,6 +137,59 @@ Entry moves, mapped by scene `animation_type` — the paper-feel comes from thes
 
 **Anti-monotony:** adjacent scenes MUST NOT reuse the same camera_move nor the same entrance family — rotate scale-family (slap/pop_settle/scale-in) ↔ translate-family (fly_in/drop/poster-rise) ↔ opacity-family (stamp-appear/vignette-in). `static` + `pop_settle` combos are reserved for highlight/closing beats.
 
+### Step 2a3: CONTINUOUS micro-motion layer (L-010 — verified on s02)
+
+Entrances alone are not enough. After the entrance animations settle (~scene_start + 3.2s), the scene must keep **2-4 elements looping until scene end** — otherwise 60-70% of the scene is dead static:
+
+| Element | Loop | Cycle |
+|---|---|---|
+| main photo | gentle sway / bob (`y: 5-8, rotation: 0.25-0.5deg`) | 3.6-4.5s |
+| label strip | paper-corner lift (`rotation: 0.7, y: 3`) | 2.9s |
+| caption | drift (`x: 5`) | 3.4s |
+| pin | pulse (`scale: 1.12`) | 1.8s |
+| stamp | breathe (`scale: 1.04, rotation: -6.2`) | 2.4s |
+
+**FINITE repeats only (L-011):** `repeat: -1` FAILS lint — the deterministic capture engine seeks to exact frame times and cannot resolve infinite loops. Compute per loop: `repeat = Math.floor((scene_end - loop_start) / cycle_duration) - 1` with `yoyo: true, ease: "sine.inOut"`. Add `overwrite: "auto"` to loops sharing a property with the camera tween (photo scale) to avoid overlapping-tween lint errors.
+
+### Step 2a4: Multi-element scenes (L-012 — verified on s02)
+
+Never render a bare photo. Every scene carries **3-4 composed elements minimum**, entering staggered:
+- hero image (entrance per Step 2a2)
+- typewriter label strip (start + 1.2s, `x:70` slide-in)
+- caption / sub-label (start + 1.9s, `x:-60`)
+- pin (start + 2.6s, scale pop) and/or stamp (start + 2.2s, scale slam)
+
+Layout families rotate per scene: left-tall / center / wide / letterbox / center-card / right-tall — never two adjacent scenes with the same layout family.
+
+### Step 2a5: DISTINCT COMPOSITIONS, not just photo positions (L-027 — verified s05 handmade)
+
+A centered photo + label/caption/pin is the SAME composition no matter how the photo is positioned. Every scene needs a composition FAMILY that changes the structure, and each scene gets its own element_motion (not the same yoyo loops):
+
+| Composition family | Structure | element_motion signature |
+|---|---|---|
+| `full-bleed` | image fills frame + dark vignette overlay + headline slam | vignette fade-in, headline scale-slam |
+| `left-right-split` | left panel + right card, red string connects | string draws between panels |
+| `top-title-cascade` | title top + N strips pop in sequence below | strips stamp-appear staggered 0.5s |
+| `quadrant-grid` | 2x2 grid of small panels + red frame | grid reveals staggered |
+| `blueprint-draw` | full blueprint + coordinate lines draw themselves | SVG line stroke-dashoffset draw |
+| `editorial-split` | tall left photo + right text block + stamp | photo x-slide, stamp slam |
+| `letterbox` | wide band image + top/bottom foreground strips | band rises, strips press |
+
+Rules:
+- Two adjacent scenes MUST NOT use the same composition family (nor the same camera_move).
+- **SUB-SHOT LEVEL variety (L-036 — verified EP.02):** composition families are assigned PER SUB-SHOT, not per scene. A 6-shot scene using ONE family across all shots reads as the same layout repeated 6 times — this is a visual failure even when images differ. Rotate the family list across sub-shots (shot 1 full-bleed, shot 2 editorial-split, shot 3 letterbox, ...) so adjacent shots always differ in structure. The generator `build_episode_parts.py` accepts a family list; pass one family per sub-shot, never a single value for the whole scene.
+- A 'center' composition is only allowed if it adds a distinguishing element (arch, vignette, split card, drawn line).
+- Write element_motion per scene content (red-string draw for maps, strip cascade for lists, grid reveal for grids, line draw for blueprints) — never a generic yoyo on every element.
+
+### Step 2a6: Vox motion methodology (L-028..L-031 — from Vox-style tutorial analysis)
+
+Four rules that make motion feel like Vox, not generic CG:
+
+1. **Low frame-rate signature (L-028):** Vox runs 12fps among high-fps content — the stepped cadence IS the style. In HyperFrames either render at `--fps 12-15`, or animate with stepped keyframes (hold 2-3 frames between steps). Never leave everything at 30fps smooth power1.
+2. **Whip easing (L-029):** motion shape = slow ease-out → whip into speed → slow ease-in (`power2/power3.inOut`, `cubic-bezier(0.25,0.9,0.25,1)`). Identical curves across multi-property tweens (x+y+scale). Plain sine yoyo only for the faintest ambient micro-life.
+3. **Story-motivated transitions (L-030):** most Vox cuts are HARD CUTS. Dissolve only where emotion/timeline continuity needs it (memories, tears, time jumps); hard-cut narrative pushes (charges, explosions, quotes). ≥ half of boundaries should be hard cuts.
+4. **Cut on motion peak (L-031):** land the cut just AFTER the scene's signature element completes (string fully drawn, strip slapped, pin pressed, grid closed). Voice boundaries set the window; the motion peak sets the exact cut inside it.
+
 ### Step 2b: Scene transitions = cross dissolve (not hard cuts, not wipes)
 
 The proven transition pattern (ep-01 S01):
@@ -143,19 +202,27 @@ The proven transition pattern (ep-01 S01):
 3. **Element entrances live inside the board** and start after the board begins fading in (scene_start + 0.3).
 4. Do NOT use a full-screen paper wipe between scenes (reads as a flash); keep a single shared `#w1` wipe element only for the opening.
 5. Scale+opacity must be animated in ONE `fromTo` (two overlapping tweens on the same property trigger lint errors).
+6. **Boundary rule applies to ALL fades (L-023 — verified on s07):** board fade-outs (and any exit tween) whose end time lands EXACTLY on a clip boundary fail lint (`gsap_exit_missing_hard_kill`). With continuous windows (L-009), a 0.45s board fade-out starting at `scene_end - 0.45` ends exactly at the next scene's start. Budget it to end ≥0.1s BEFORE the boundary: `tl.to(board, {opacity:0, duration:0.45}, scene_end - 0.55)`, or land a `tl.set` hard kill exactly at the boundary.
 
 ### Step 2c: Word-synced bilingual subtitles (karaoke highlight)
 
+0. **NO burned-in subtitles (L-032 — verified on EP.01):** never render subtitles into the video pixels. Render the composition CLEAN (no `.sub` elements, no subtitle JS). Captions ship as SRT sidecar files (`ep01.en.srt` + `ep01.zh.srt`) produced by the publish stage — YouTube renders them, viewers can toggle/translate them. If a render already has `.sub` layers, strip them before re-render (regex-remove `.sub` divs + subtitle JS block).
+
 1. **Transcribe the final narration WAV** (transcriber tool, word timestamps enabled).
-2. Build subtitle HTML at the ROOT level (not inside scene sections — inside a clip they get clipped by the scene window):
+2. **Subtitle EN words come from the SCRIPT, not the transcript (L-014 — verified on s03).** Whisper mis-hears proper nouns (Zhu→"Jew", Chongqing→"chunking", Yan'an→"Yane"). Use the transcript ONLY for word timestamps; the display text is the approved `adaptation_script.json` narration, word-aligned to those timestamps (map each script sentence to the transcript segment covering its time window).
+3. Build subtitle HTML at the ROOT level (not inside scene sections — inside a clip they get clipped by the scene window):
    - `.sub` container: `position:absolute; left:0; right:0; bottom:76px; z-index:90; opacity:0; text-align:center`
    - `.sub-en`: English, one `<span class="wk">` per word, 34px, Courier-style
    - `.sub-zh`: Chinese translation, 34px, PingFang/YaHei
-3. Timing:
+4. Timing:
    - Show window = `[voice_start + 0.1, voice_end + 0.35]`, fade in 0.2s, fade out 0.25s — short sentences must still be readable (never let a 0.8s sentence flash for 0.4s).
    - **Karaoke cumulative highlight**: each word turns `color:#C0392B; fontWeight:800` at its word timestamp and STAYS (never reverts) — spoken words accumulate red+bold, unspoken stay paper-white 500.
    - After the fade-out, add a `tl.set(sub, {opacity:0})` hard kill (prevents stale visibility on seek).
-4. Chinese line = the English narration translated (follows the dub, not the source video's original words).
+5. Chinese line = the English narration translated (follows the dub, not the source video's original words).
+6. **ZH map strictness (L-019 — verified on s05):** the Chinese subtitle array MUST have exactly `len(segs)` entries with a hard assert — hand-counting lines caused a full-shift misalignment (every zh line off by one, last line lost). Build zh from the SCRIPT narration (one zh sentence per script sentence), then map script sentences to transcript segments by time window.
+7. **Script semantics over transcript wording (L-020):** whisper segments often split/merge differently than the script sentences ("a strange thought surfaced" → "a strange, hot surface"; "turtle-shell bunkers apart" split in two). The EN words come from the script (L-014) and the ZH line translates the script sentence — time windows come from whisper, meaning comes from the script.
+8. **Hard-kill boundary alignment (L-021 — verified on s06):** a subtitle fade-out that ends across a scene boundary fails lint (`gsap_exit_missing_hard_kill`). The `tl.set(sub, {opacity:0})` hard kill must land EXACTLY on the boundary timestamp (19.30 passed; 19.35/19.40 failed). Options: move the fade-out earlier so it ends before the boundary, or set the hard kill at the boundary time exactly.
+9. **Idempotent patches (L-022):** patch scripts (including the generator's hard-kill pass) must check for an existing line before inserting — running a fix twice injected duplicate `tl.set` lines and confused lint. Dedupe before write.
 
 ### Step 2d: Paper-craft SFX (VOX paper ASMR)
 
@@ -184,6 +251,12 @@ npx hyperframes render --strict
 ```
 
 Output: `hyperframes/renders/final.mp4`
+
+- **Render at 30fps (L-045 — verified EP.02):** `--fps 12` breaks audio extraction in the hyperframes CLI (missing audio.aac). Always render 30fps; the Vox 12fps signature (L-028) comes from stepped keyframes / hold-2-3-frames animation, not the render frame rate.
+- **Merge: verify head-trim before applying (L-040 — verified EP.02):** EP.01 segments had a 2.6s leading blank (vo data-start=3 silent lead) so the merge trimmed 2.6s per segment. A new episode's segments may have NO leading blank — blind-copying the trim cut 2.6s of real content per segment (23s total). Before merging: run `ffprobe`/`volumedetect` on the first 3s of each segment; trim ONLY if actually blank.
+- **Outro needs an end-card hold (L-041 — verified EP.02):** the final scene's duration must exceed narration end by ≥2s (empty screen hold after the last line, mirroring EP.01's s10 = 27.7s video vs 13.1s narration). Formula: outro duration = audio_lead + narration_seconds + ≥2s. Verify narration end time < video end time by ≥2s, and keep the final fade ≤0.5s so it never swallows the last word.
+- **Episode title card (L-042 — verified EP.02):** every episode's FIRST scene (track 0, 2.6s) is `scene-open`: series title (IRON DRAGON) + `EP.NN` stamp + episode subtitle strip. BGM `data-start="0"` so music starts WITH the card. When offsetting all other scene times by +2.6s, keep scene-open at 0, keep BGM at 0.
+- **SCENE TIMELINE ↔ VO OFFSET MUST MATCH (L-048 — verified EP.02, the sync root cause):** the `vo` audio `data-start` and the scene timeline's origin MUST be designed together. EP.01 pattern (canonical): scene-1 starts at **2.6s**, `vo data-start="3"` (0.4s picture-lead), merge trims 2.6s head. If the scene timeline starts at 0 (no offset) but `vo data-start="3"` is kept, narration lags 3s behind visuals in EVERY segment — first line arrives late, last line gets cut. Rule: after assemble, ALWAYS verify `scene-1.data-start + 0.4 ≈ vo.data-start` (±0.2s) and that merge trim equals scene-1.data-start. Either both-offset (EP.01 pattern) or both-zero (vo data-start=0.4 with scene-1 at 0) — never mixed.
 
 ### Step 5: Verify output
 

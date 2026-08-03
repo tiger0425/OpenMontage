@@ -30,9 +30,10 @@ This pipeline produces **personal biography documentaries**. Every person, vehic
 2. **Locate the real subjects.** Use the vision model (see `minimax-m3-vision` skill) to identify which frames contain:
    - the real person (interview close-ups are the gold standard for face reference),
    - the real vehicle/object (tank, mortar, factory, map),
-   - the real place (cave dwellings, workshop, parade route).
+   - the real place (cave dwellings, workshop, parade route),
+   - **the real SCENE/EVENT (L-017 — verified on s04): battlefield, explosion, night combat, train, workshop. Source docs are full of archival war footage; a battlefield collage should be img2img'd from the real battlefield frame, not invented.**
    Re-extract those time windows at higher density (`ffmpeg -ss <start> -t <win> -vf fps=2`) into `assets/source/refs/`.
-3. **Reference map.** For each scene in `scene_plan.json`, record which real frame it is based on. Scenes without a real reference (abstract ideas, night mood, title cards) may generate free-form but must not depict a real person's face or a real object's shape from imagination.
+3. **Reference map.** For each scene in `scene_plan.json`, record which real frame it is based on. Scenes without a real reference (abstract ideas, night mood, title cards) may generate free-form but must not depict a real person's face or a real object's shape from imagination. **Always scan the frame library BEFORE deciding a scene is reference-free.** (Bonus: non-person frames also pass the MiniMax content filter more reliably.)
 4. **Generate via img2img.** Call `image_selector` with `image_path` = the real reference frame and `generation_mode: edit`. The prompt must say "Keep the exact same [person/tank/cave] from the reference photo" and then restyle into the collage world. If the result drifts from the reference (e.g. a cave becomes a warehouse), regenerate with higher `image_strength` (0.85-0.9) and explicit "do NOT change the [feature]" language.
 
 ### Step 1: Generate images
@@ -40,6 +41,7 @@ This pipeline produces **personal biography documentaries**. Every person, vehic
 For each scene in `scene_plan.json`, call `image_selector` with:
 - Size: 1920×1080
 - Provider: from config (`visual.image_provider`, default `flux_image`)
+- **Model: from config `visual.image_model` (series-wide lock — currently `gemini-3.1-flash-lite-image`; pass as `model` to the selector). Never change the model mid-series without a logged decision + DESIGN_SYSTEM update.**
 - Style guidance: read `styles/vox-collage.yaml` — the series' default style is **Vox Paper Collage** (aged newsprint, halftone cutouts, red string/pins, typewriter labels). The `image_prompt_prefix` field there is the verbatim style block for every prompt.
 - `image_path`: the real reference frame from Step 0 when the scene depicts a real person/object (biography accuracy).
 
@@ -48,6 +50,8 @@ Save each image to:
 ```
 projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}/assets/images/scene_{scene_index:03d}.png
 ```
+
+**Filename consistency (L-013 — verified on s03):** the basename used in `asset_manifest.json` must be byte-identical to the `<img src>` in the composition. When scaffolding the HyperFrames workspace, copy images AS-IS (same basename, e.g. `s03_1.png`) and grep the HTML src against the copied filenames before rendering — a mismatched name (s3_1 vs s03_1) costs a full render cycle in lint failures.
 
 **Consistency rules:**
 - If two scenes show the same tank model, reuse the same reference frame and seed for consistent appearance
@@ -73,6 +77,12 @@ Rules:
 - Positive phrasing only — do NOT append negative words to Flux-style models; if the provider needs a negative prompt, use `styles/vox-collage.yaml` → `image_negative_prompt` in the tool's negative field, never inline.
 - Record the final assembled prompt in the manifest (`image_prompt`).
 - Self-check each prompt against the §4 checklist in `references/vox-look-library.md` (cut-outs/clear edges/drop shadow, single bold color, ≤4-word quoted label, no 3D/CGI words).
+- **ERA ARMY + ETHNICITY constraint (L-024 — verified s04/s06/s07):** every person-containing SCENE part MUST embed (a) East Asian Chinese facial features, and (b) the correct era army uniform. For 1937-1945 scenes: "East Asian Chinese soldiers of the Eighth Route Army in 1940s grey cotton uniforms, cloth peaked caps, puttee leg wraps" — NOT the Red Army (red-star octagonal cap = 1927-1937), NOT US/Western uniforms (steel helmets). Image models default to Western soldiers in US gear if unconstrained. **Vision-verify each person scene for ethnicity + uniform BEFORE rendering.**
+- **ERA-FIDELITY MATRIX (L-034 — verified EP.02, spans 1945-1959):** scenes must match their exact period, not just "Chinese soldier." Per-era defaults: **1937-1945** → Eighth Route Army grey cotton, cloth peaked caps, puttees (L-024); **1945-1949** → PLA beige/yellow cotton uniforms, no star badges before 1949, cloth caps; **1949-1953** → PLA 50-style olive uniforms with red collar tabs + red star cap badge; **1953-1959** → Soviet-influenced dress: olive uniforms, shoulder boards, peaked caps with star (HMEI students), Soviet-style architecture (Harbin campus = Stalinist brick with green roof). Also era-check props: no TV antennas/satellite dishes before 1960, no modern vehicles (cars/trucks post-1960 designs) in pre-1950 scenes, classrooms with chalkboards and wooden desks (no plastic). **Write the era constraint into every prompt string; vision-verify at least one frame per scene for era fidelity BEFORE rendering.**
+- **EVERY SUB-SHOT GETS ITS OWN IMAGE (L-035 — verified EP.02 regression):** NEVER generate one hero image per scene and copy it to fill sub-shot slots. Each sub-shot in `scene_plan.json` has its own `generation_direction` (distinct shot size / angle / focus / label) — the asset stage MUST consume EVERY sub-shot's direction and generate a distinct image for it. File-copy duplication produces a dead, repetitive scene (same picture for 40-80s with only camera tween). If scene_plan sub-shots lack distinguishing directions, STOP and fix the scene plan first — never fall back to duplication. Verify by size: distinct generated images have different file sizes; identical sizes = copies = failure. The API cost of independent images is mandatory, not optional.
+- **DISTINCT REFERENCES + DISTINCT SUBJECTS (L-036 — verified EP.02 regression #2):** unique files are NOT enough — 63 unique files all img2img'd from the SAME reference frame with the SAME subject noun still render as the same picture. Two hard requirements: (a) each sub-shot's `image_path` must use the reference frame matching ITS content (spread the frame library: interview frames for portrait beats, explosion frames for blast beats, factory frames for production beats — NOT one person frame for everything); (b) verify by vision model or by content check that adjacent sub-shots differ in subject — if two consecutive renders show the same person/same object as the center, regenerate with a different reference + different subject phrasing. Uniqueness = different reference + different subject + different composition family, not different file bytes.
+- **NO LABEL TEXT IN PERSON IMAGES (L-037 — verified EP.02):** never put the typewriter-label instruction in prompts for images whose reference frame contains people. Image models draw the label AT RANDOM POSITIONS (often over the face) and hallucinate names (the model once wrote "Dr. Zhao Tianlin" on a portrait that was actually Zhu Yusheng). For person frames: generate CLEAN images, add labels as HTML overlay elements in compose. Labels in prompts are allowed ONLY for non-person images (maps, charts, blueprints, objects).
+- **FACE-PROTECTED STYLE FOR PERSON IMAGES (L-038 — verified EP.02):** the shared Vox style block contains "red string and brass pins" decoration instructions — image models draw these ACROSS THE FACE at uncontrolled positions. For any image whose reference frame contains people, strip ALL red-string/brass-pin decoration phrases from the style block (the yaml has them in MULTIPLE phrasings: "red string and brass pins where the story calls for connections,", "red string and brass pins,", "red string connections", "brass pins") and append: "The face of any person must be completely clear and unobstructed: no lines, no pins, no string, no text, no elements crossing or covering the face." Body/background decorations are fine — only the FACE must stay clean. Verify with a vision model that no red line crosses the face before rendering.
 
 ### Step 2: Generate narration
 
@@ -109,6 +119,8 @@ projects/series-adapt-{series_id}/ep-{episode_num:02d}-{slug}/assets/audio/seg_{
 - If RMS < 100 → mark as silent → regenerate that segment
 - This is the VoxCPM silent-file pattern applied to IndexTTS2
 
+**Idempotent batch generation (L-046 — verified EP.02):** batch image scripts MUST only generate MISSING files (skip existing). Never clear the output directory inside a batched loop — chunked runs wiped earlier batches (55/63 images lost). Clear once via an explicit env flag (`CLEAN_FIRST=1`) then run the FULL batch in one pass.
+
 **Transcribe the final narration (MANDATORY — feeds scene plan + subtitles):**
 After the narration WAVs pass the duration check, run the transcriber on each segment (or the concatenated episode audio) with **word-level timestamps** enabled:
 - Scene plan stage uses segment start/end to align scene windows to voice boundaries (never cut mid-sentence)
@@ -122,6 +134,7 @@ After every segment is synthesized, measure actual duration with `ffprobe`:
 - `actual_duration = ffprobe(seg_N.wav)`; `target_duration = scene_plan duration for that section`
 - **If `actual_duration < target_duration × 0.95`, the script is UNDERWRITTEN. Do not pad audio.** Go back to the rewrite stage: expand the narration text with more specific factual detail (names, numbers, dates, physical description) so the word count meets `target_duration × measured_wps`, then regenerate the segment.
 - If `actual_duration > target_duration × 1.10`, trim the scene duration in the scene plan to match (narration is the master clock; visual scenes flex to it).
+- **RE-APPLY AFTER EVERY PLAN REWORK (L-039 — verified EP.02):** if scene_plan.json is regenerated for ANY reason (composition rework, family changes), the audio-duration correction MUST be re-run — regenerating from word-count math silently drops the correction and truncates narration (EP.02 lost up to 19.4s on one scene). Final gate: every scene's plan duration must be >= its actual audio duration + hold.
 - Record `actual_duration_seconds` per segment in the manifest.
 - The measured speech rate (`measured_wps`) must be written back to `config.yaml → tts.measured_wps` on the first episode so future rewrites budget words correctly.
 
