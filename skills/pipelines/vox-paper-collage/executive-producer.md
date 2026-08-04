@@ -97,8 +97,10 @@ EP_STATE:
 - 缺失 → REVISE assets
 
 ### edit 后
-- 每图 = 10s clip（0-7s 组装、7-10s 微动效）
-- 镜头锁定记录（无 zoom/pan/tilt/rotation/cut/transition）
+- 每 clip = 语音段时长（whisper 时间戳），不固定 10s
+- 镜头锁定记录（无 zoom/pan/tilt/rotation）
+- clip 间交叉溶解 0.5s（奇偶 track 交替），fade out 结束于边界前 ≥0.1s
+- 元素入场 = sync_sentence 时间戳 + 0.2s（语音驱动）
 - 最终帧与图精确一致（FINAL RULE）
 - 缺失 → REVISE edit
 
@@ -154,6 +156,21 @@ EP_STATE:
 - **spec-driven**：scene_plan 定义完整元素清单（kind/box/rot/z/family/micro/sfx），compose 按清单自动组装，不临场发挥
 - 横竖双版本：scene_plan_v2.json（竖 1080×1920）+ scene_plan_v2_h.json（横 1920×1080），同一生成器
 - pixabay_music 403 不可靠 → fallback freesound_music
+
+### HyperFrames 编写（2026-08 交子项目多轮踩坑沉淀）
+
+**模板**：`templates/index_generator_template.py`（完整可运行生成器，照抄勿自创；内置 LAYOUT HARD RULES assert 强制 hero 居中/最大/叠压）
+
+- **正确结构**：场景 = `section.clip` + 内部 `.board`（CSS opacity:0），GSAP fromTo 控制 board 显隐；参考 `projects/alibaba-qwen38/hyperframes/index.html`
+- **交叉溶解**：前一 board `end-0.45` 淡出 + 后一 board `start-0.4` 淡入（重叠 0.5s），track 交替 0,1,0,1
+- **元素入场三层节奏**：hero +0.3s / l3 +1.2s / decor +2.0s 固定；仅 voice 标签跟语音（可见 ≥2.5s）；短场景（≤7s）全部快速入场
+- **禁 `tl.from`**（immediateRender 与 HyperFrames seek 打架 + CSS opacity:0 组合 = 空屏）；一律 `tl.fromTo`
+- **渲染 EPERM 坑**：输出到 `projects/<slug>/renders/`（hyperframes/renders 可能被杀软/残留 chrome 锁定）
+
+### 图片生成（2026-08 交子项目补充）
+
+- **单元素生成 ≫ 巨阵图**：单元素 solid-flat-tan 底 corner_std <2（背景纯平完美抠图）；巨阵图（6×4 网格）背景带纹理抠不净 + 每格分辨率低（235px），仅作额度耗尽时的补位手段
+- **google_imagen 免费档**（gemini-3.1-flash-lite-image）有月度额度上限，用尽报 429 RESOURCE_EXHAUSTED；缩略图可用 PIL 合成（bg 纹理 + 元素 + 大字）零成本替代
 
 ## 反模式
 

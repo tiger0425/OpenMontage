@@ -34,7 +34,7 @@ typography:
 motion:
   transitions:
     - "None inside a clip: camera stays completely locked, no cuts, no transitions, one continuous static shot"
-    - "Between clips: hard cut on beat boundary"
+    - "Between clips: 0.5s cross-dissolve on alternating odd/even tracks, fade out finishes >=0.1s before the boundary (2026-08 revision; old 'hard cut on beat boundary' is deprecated)"
   animation_style: "Hand-cut documentary paper collage in motion. Elements move as rigid physical paper pieces with visible cutout thickness. Stop-motion cadence, stepped easing, 2-3 frame holds, the hand-made cutting on twos feel. Never smooth CGI motion. 0-7s build-on assembly (empty background plate first, then elements enter one by one back to front with paper drag, settle, tiny handcrafted bounce, layered shadows; no element moves again after landing). 7-10s living paper poster (corners lift a millimeter, halftone dots shimmer, string tension quivers once, shadows breathe). Final frame exactly matches the provided image."
   pacing_rules:
     min_scene_hold_seconds: 10
