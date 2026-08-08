@@ -22,6 +22,7 @@ from lib.config_model import OpenMontageConfig
 from lib.checkpoint import (
     CheckpointValidationError,
     STAGES,
+    approve_checkpoint,
     get_next_stage,
     read_checkpoint,
     write_checkpoint,
@@ -351,6 +352,25 @@ class TestCheckpoint:
             {"research_brief": sample_artifact("research_brief")},
         )
         assert get_next_stage(tmp_path, "proj") == "proposal"
+
+    def test_approve_awaiting_human_checkpoint(self, tmp_path):
+        write_checkpoint(
+            tmp_path,
+            "proj",
+            "research",
+            "awaiting_human",
+            {"research_brief": sample_artifact("research_brief")},
+            human_approval_required=True,
+            human_approved=False,
+        )
+
+        approve_checkpoint(tmp_path, "proj", "research")
+        cp = read_checkpoint(tmp_path, "proj", "research")
+
+        assert cp is not None
+        assert cp["status"] == "completed"
+        assert cp["human_approval_required"] is True
+        assert cp["human_approved"] is True
 
     def test_invalid_stage_rejected(self, tmp_path):
         with pytest.raises(ValueError):

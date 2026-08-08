@@ -1543,6 +1543,7 @@ class VideoCompose(BaseTool):
             "output_path": str(output_path),
             "edit_decisions": dict(edit_decisions, cuts=resolved_cuts),
             "asset_manifest": asset_manifest,
+            "overwrite_html": False,
         }
         if playbook_data:
             hf_inputs["playbook"] = playbook_data

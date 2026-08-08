@@ -325,6 +325,54 @@ class TestModelRequirements:
 
 class TestCustomWorkflowContract:
 
+    def test_image_custom_workflow_supports_two_reference_images(self, tmp_path):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        uploads = []
+        seen = {}
+
+        def fake_upload(local_path, name):
+            uploads.append((Path(local_path), name))
+            return name
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            return [Path(dest)]
+
+        tool._client.upload_image = fake_upload
+        tool._client.generate = fake_generate
+        anchor = tmp_path / "anchor.png"
+        state = tmp_path / "state.png"
+        anchor.write_bytes(b"anchor")
+        state.write_bytes(b"state")
+        overrides = {
+            "76": {"image": "<UPLOADED_IMAGE_1>"},
+            "77": {"image": "<UPLOADED_IMAGE_2>"},
+            "114:113": {"text": "state delta"},
+        }
+
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_json": json.dumps({
+                "76": {"inputs": {"image": "placeholder"}},
+                "77": {"inputs": {"image": "placeholder"}},
+                "114:113": {"inputs": {"text": "placeholder"}},
+            }),
+            "output_node": "77",
+            "reference_image_path": str(anchor),
+            "reference_image_path_2": str(state),
+            "workflow_overrides": overrides,
+            "output_path": str(tmp_path / "image.png"),
+        })
+
+        assert result.success is True
+        assert [path for path, _ in uploads] == [anchor, state]
+        assert seen["workflow"]["76"]["inputs"]["image"].endswith(".png")
+        assert seen["workflow"]["77"]["inputs"]["image"].endswith(".png")
+        assert seen["workflow"]["114:113"]["inputs"]["text"] == "state delta"
+        assert overrides["76"]["image"] == "<UPLOADED_IMAGE_1>"
+        assert overrides["77"]["image"] == "<UPLOADED_IMAGE_2>"
+
     def test_image_custom_workflow_uses_caller_output_node_and_provenance(self, tmp_path):
         tool = ComfyUIImage()
         tool._client.is_available = lambda: True

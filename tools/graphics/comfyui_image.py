@@ -125,13 +125,21 @@ class ComfyUIImage(BaseTool):
                 "type": "string",
                 "description": "Local path to reference image for I2I workflows (uploaded and patched via workflow_overrides).",
             },
+            "reference_image_path_2": {
+                "type": "string",
+                "description": "Optional second local reference image for dual-reference I2I workflows.",
+            },
             "reference_image_url": {
                 "type": "string",
                 "description": "URL of reference image (for I2I, downloaded first).",
             },
+            "reference_image_url_2": {
+                "type": "string",
+                "description": "Optional second reference image URL for dual-reference I2I workflows.",
+            },
             "workflow_overrides": {
                 "type": "object",
-                "description": "Optional node overrides for custom workflows (e.g. {'76': {'image': '<UPLOADED_IMAGE>'}}). Use <UPLOADED_IMAGE> to inject the uploaded reference image filename.",
+                "description": "Optional node overrides for custom workflows. Use <UPLOADED_IMAGE> or <UPLOADED_IMAGE_1> for the first reference and <UPLOADED_IMAGE_2> for the second.",
             },
         },
     }
@@ -216,7 +224,10 @@ class ComfyUIImage(BaseTool):
                 # Upload reference image if provided
                 ref_path = inputs.get("reference_image_path")
                 ref_url = inputs.get("reference_image_url")
+                ref_path_2 = inputs.get("reference_image_path_2")
+                ref_url_2 = inputs.get("reference_image_url_2")
                 uploaded_image_name = None
+                uploaded_image_name_2 = None
                 if ref_url and not ref_path:
                     import requests
                     resp = requests.get(ref_url, timeout=60)
@@ -224,18 +235,32 @@ class ComfyUIImage(BaseTool):
                     ref_path = str(output_path.with_suffix(".ref.png"))
                     Path(ref_path).parent.mkdir(parents=True, exist_ok=True)
                     Path(ref_path).write_bytes(resp.content)
+                if ref_url_2 and not ref_path_2:
+                    import requests
+                    resp = requests.get(ref_url_2, timeout=60)
+                    resp.raise_for_status()
+                    ref_path_2 = str(output_path.with_suffix(".ref2.png"))
+                    Path(ref_path_2).parent.mkdir(parents=True, exist_ok=True)
+                    Path(ref_path_2).write_bytes(resp.content)
                 if ref_path:
                     upload_name = f"om_custom_{output_path.stem}.png"
                     uploaded_image_name = self._client.upload_image(Path(ref_path), upload_name)
+                if ref_path_2:
+                    upload_name_2 = f"om_custom_{output_path.stem}_state.png"
+                    uploaded_image_name_2 = self._client.upload_image(Path(ref_path_2), upload_name_2)
                 
                 overrides = inputs.get("workflow_overrides", {})
                 if overrides:
-                    if uploaded_image_name:
-                        for node_id, node_data in overrides.items():
-                            for k, v in node_data.items():
-                                if v == "<UPLOADED_IMAGE>":
-                                    overrides[node_id][k] = uploaded_image_name
-                    workflow = ComfyUIClient.patch_workflow(workflow, overrides)
+                    patched_overrides = json.loads(json.dumps(overrides))
+                    for node_id, node_data in patched_overrides.items():
+                        for key, value in node_data.items():
+                            if value in ("<UPLOADED_IMAGE>", "<UPLOADED_IMAGE_1>"):
+                                if uploaded_image_name:
+                                    node_data[key] = uploaded_image_name
+                            elif value == "<UPLOADED_IMAGE_2>":
+                                if uploaded_image_name_2:
+                                    node_data[key] = uploaded_image_name_2
+                    workflow = ComfyUIClient.patch_workflow(workflow, patched_overrides)
                 
                 output_node = str(inputs["output_node"])
             else:
