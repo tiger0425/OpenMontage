@@ -679,6 +679,7 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 | **Capture** | `playwright-recording` (browser flows), `ffmpeg` (post) |
 | **Visualization** | `beautiful-mermaid`, `d3-viz`, `manim-composer`, `manimce-best-practices`, `manimgl-best-practices` |
 | **Media editing** | `video-edit`, `video-download`, `video-understand`, `video-toolkit`, `visual-style` |
+| **YouTube 上传/管理** | `youtube-upload` — 上传视频/字幕、创建与批量归档播放列表、设置可见性、更新元数据（凭证自动复用 `%USERPROFILE%\.youtube-upload\`，入口 `python bin/youtube.py`） |
 
 **When in doubt, read the category's meta routing file first:**
 - Picking an animation runtime? → `skills/meta/animation-runtime-selector.md` routes between Remotion primitives, GSAP plugins, framer-motion, Lottie, Manim, D3.
