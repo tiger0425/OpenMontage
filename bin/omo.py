@@ -101,7 +101,7 @@ def cmd_submit_artifact(args):
     if not file_path.exists():
         print(f"Error: File not found: {file_path}")
         sys.exit(1)
-        
+
     with open(file_path, "r", encoding="utf-8") as f:
         try:
             artifact_data = json.load(f)
@@ -176,6 +176,22 @@ def cmd_submit_artifact(args):
         sys.exit(1)
 
 
+def cmd_approve_stage(args):
+    """Approve an awaiting-human checkpoint through the harness."""
+    try:
+        path = checkpoint.approve_checkpoint(
+            pipeline_dir=PROJECTS_DIR,
+            project_id=args.project,
+            stage=args.stage,
+            pipeline_type=args.pipeline,
+        )
+    except Exception as exc:
+        print(f"APPROVAL ERROR: {exc}")
+        sys.exit(1)
+
+    print(f"APPROVED: Checkpoint written to {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="OpenMontage Universal Harness CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -196,6 +212,13 @@ def main():
     submit_p.add_argument("--stage", required=True, help="Stage name")
     submit_p.add_argument("--pipeline", required=True, help="Pipeline Type")
     submit_p.add_argument("--file", required=True, help="Path to JSON artifact file")
+
+    approve_p = subparsers.add_parser(
+        "approve-stage", help="Approve an awaiting-human stage checkpoint"
+    )
+    approve_p.add_argument("--project", required=True, help="Project ID/Name")
+    approve_p.add_argument("--stage", required=True, help="Stage name")
+    approve_p.add_argument("--pipeline", required=True, help="Pipeline Type")
     
     args = parser.parse_args()
     
@@ -205,6 +228,8 @@ def main():
         cmd_start_stage(args)
     elif args.command == "submit-artifact":
         cmd_submit_artifact(args)
+    elif args.command == "approve-stage":
+        cmd_approve_stage(args)
 
 if __name__ == "__main__":
     main()

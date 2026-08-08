@@ -22,6 +22,7 @@ ALL_KNOWN_STAGES = frozenset([
     "assets", "edit", "compose", "publish",
     "visual_planning", "directed_assets", "hyperframes_compose", "publish_copy",
     "retrospective", "edu_brief", "notes", "edu_video", "edu_publish",
+    "character_design", "rig_plan",
 ])
 
 # Backward-compatible alias 鈥?existing code / tests that import STAGES still work.
@@ -35,6 +36,8 @@ CANONICAL_STAGE_ARTIFACTS = {
     "idea": "brief",
     "brief": "fabric_brief",
     "script": "script",
+    "character_design": "character_design",
+    "rig_plan": "rig_plan",
     "scene_plan": "scene_plan",
     "visual_planning": "scene_plan",
     "assets": "asset_manifest",
@@ -302,6 +305,46 @@ def read_checkpoint(
     return checkpoint
 
 
+def approve_checkpoint(
+    pipeline_dir: Path,
+    project_id: str,
+    stage: str,
+    *,
+    pipeline_type: Optional[str] = None,
+) -> Path:
+    """Approve an awaiting-human checkpoint through the harness API."""
+    current = read_checkpoint(pipeline_dir, project_id, stage)
+    if current is None:
+        raise CheckpointValidationError(
+            f"No checkpoint found for project {project_id!r}, stage {stage!r}"
+        )
+    if current.get("status") != "awaiting_human":
+        raise CheckpointValidationError(
+            f"Stage {stage!r} is not awaiting human approval"
+        )
+    if not current.get("human_approval_required"):
+        raise CheckpointValidationError(
+            f"Stage {stage!r} does not require human approval"
+        )
+
+    return write_checkpoint(
+        pipeline_dir=pipeline_dir,
+        project_id=project_id,
+        stage=stage,
+        status="completed",
+        artifacts=current["artifacts"],
+        pipeline_type=pipeline_type or current.get("pipeline_type"),
+        style_playbook=current.get("style_playbook"),
+        checkpoint_policy=current.get("checkpoint_policy", "guided"),
+        human_approval_required=True,
+        human_approved=True,
+        review=current.get("review"),
+        cost_snapshot=current.get("cost_snapshot"),
+        error=current.get("error"),
+        metadata=current.get("metadata"),
+    )
+
+
 def get_latest_checkpoint(
     pipeline_dir: Path, project_id: str
 ) -> Optional[dict[str, Any]]:
@@ -356,4 +399,3 @@ def get_next_stage(
         if stage not in completed:
             return stage
     return None
-

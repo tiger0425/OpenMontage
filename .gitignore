@@ -131,6 +131,9 @@ _clipboard_analysis.png
 # Downloaded music files (Pixabay, Freesound â€” not source code)
 pixabay_music_*
 
+# Global asset library (external assets, not source code)
+assets/shared_library/
+
 # Temporary generated files in root
 product_analysis.json
 product_three_views_*.jpg
@@ -164,8 +167,16 @@ remotion-composer/public/demo-props/caption-burn-*
 /silk_*/
 *.silk/
 
-# series-adapt ÔËÐÐ×´Ì¬Êý¾Ý¿â
+# series-adapt ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½Ý¿ï¿½
 tracking.db
 
-# ÀýÍâ£ºseries-adapt ÕýÊ½¹¤¾ß£¨²»±» gen_*.py ÎóÉË£©
+# ï¿½ï¿½ï¿½â£ºseries-adapt ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ß£ï¿½ï¿½ï¿½ï¿½ï¿½ gen_*.py ï¿½ï¿½ï¿½Ë£ï¿½
 !skills/pipelines/series-adapt/tools/gen_voice_windows.py
+
+# Local pyannote model cache (downloaded once, reused offline â€” not source)
+models/hf_cache/
+models/pyannote/
+
+# Runtime state & downloaded test media
+data/
+downloads/
