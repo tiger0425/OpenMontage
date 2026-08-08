@@ -1,0 +1,219 @@
+{
+  "114": {
+    "inputs": {
+      "conditioning": ["123", 0],
+      "latent": ["117", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {"title": "参考Latent"}
+  },
+  "115": {
+    "inputs": {
+      "conditioning": ["122", 0],
+      "latent": ["117", 0]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {"title": "参考Latent"}
+  },
+  "116": {
+    "inputs": {
+      "shift": 1,
+      "model": ["136", 0]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {"title": "采样算法（AuraFlow）"}
+  },
+  "117": {
+    "inputs": {
+      "pixels": ["132", 0],
+      "vae": ["124", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {"title": "VAE编码"}
+  },
+  "118": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "加载CLIP"}
+  },
+  "120": {
+    "inputs": {
+      "width": ["132", 3],
+      "height": ["132", 4],
+      "length": ["133", 0],
+      "batch_size": 1
+    },
+    "class_type": "EmptyHunyuanLatentVideo",
+    "_meta": {"title": "空Latent视频（Hunyuan）"}
+  },
+  "121": {
+    "inputs": {
+      "unet_name": "qwen_image_layered_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {"title": "UNet加载器"}
+  },
+  "122": {
+    "inputs": {
+      "text": "",
+      "clip": ["118", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive Prompt)"}
+  },
+  "123": {
+    "inputs": {
+      "text": "blur,worse quality",
+      "clip": ["118", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative Prompt)"}
+  },
+  "124": {
+    "inputs": {
+      "vae_name": "qwen_image_layered_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {"title": "加载VAE"}
+  },
+  "125": {
+    "inputs": {
+      "samples": ["128", 0],
+      "vae": ["124", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE解码"}
+  },
+  "126": {
+    "inputs": {
+      "dim": "t",
+      "slice_size": 1,
+      "samples": ["128", 0]
+    },
+    "class_type": "LatentCutToBatch",
+    "_meta": {"title": "Latent切割"}
+  },
+  "127": {
+    "inputs": {
+      "samples": ["126", 0],
+      "vae": ["124", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE解码"}
+  },
+  "128": {
+    "inputs": {
+      "seed": 499594310529964,
+      "steps": 8,
+      "cfg": ["137", 0],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["116", 0],
+      "positive": ["115", 0],
+      "negative": ["114", 0],
+      "latent_image": ["120", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "K采样器"}
+  },
+  "129": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": ["127", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {"title": "保存图像"}
+  },
+  "130": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "Int",
+    "_meta": {"title": "Int"}
+  },
+  "131": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "Int",
+    "_meta": {"title": "Int"}
+  },
+  "132": {
+    "inputs": {
+      "aspect_ratio": "original",
+      "proportional_width": 1,
+      "proportional_height": 1,
+      "fit": "crop",
+      "method": "lanczos",
+      "round_to_multiple": "16",
+      "scale_to_side": "longest",
+      "scale_to_length": ["140", 0],
+      "background_color": "#000000",
+      "image": ["135", 0]
+    },
+    "class_type": "LayerUtility: ImageScaleByAspectRatio V2",
+    "_meta": {"title": "图层工具：按宽高比缩放 V2"}
+  },
+  "133": {
+    "inputs": {
+      "expression": "a*b+1",
+      "a": ["130", 0],
+      "b": ["131", 0]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {"title": "Math Expression 🐍"}
+  },
+  "134": {
+    "inputs": {
+      "frame_rate": 6,
+      "loop_count": 0,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": ["125", 0]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {"title": "Video Combine 🎥🅥🅗🅢"}
+  },
+  "135": {
+    "inputs": {
+      "image": "b1.1_anchor.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {"title": "加载图像"}
+  },
+  "136": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+      "strength_model": 1,
+      "model": ["121", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoRA加载器（仅模型）"}
+  },
+  "137": {
+    "inputs": {
+      "value": 1.0000000000000002
+    },
+    "class_type": "Float",
+    "_meta": {"title": "Float"}
+  },
+  "140": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "JWInteger",
+    "_meta": {"title": "Integer"}
+  }
+}

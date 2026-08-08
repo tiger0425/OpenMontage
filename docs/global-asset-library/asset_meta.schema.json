@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/asset_library_meta",
+  "title": "Global Asset Library Metadata",
+  "description": "Metadata for each asset stored in assets/shared_library/.",
+  "type": "object",
+  "required": ["version", "source_type", "tags", "license", "usage_count", "date_added", "file_type"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "source_type": {
+      "type": "string",
+      "enum": ["user_upload", "web_search", "purchased", "licensed", "project_preset"]
+    },
+    "source_url": { "type": "string" },
+    "source_description": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "license": {
+      "type": "string",
+      "enum": ["public_domain", "cc0", "cc_by", "commercial", "unknown"]
+    },
+    "usage_count": { "type": "integer", "minimum": 0 },
+    "first_used_project": { "type": "string" },
+    "date_added": { "type": "string", "format": "date" },
+    "file_type": { "type": "string" },
+    "dimensions": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "minItems": 2,
+      "maxItems": 2
+    }
+  },
+  "additionalProperties": false
+}

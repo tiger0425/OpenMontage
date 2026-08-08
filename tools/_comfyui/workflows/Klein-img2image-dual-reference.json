@@ -1,0 +1,343 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "Flux2-Klein-dual-reference",
+      "images": [
+        "114:101",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存双参考图像"
+    }
+  },
+  "76": {
+    "inputs": {
+      "image": "<UPLOADED_IMAGE_1>"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载视觉锚点"
+    }
+  },
+  "77": {
+    "inputs": {
+      "image": "<UPLOADED_IMAGE_2>"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载当前状态"
+    }
+  },
+  "114:99": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "114:100": {
+    "inputs": {
+      "noise": [
+        "114:112",
+        0
+      ],
+      "guider": [
+        "114:103",
+        0
+      ],
+      "sampler": [
+        "114:99",
+        0
+      ],
+      "sigmas": [
+        "114:104",
+        0
+      ],
+      "latent_image": [
+        "114:102",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "双参考自定义采样器"
+    }
+  },
+  "114:101": {
+    "inputs": {
+      "samples": [
+        "114:100",
+        0
+      ],
+      "vae": [
+        "114:109",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "114:102": {
+    "inputs": {
+      "width": [
+        "114:106",
+        0
+      ],
+      "height": [
+        "114:106",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空Latent图像（Flux2）"
+    }
+  },
+  "114:103": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "114:117",
+        0
+      ],
+      "positive": [
+        "114:107:80",
+        0
+      ],
+      "negative": [
+        "114:107:81",
+        0
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "双参考条件引导"
+    }
+  },
+  "114:104": {
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "114:106",
+        0
+      ],
+      "height": [
+        "114:106",
+        1
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2调度器"
+    }
+  },
+  "114:105": {
+    "inputs": {
+      "conditioning": [
+        "114:113",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "114:106": {
+    "inputs": {
+      "image": [
+        "114:111",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "获取锚点图像尺寸"
+    }
+  },
+  "114:107:77": {
+    "inputs": {
+      "conditioning": [
+        "114:113",
+        0
+      ],
+      "latent": [
+        "114:107:78",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "注入视觉锚点"
+    }
+  },
+  "114:107:78": {
+    "inputs": {
+      "pixels": [
+        "114:111",
+        0
+      ],
+      "vae": [
+        "114:109",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "编码视觉锚点"
+    }
+  },
+  "114:107:79": {
+    "inputs": {
+      "pixels": [
+        "114:118",
+        0
+      ],
+      "vae": [
+        "114:109",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "编码当前状态"
+    }
+  },
+  "114:107:80": {
+    "inputs": {
+      "conditioning": [
+        "114:107:77",
+        0
+      ],
+      "latent": [
+        "114:107:79",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "注入当前状态（正向）"
+    }
+  },
+  "114:107:81": {
+    "inputs": {
+      "conditioning": [
+        "114:107:115",
+        0
+      ],
+      "latent": [
+        "114:107:79",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "注入当前状态（负向）"
+    }
+  },
+  "114:107:115": {
+    "inputs": {
+      "conditioning": [
+        "114:105",
+        0
+      ],
+      "latent": [
+        "114:107:78",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "注入视觉锚点（负向）"
+    }
+  },
+  "114:109": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "114:110": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "114:111": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "76",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "缩放视觉锚点"
+    }
+  },
+  "114:118": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "77",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "缩放当前状态"
+    }
+  },
+  "114:112": {
+    "inputs": {
+      "noise_seed": 959480087306254
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "114:113": {
+    "inputs": {
+      "text": "Keep the anchor composition and the current state unchanged. Apply only the requested state delta.",
+      "clip": [
+        "114:110",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "状态增量提示词"
+    }
+  },
+  "114:117": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "加载Klein"
+    }
+  }
+}

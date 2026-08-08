@@ -1,0 +1,302 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "Flux2-Klein-mask-redraw",
+      "images": [
+        "114:101",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存局部重绘图像"
+    }
+  },
+  "76": {
+    "inputs": {
+      "image": "<UPLOADED_IMAGE_1>"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载视觉锚点（蓝图）"
+    }
+  },
+  "78": {
+    "inputs": {
+      "image": "om_mask_ship_redraw.png",
+      "channel": "red"
+    },
+    "class_type": "LoadImageMask",
+    "_meta": {
+      "title": "加载重绘遮罩（黑=重绘区）"
+    }
+  },
+  "114:99": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "114:100": {
+    "inputs": {
+      "noise": [
+        "114:112",
+        0
+      ],
+      "guider": [
+        "114:103",
+        0
+      ],
+      "sampler": [
+        "114:99",
+        0
+      ],
+      "sigmas": [
+        "114:104",
+        0
+      ],
+      "latent_image": [
+        "114:102",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "遮罩重绘采样器"
+    }
+  },
+  "114:101": {
+    "inputs": {
+      "samples": [
+        "114:100",
+        0
+      ],
+      "vae": [
+        "114:109",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "114:102": {
+    "inputs": {
+      "width": [
+        "114:106",
+        0
+      ],
+      "height": [
+        "114:106",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空Latent图像（Flux2）"
+    }
+  },
+  "114:103": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "114:117",
+        0
+      ],
+      "positive": [
+        "114:120",
+        0
+      ],
+      "negative": [
+        "114:107:115",
+        0
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "遮罩重绘条件引导"
+    }
+  },
+  "114:104": {
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "114:106",
+        0
+      ],
+      "height": [
+        "114:106",
+        1
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2调度器"
+    }
+  },
+  "114:105": {
+    "inputs": {
+      "conditioning": [
+        "114:113",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "114:106": {
+    "inputs": {
+      "image": [
+        "114:111",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "获取锚点图像尺寸"
+    }
+  },
+  "114:107:115": {
+    "inputs": {
+      "conditioning": [
+        "114:105",
+        0
+      ],
+      "latent": [
+        "114:107:78",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "参考Latent（负向）"
+    }
+  },
+  "114:107:78": {
+    "inputs": {
+      "pixels": [
+        "114:111",
+        0
+      ],
+      "vae": [
+        "114:109",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码锚点"
+    }
+  },
+  "114:107:77": {
+    "inputs": {
+      "conditioning": [
+        "114:113",
+        0
+      ],
+      "latent": [
+        "114:107:78",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "参考Latent（正向锚点）"
+    }
+  },
+  "114:109": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "114:110": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "114:111": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "76",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "缩放锚点"
+    }
+  },
+  "114:112": {
+    "inputs": {
+      "noise_seed": 959480087306254
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "114:113": {
+    "inputs": {
+      "text": "Keep everything outside the mask identical to the reference image. In the masked area, redraw ONLY the ship: the Ever Given container ship lifted up and hovering slightly above the water, still black-and-white paper cut-out style with red containers on deck, same lighting and paper texture as the rest of the collage.",
+      "clip": [
+        "114:110",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "局部重绘提示词"
+    }
+  },
+  "114:117": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "加载Klein"
+    }
+  },
+  "114:120": {
+    "inputs": {
+      "conditioning": [
+        "114:107:77",
+        0
+      ],
+      "mask": [
+        "78",
+        0
+      ],
+      "strength": 1.0,
+      "invert_mask": false,
+      "feather": 8,
+      "reference_index": 0,
+      "debug": false
+    },
+    "class_type": "Flux2KleinMaskRefController",
+    "_meta": {
+      "title": "遮罩控制参考（黑区重绘）"
+    }
+  }
+}

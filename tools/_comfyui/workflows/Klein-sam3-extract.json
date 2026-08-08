@@ -1,0 +1,97 @@
+{
+  "99:77": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sam3.1_multiplex_fp16.safetensors"
+    },
+    "_meta": {
+      "title": "SAM3 Checkpoint"
+    }
+  },
+  "99:78": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": [
+        "99:77",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "分割对象描述"
+    }
+  },
+  "79": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "img.png"
+    },
+    "_meta": {
+      "title": "蓝图"
+    }
+  },
+  "99:75": {
+    "class_type": "SAM3_Detect",
+    "inputs": {
+      "threshold": 0.5,
+      "refine_iterations": 2,
+      "individual_masks": false,
+      "model": [
+        "99:77",
+        0
+      ],
+      "image": [
+        "79",
+        0
+      ],
+      "conditioning": [
+        "99:78",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SAM3 检测"
+    }
+  },
+  "300": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "99:75",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "反转Mask (JoinImageWithAlpha 白色=透明)"
+    }
+  },
+  "111": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": [
+        "79",
+        0
+      ],
+      "alpha": [
+        "300",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "合并透明图"
+    }
+  },
+  "200": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "111",
+        0
+      ],
+      "filename_prefix": "om_sam3_extract"
+    },
+    "_meta": {
+      "title": "保存"
+    }
+  }
+}

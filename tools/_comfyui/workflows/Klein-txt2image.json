@@ -1,0 +1,214 @@
+{
+  "78": {
+    "inputs": {
+      "filename_prefix": "Flux2-Klein",
+      "images": [
+        "115:101",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "113": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "116",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "116": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "115:99": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "115:100": {
+    "inputs": {
+      "noise": [
+        "115:108",
+        0
+      ],
+      "guider": [
+        "115:103",
+        0
+      ],
+      "sampler": [
+        "115:99",
+        0
+      ],
+      "sigmas": [
+        "115:105",
+        0
+      ],
+      "latent_image": [
+        "115:102",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "115:101": {
+    "inputs": {
+      "samples": [
+        "115:100",
+        0
+      ],
+      "vae": [
+        "115:107",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "115:102": {
+    "inputs": {
+      "width": [
+        "115:114",
+        0
+      ],
+      "height": [
+        "115:114",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空Latent图像（Flux2）"
+    }
+  },
+  "115:106": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "115:104": {
+    "inputs": {
+      "conditioning": [
+        "115:111",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "115:111": {
+    "inputs": {
+      "text": "中国古风美女身穿精致刺绣汉服配玉佩，长发盘起配发簪，撑油纸伞，另一只手提裙摆，背景烟雨朦胧江南古镇青瓦白墙小桥流水雨丝落花飘散，柔和自然光，电影构图，",
+      "clip": [
+        "115:106",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "115:108": {
+    "inputs": {
+      "noise_seed": 334568981493185
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "115:103": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "113",
+        0
+      ],
+      "positive": [
+        "115:111",
+        0
+      ],
+      "negative": [
+        "115:104",
+        0
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG引导器"
+    }
+  },
+  "115:107": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "115:114": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 1,
+      "multiple": 8
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "分辨率选择器"
+    }
+  },
+  "115:105": {
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "115:114",
+        0
+      ],
+      "height": [
+        "115:114",
+        1
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2调度器"
+    }
+  }
+}
