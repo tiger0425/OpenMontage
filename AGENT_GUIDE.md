@@ -244,6 +244,7 @@ If the folder has tracks, the proposal and asset stages should present them as o
 | `avatar-spokesperson` | Presenter-led avatar or lip-sync videos | production |
 | `localization-dub` | Subtitle, dub, and translated variants | beta |
 | `fabric-showcase` | Fabric/textile product showcase ads | beta |
+| `repo-to-video` | GitHub repo URL → Chinese AI-voiced Bilibili explainer (B号) | beta |
 | `framework-smoke` | Test: minimal 2-stage smoke test | test |
 
 > **Beta pipelines** have not been fully audited. They work, but expect rough edges. Mention this when the user selects one.
@@ -373,6 +374,20 @@ print('HyperFrames note:', info.get('hyperframes_note'))
 | **FFmpeg** | Video-only cuts, concat, trim, subtitle burn | `ffmpeg` binary (always available) |
 | **Remotion** | React-based composition: still images → animated video, text cards, stat cards, charts, callouts, comparisons, transitions with spring physics, word-level caption burn, TalkingHead avatar | Node.js (`npx`) + `remotion-composer/` + `node_modules` |
 | **HyperFrames** | HTML/CSS/GSAP composition: kinetic typography, product promos, launch reels, website-to-video, registry-block-driven scenes, SVG character rigs | Node.js ≥ 22 + FFmpeg + `npx` (consumed via `npx hyperframes`) |
+
+### HyperFrames knowledge freshness (MANDATORY)
+
+HyperFrames ships fast. `npx --yes hyperframes@latest` already guarantees the **runtime** is always current, but the **agent's knowledge** (skills, docs) is a snapshot that drifts. Before authoring or rendering any HyperFrames composition, run the freshness gate:
+
+```bash
+npx hyperframes upgrade --check --json   # CLI: current / latest / updateAvailable
+npx hyperframes skills check --json      # skills stale vs latest published?
+```
+
+- If `upgrade.updateAvailable` is true, or `skills` reports any `outdated`/`missing`, run `npx hyperframes skills update` (pulls the full latest skill set) before continuing. `npx hyperframes init` also refreshes skills automatically.
+- For exact command syntax, trust the CLI's inline docs over local skill snapshots: `npx hyperframes docs <topic>` (topics: `data-attributes`, `examples`, `rendering`, `gsap`, `troubleshooting`, `compositions`).
+- **Deprecated aliases:** `hyperframes validate`, `inspect`, and `layout` are CLI compatibility aliases only. New instructions/scripts must use `hyperframes check` (which reruns lint internally). `hyperframes_compose` already routes through `check`.
+- `make hyperframes-doctor` reports CLI version, upgrade availability, and skills staleness in one place.
 
 `render_runtime` is **locked at proposal** (`proposal_packet.production_plan.render_runtime`) and **carried through edit_decisions unchanged**. `video_compose` routes based on this field; silent runtime swaps are forbidden. If the chosen runtime becomes unavailable at compose time, surface a structured blocker per "Escalate Blockers Explicitly" above. See `skills/core/hyperframes.md` for the Remotion-vs-HyperFrames decision matrix.
 
@@ -654,7 +669,7 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 
 | Category | Skills |
 |---|---|
-| **Composition runtime** | **Remotion:** `remotion`, `remotion-best-practices`, `synthetic-screen-recording` (fake terminal/UI demos via Remotion TerminalScene)<br>**HyperFrames:** `hyperframes` (entry/router), `hyperframes-core` (composition contract), `hyperframes-animation` (GSAP/Lottie/Three.js adapters, blueprints, rules, transitions), `hyperframes-creative` (DESIGN.md, palettes, typography), `hyperframes-media` (TTS, BGM, transcription), `hyperframes-cli` (init/lint/validate/render), `hyperframes-registry` (blocks), `website-to-hyperframes` (site→video) |
+| **Composition runtime** | **Remotion:** `remotion`, `remotion-best-practices`, `synthetic-screen-recording` (fake terminal/UI demos via Remotion TerminalScene)<br>**HyperFrames:** `hyperframes` (entry/router), `hyperframes-core` (composition contract), `hyperframes-animation` (GSAP/Lottie/Three.js adapters, blueprints, rules, transitions), `hyperframes-creative` (DESIGN.md, palettes, typography), `hyperframes-media` (TTS, BGM, transcription), `hyperframes-cli` (init/lint/check/render), `hyperframes-registry` (blocks), `website-to-hyperframes` (site→video) |
 | **Animation knowledge (generic)** | `gsap-core`, `gsap-timeline`, `gsap-plugins` (SplitText / MorphSVG / DrawSVG / MotionPath / Flip / CustomEase), `gsap-utils`, `gsap-react`, `gsap-performance`, `gsap-scrolltrigger`, `gsap-frameworks`, `framer-motion` (Disney 12 principles), `lottie-bodymovin` (Lottie export) |
 | **Character animation** | `character-rigging`, `svg-character-animation`, `pose-library-design`, `canvas-procedural-animation`, `character-animation-qa` |
 | **Image generation** | `bfl-api`, `flux-best-practices` |

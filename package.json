@@ -1,7 +1,5 @@
 {
-  "devDependencies": {
-    "hyperframes": "^0.7.31"
-  },
+  "devDependencies": {},
   "dependencies": {
     "sharp": "^0.35.3"
   }

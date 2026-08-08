@@ -14,7 +14,7 @@ skills:
 - `.agents/skills/hyperframes-creative/` — non-animation creative direction: palette, type, narration, beat planning
 - `.agents/skills/hyperframes-media/` — TTS/BGM/SFX/transcription/captions/background-removal
 - `.agents/skills/hyperframes-animation/` — all motion knowledge (rules, blueprints, transitions, runtime adapters)
-- `.agents/skills/hyperframes-cli/` — init, add, lint, validate, inspect, snapshot, preview, render, benchmark, lambda, doctor (0.7+)
+- `.agents/skills/hyperframes-cli/` — init, add, lint, check, snapshot, preview, render, benchmark, lambda, doctor (0.7+)
 - `.agents/skills/hyperframes-registry/` — `hyperframes add` + block wiring
 - `.agents/skills/website-to-video/` — capture-to-video workflow (renamed from website-to-video in 0.7)
 - `.agents/skills/music-to-video/` — beat-synced music-driven video using `hyperframes beats`
@@ -133,7 +133,7 @@ and gitignored along with the rest of `projects/`.
 
 - HyperFrames resolves `data-composition-src`, `src=`, and registry blocks
   relative to the project root. A shared workspace breaks this.
-- `npx hyperframes lint | validate | render` all operate on a project
+- `npx hyperframes lint | check | render` all operate on a project
   directory. They don't take an abstract composition ID the way Remotion does.
 - Assets live next to the HTML that references them, matching the
   `website-to-video` reference workflow.
@@ -158,7 +158,7 @@ OpenMontage artifacts into HyperFrames project files:
 | `renderer_family` | Controls which top-level HTML template is used and which registry blocks are pre-installed |
 
 The concrete rendering is: `hyperframes_compose` writes files into the
-workspace, runs `lint → validate → render`, and returns a `render_report`
+workspace, runs `check → render`, and returns a `render_report`
 with the path to the generated MP4. See `tools/video/hyperframes_compose.py`.
 
 ### Workspace-local authoring artifacts
@@ -235,27 +235,59 @@ fix by effort:
 
 ---
 
+## Keeping HyperFrames current
+
+HyperFrames ships fast, and OpenMontage consumes it unpinned via
+`npx --yes hyperframes@latest` — so the **runtime** is always current, but
+the **agent's knowledge** (Layer 3 skill snapshots, this doc) drifts. Treat
+freshness as a preflight step, not an afterthought:
+
+```bash
+npx hyperframes upgrade --check --json   # CLI: current / latest / updateAvailable
+npx hyperframes skills check --json      # skills stale vs latest published?
+```
+
+- If `upgrade.updateAvailable` is true, or `skills` reports any `outdated` /
+  `missing`, run `npx hyperframes skills update` before continuing. `init`
+  refreshes skills automatically on new projects.
+- For exact command syntax, trust the CLI's inline docs over local skill
+  snapshots: `npx hyperframes docs <topic>` (topics: `data-attributes`,
+  `examples`, `rendering`, `gsap`, `troubleshooting`, `compositions`).
+- **Deprecated aliases:** `hyperframes validate`, `inspect`, and `layout` are
+  CLI compatibility aliases only. New instructions/scripts must use
+  `hyperframes check`.
+- `hyperframes_compose` operation `doctor` reports CLI version, upgrade
+  availability, and skills staleness in one shot; `make hyperframes-doctor`
+  wraps it for humans.
+
+---
+
 ## Validation protocol
 
 HyperFrames ships a real validation stack. Run **all** of these before
 declaring a render complete:
 
-1. **`npx hyperframes lint`** — static contract checks (duplicate ids,
-   overlapping tracks, missing `data-composition-id`, unregistered timelines).
-   MUST pass before render.
-2. **`npx hyperframes validate`** — browser-based runtime checks: seeks into
-   the paused composition, screenshots, samples pixels, computes WCAG
-   contrast ratios, verifies `window.__timelines` registration and
-   `class="clip"` on timed elements. MUST pass before render (contrast can
-   be deferred with `--no-contrast` during iteration, but not for final).
-3. **`npx hyperframes render --quality standard`** — produces the MP4.
-4. **Post-render final review** — probe with ffprobe, sample frames,
+1. **`npx hyperframes check`** — the current CLI gate. Runs lint (static
+   contract: duplicate ids, overlapping tracks, missing
+   `data-composition-id`, unregistered timelines) AND the browser-based
+   runtime audit (seeks into the paused composition, screenshots, samples
+   pixels, computes WCAG contrast ratios, verifies `window.__timelines`
+   registration and `class="clip"` on timed elements) in one session. MUST
+   pass before render (contrast can be deferred with `--no-contrast` during
+   iteration, but not for final; `--strict` gates warnings too).
+2. **`npx hyperframes render --quality standard`** — produces the MP4.
+3. **Post-render final review** — probe with ffprobe, sample frames,
    transcribe audio, compare to script. Same contract as the Remotion path.
    See `final_review.schema.json`.
 
-If lint or validate fails, do **not** render. Fix the composition and re-run.
+> `hyperframes lint` remains a useful standalone static check during
+> iteration, but `check` reruns it internally — do not invoke a redundant
+> standalone `lint` in the render pipeline. The deprecated aliases
+> `validate`/`inspect`/`layout` must not appear in new instructions.
+
+If check fails, do **not** render. Fix the composition and re-run.
 Silent render from a failing composition is a contract violation — the whole
-point of HyperFrames is that validate catches issues that FFmpeg or Remotion
+point of HyperFrames is that check catches issues that FFmpeg or Remotion
 cannot.
 
 ---

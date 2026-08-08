@@ -1,11 +1,11 @@
 """HyperFrames composition tool — HTML/CSS/GSAP render path.
 
 Sibling to `video_compose` (FFmpeg + Remotion). This tool owns the HyperFrames
-runtime end-to-end: workspace materialization, `hyperframes lint`,
-`hyperframes validate`, and `hyperframes render`. It is invoked by
+runtime end-to-end: workspace materialization, `hyperframes check` (which
+reruns lint internally), and `hyperframes render`. It is invoked by
 `video_compose` when `edit_decisions.render_runtime == "hyperframes"`, and
 can also be called directly by pipelines that want HyperFrames-specific
-operations (lint-only, validate-only, scaffold-only).
+operations (lint-only, check-only, scaffold-only).
 
 This tool deliberately does NOT attempt parity with every Remotion scene
 component. See `skills/core/hyperframes.md` for what is in scope in Phase 1
@@ -108,16 +108,21 @@ class HyperFramesCompose(BaseTool):
                 "enum": [
                     "render",
                     "lint",
+                    "check",
                     "validate",
                     "doctor",
                     "scaffold_workspace",
                     "add_block",
                 ],
                 "description": (
-                    "render: materialize workspace + lint + validate + render to MP4. "
-                    "lint: run `hyperframes lint` on an existing workspace. "
-                    "validate: run `hyperframes validate` (browser-based). "
-                    "doctor: run `hyperframes doctor` to check environment. "
+                    "render: materialize workspace + check + render to MP4. "
+                    "lint: run `hyperframes lint` (static contract) on a workspace. "
+                    "check: run `hyperframes check` — lint + runtime + layout + "
+                    "motion + WCAG contrast in one browser session. This is the "
+                    "current CLI gate; `validate` is a deprecated alias kept for "
+                    "compatibility and must not appear in new scripts. "
+                    "doctor: run `hyperframes doctor` AND report the actual CLI "
+                    "version plus upgrade/skills staleness. "
                     "scaffold_workspace: materialize HTML/CSS/assets but do not render. "
                     "add_block: run `hyperframes add <name>` to install a registry "
                     "block or component into an existing workspace."
@@ -226,6 +231,10 @@ class HyperFramesCompose(BaseTool):
     # We cache per-process so the first call pays ~2-5s and subsequent calls
     # (get_info spam from the registry) are free.
     _npm_resolve_cache: Optional[dict[str, str]] = None
+
+    # Process-level cache for the ACTUAL CLI version from `hyperframes --version`
+    # (used by doctor). Shape: {"version": "0.7.101"} or {"error": "<short>"}.
+    _cli_version_cache: Optional[dict[str, str]] = None
 
     @classmethod
     def _node_major_version(cls) -> Optional[int]:
@@ -398,8 +407,8 @@ class HyperFramesCompose(BaseTool):
                 result = self._scaffold(inputs)
             elif operation == "lint":
                 result = self._lint(inputs)
-            elif operation == "validate":
-                result = self._validate(inputs)
+            elif operation in ("check", "validate"):
+                result = self._check(inputs)
             elif operation == "render":
                 result = self._render(inputs)
             elif operation == "add_block":
@@ -417,8 +426,56 @@ class HyperFramesCompose(BaseTool):
     # Operations
     # ------------------------------------------------------------------
 
+    @classmethod
+    def _cli_version(cls) -> Optional[str]:
+        """Actual CLI version from `hyperframes --version` (cached per process)."""
+        if cls._cli_version_cache is not None:
+            return cls._cli_version_cache.get("version")
+        try:
+            proc = subprocess.run(
+                cls._npx_base_cmd() + ["--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=180,
+            )
+        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+            cls._cli_version_cache = {"error": "cli version probe failed"}
+            return None
+        version = (proc.stdout or "").strip().splitlines()[-1].strip() if proc.stdout else ""
+        if not version:
+            cls._cli_version_cache = {"error": "empty cli version"}
+            return None
+        cls._cli_version_cache = {"version": version}
+        return version
+
+    @staticmethod
+    def _run_json_sub(args: list[str], *, timeout: int) -> Optional[dict[str, Any]]:
+        """Run a `hyperframes` subcommand that prints one JSON object.
+
+        Returns the parsed dict, or None if the command failed or produced no
+        parseable JSON. Never raises for a non-zero exit — the caller decides.
+        """
+        try:
+            proc = subprocess.run(
+                HyperFramesCompose._npx_base_cmd() + args,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+            return None
+        return HyperFramesCompose._parse_json_output(proc.stdout or "")
+
     def _doctor(self, inputs: dict[str, Any]) -> ToolResult:
-        """Probe the environment. Reports node/ffmpeg/npx plus CLI doctor output."""
+        """Probe the environment. Reports node/ffmpeg/npx plus CLI doctor output.
+
+        Also reports the ACTUAL CLI version (`hyperframes --version`), whether
+        a newer CLI exists (`upgrade --check --json`), and whether installed
+        skills are stale (`skills check --json`). This is how OpenMontage
+        keeps agent knowledge honest against a fast-moving upstream.
+        """
         check = self._runtime_check()
         out: dict[str, Any] = {"runtime_check": check}
 
@@ -432,8 +489,40 @@ class HyperFramesCompose(BaseTool):
                 data=out,
             )
 
-        # Ask the CLI itself for a deeper check. This also warms the npm
-        # cache so the first real render doesn't pay the download cost.
+        # 1. Actual CLI version (what `npx hyperframes` resolves to today).
+        cli_version = self._cli_version()
+        out["cli_version"] = cli_version
+
+        # 2. Upgrade check: current vs npm latest.
+        up = self._run_json_sub(["upgrade", "--check", "--json"], timeout=180)
+        if up is not None:
+            out["upgrade"] = {
+                "current": up.get("current"),
+                "latest": up.get("latest"),
+                "update_available": bool(up.get("updateAvailable", False)),
+            }
+        else:
+            out["upgrade_error"] = "upgrade --check --json produced no parseable output"
+
+        # 3. Skills staleness: agent knowledge vs latest published skills.
+        sk = self._run_json_sub(["skills", "check", "--json"], timeout=180)
+        if sk is not None:
+            skills = sk.get("skills") or []
+            outdated = [s.get("name") for s in skills if s.get("status") == "outdated"]
+            missing = [s.get("name") for s in skills if s.get("status") == "missing"]
+            out["skills"] = {
+                "total": len(skills),
+                "outdated": len(outdated),
+                "missing": len(missing),
+                "outdated_names": outdated,
+                "missing_names": missing,
+            }
+            out["skills_stale"] = bool(outdated or missing)
+        else:
+            out["skills_error"] = "skills check --json produced no parseable output"
+
+        # 4. Ask the CLI itself for a deeper check. This also warms the npm
+        #    cache so the first real render doesn't pay the download cost.
         try:
             proc = self._run_hf(["doctor"], cwd=None, timeout=180, check=False)
             out["cli_doctor"] = {
@@ -660,7 +749,8 @@ class HyperFramesCompose(BaseTool):
   </div>
 </template>
 """
-                (compositions_dir / f"{cut_id}.html").write_text(sub_comp_html, encoding="utf-8")
+                if inputs.get("overwrite_html", True) or not (compositions_dir / f"{cut_id}.html").exists():
+                    (compositions_dir / f"{cut_id}.html").write_text(sub_comp_html, encoding="utf-8")
 
         # Write index.html — the main composition.
         total_duration = self._compute_total_duration(resolved_cuts)
@@ -674,7 +764,8 @@ class HyperFramesCompose(BaseTool):
             title=edit_decisions.get("metadata", {}).get("title")
             or f"OpenMontage {edit_decisions.get('renderer_family', 'composition')}",
         )
-        (workspace / "index.html").write_text(html, encoding="utf-8")
+        if inputs.get("overwrite_html", True) or not (workspace / "index.html").exists():
+            (workspace / "index.html").write_text(html, encoding="utf-8")
 
         return ToolResult(
             success=True,
@@ -713,16 +804,26 @@ class HyperFramesCompose(BaseTool):
             error=None if ok else f"hyperframes lint exit {proc.returncode}",
         )
 
-    def _validate(self, inputs: dict[str, Any]) -> ToolResult:
+    def _check(self, inputs: dict[str, Any]) -> ToolResult:
+        """operation='check' (and deprecated alias 'validate') → `hyperframes check`.
+
+        `check` is the current CLI gate: it runs lint + runtime + layout + motion
+        + WCAG contrast in one browser session. The upstream CLI keeps
+        `validate`/`inspect`/`layout` as deprecated aliases for compatibility,
+        but new scripts must use `check` — same reason we don't call
+        `hyperframes init` from the orchestrator.
+        """
         workspace = self._require_workspace(inputs)
         if not (workspace / "index.html").exists():
             return ToolResult(
                 success=False,
                 error=f"No index.html in {workspace}. Run scaffold_workspace first.",
             )
-        args = ["validate", "--json"]
+        args = ["check", "--json"]
         if inputs.get("skip_contrast"):
             args.append("--no-contrast")
+        if inputs.get("strict"):
+            args.append("--strict")
         proc = self._run_hf(args, cwd=workspace, timeout=300, check=False)
         data: dict[str, Any] = {"exit_code": proc.returncode}
         payload = self._parse_json_output(proc.stdout)
@@ -735,7 +836,7 @@ class HyperFramesCompose(BaseTool):
         return ToolResult(
             success=ok,
             data=data,
-            error=None if ok else f"hyperframes validate exit {proc.returncode}",
+            error=None if ok else f"hyperframes check exit {proc.returncode}",
         )
 
     def _add_block(self, inputs: dict[str, Any]) -> ToolResult:
@@ -815,31 +916,22 @@ class HyperFramesCompose(BaseTool):
                 data={"steps": steps},
             )
 
-        # 2. Lint — static contract checks.
-        lint = self._lint({"workspace_path": str(workspace)})
-        steps["lint"] = lint.data
-        if not lint.success:
-            if inputs.get("strict", False):
-                return ToolResult(
-                    success=False,
-                    error=f"Lint failed (strict mode): {lint.error}",
-                    data={"steps": steps},
-                )
-            log.warning("hyperframes lint reported issues (non-strict mode, continuing)")
-
-        # 3. Validate — browser-based contract + contrast.
-        validate = self._validate(
+        # 2. Check — the current CLI gate: lint + runtime + layout + motion
+        #    + WCAG contrast in one browser session. `check` reruns lint
+        #    internally, so a separate `lint` invocation would be redundant.
+        check_res = self._check(
             {
                 "workspace_path": str(workspace),
                 "skip_contrast": inputs.get("skip_contrast", False),
+                "strict": inputs.get("strict", False),
             }
         )
-        steps["validate"] = validate.data
-        if not validate.success:
+        steps["check"] = check_res.data
+        if not check_res.success:
             return ToolResult(
                 success=False,
                 error=(
-                    f"Validate failed: {validate.error}. HyperFrames render "
+                    f"Check failed: {check_res.error}. HyperFrames render "
                     f"is blocked — fix the composition and re-run."
                 ),
                 data={"steps": steps},
@@ -855,6 +947,7 @@ class HyperFramesCompose(BaseTool):
             "--output", str(output_path),
             "--fps", str(fps),
             "--quality", quality,
+            "--quiet",
         ]
         proc = self._run_hf(args, cwd=workspace, timeout=1800, check=False)
         steps["render"] = {
@@ -1538,6 +1631,21 @@ class HyperFramesCompose(BaseTool):
     # Utilities
     # ------------------------------------------------------------------
 
+    @classmethod
+    def _npx_base_cmd(cls) -> list[str]:
+        """Base npx invocation that always resolves the latest CLI.
+
+        `npx --yes hyperframes@latest` fetches the newest npm release on every
+        call, so the runtime is always current. On Windows, resolve the .cmd
+        wrapper so subprocess can find it without shell=True.
+        """
+        cmd = ["npx", "--yes", "hyperframes@latest"]
+        if os.name == "nt":
+            resolved = shutil.which(cmd[0])
+            if resolved:
+                cmd[0] = resolved
+        return cmd
+
     def _run_hf(
         self,
         args: list[str],
@@ -1550,15 +1658,9 @@ class HyperFramesCompose(BaseTool):
 
         We intentionally bypass `self.run_command` here because we do NOT
         want to raise CalledProcessError on non-zero exits — the caller
-        parses lint/validate/render exit codes itself.
+        parses lint/check/render exit codes itself.
         """
-        cmd = ["npx", "--yes", "hyperframes", *args]
-        # On Windows, resolve the .cmd wrapper so subprocess can find it
-        # without shell=True.
-        if os.name == "nt":
-            resolved = shutil.which(cmd[0])
-            if resolved:
-                cmd[0] = resolved
+        cmd = self._npx_base_cmd() + list(args)
         try:
             return subprocess.run(
                 cmd,

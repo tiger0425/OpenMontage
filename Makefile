@@ -101,8 +101,9 @@ preflight: ensure-venv
 	$(RUN_PYTHON) -c "from tools.tool_registry import registry; import json; registry.discover(); print(json.dumps(registry.provider_menu(), indent=2))"
 
 hyperframes-doctor: ensure-venv
-	@echo "==> Probing HyperFrames runtime (node/ffmpeg/npx + hyperframes doctor)..."
+	@echo "==> Probing HyperFrames runtime (node/ffmpeg/npx + CLI version/upgrade/skills)..."
 	$(RUN_PYTHON) -c "from tools.video.hyperframes_compose import HyperFramesCompose; r=HyperFramesCompose().execute({'operation':'doctor'}); import json; print(json.dumps(r.data, indent=2)); print('OK' if r.success else f'FAIL: {r.error}')"
+	@echo "==> Stale agent skills detected? Run 'npx hyperframes skills update' to refresh. ==>"
 
 hyperframes-warm:
 	@echo "==> Refreshing the HyperFrames npx cache to latest..."
