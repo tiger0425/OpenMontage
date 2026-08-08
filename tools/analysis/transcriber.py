@@ -1,13 +1,14 @@
-"""Transcription tool wrapping faster-whisper / WhisperX.
+"""Transcription tool wrapping faster-whisper / pyannote.
 
 Provides speech-to-text with word-level timestamps and optional speaker
-diarization. Falls back gracefully when GPU or diarization dependencies
-are not available.
+diarization (pyannote 4.x). Falls back gracefully when GPU or diarization
+dependencies are not available.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -28,7 +29,7 @@ from tools.base_tool import (
 
 class Transcriber(BaseTool):
     name = "transcriber"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.CORE
     capability = "analysis"
     provider = "whisperx"
@@ -36,11 +37,11 @@ class Transcriber(BaseTool):
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.DETERMINISTIC
 
-    dependencies = ["python:faster_whisper"]
+    dependencies = ["python:faster_whisper", "python:pyannote.audio"]
     install_instructions = (
         "pip install faster-whisper  # CPU mode\n"
         "pip install faster-whisper[gpu]  # GPU mode (requires CUDA)\n"
-        "pip install whisperx  # For diarization support"
+        "pip install pyannote.audio whisperx  # For diarization support"
     )
     agent_skills = ["speech-to-text"]
 
@@ -74,6 +75,10 @@ class Transcriber(BaseTool):
             "word_timestamps": {"type": "array"},
             "language": {"type": "string"},
             "duration_seconds": {"type": "number"},
+            "speaker_turns": {
+                "type": "array",
+                "description": "Diarization turns: [{start, end, speaker}] (empty when not diarized)",
+            },
         },
     }
 
@@ -104,7 +109,8 @@ class Transcriber(BaseTool):
 
     def _has_diarization(self) -> bool:
         try:
-            import whisperx  # noqa: F401
+            import pyannote.audio  # noqa: F401
+            import whisperx.audio  # noqa: F401
             return True
         except ImportError:
             return False
@@ -185,9 +191,11 @@ class Transcriber(BaseTool):
 
         # Optional diarization pass
         if diarize and self._has_diarization():
-            segments = self._apply_diarization(
-                str(input_path), segments, detected_language
+            segments, speaker_turns = self._apply_diarization(
+                str(input_path), segments
             )
+        else:
+            speaker_turns = []
 
         elapsed = time.time() - start
 
@@ -198,6 +206,7 @@ class Transcriber(BaseTool):
             "duration_seconds": round(duration, 3),
             "model_size": model_size,
             "device": device,
+            "speaker_turns": speaker_turns,
         }
 
         # Write transcript JSON
@@ -215,37 +224,84 @@ class Transcriber(BaseTool):
         self,
         audio_path: str,
         segments: list[dict],
-        language: str,
-    ) -> list[dict]:
-        """Apply WhisperX diarization to assign speaker labels."""
+    ) -> tuple[list[dict], list[dict]]:
+        """Apply pyannote 4.x diarization to assign speaker labels.
+
+        Returns (segments with speaker, speaker_turns). Best-effort: on any
+        failure returns (segments, []) so transcription still succeeds.
+        """
         try:
-            import whisperx
-
-            # Load audio for alignment
-            audio = whisperx.load_audio(audio_path)
-
-            # Align segments with word timestamps
-            align_model, align_metadata = whisperx.load_align_model(
-                language_code=language, device="cpu"
-            )
-            aligned = whisperx.align(
-                segments, align_model, align_metadata, audio, device="cpu"
-            )
-
-            # Diarize
             import os
-            hf_token = os.environ.get("HF_TOKEN")
-            if not hf_token:
-                # Can't diarize without HuggingFace token for pyannote
-                return segments
 
-            diarize_model = whisperx.DiarizationPipeline(
-                use_auth_token=hf_token, device="cpu"
+            import torch
+            from pyannote.audio import Pipeline
+            from whisperx.audio import load_audio
+
+            # Offline model cache under models/hf_cache (gitignored local copy).
+            # Offline loading does not require a valid token (verified to load
+            # with a dummy token when the cache is warm); real token used when set.
+            cache_dir = str(Path(__file__).resolve().parents[2] / "models" / "hf_cache")
+            token = os.environ.get("HF_TOKEN", "local-offline")
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            pipeline = Pipeline.from_pretrained(  # type: ignore[attr-defined]
+                "pyannote/speaker-diarization-3.1",
+                token=token,
+                cache_dir=cache_dir,
+            ).to(device)  # type: ignore[union-attr]
+
+            # Decode via ffmpeg CLI (librosa path) to avoid torchcodec.
+            waveform = load_audio(audio_path)
+            wav_tensor = torch.from_numpy(waveform).unsqueeze(0)
+            output = pipeline(  # type: ignore[index]
+                {
+                    "waveform": wav_tensor,
+                    "sample_rate": 16000,
+                    "uri": audio_path,
+                }
             )
-            diarize_segments = diarize_model(audio)
-            result = whisperx.assign_word_speakers(diarize_segments, aligned)
 
-            return result.get("segments", segments)
-        except Exception:
-            # Diarization is best-effort; return original segments on failure
-            return segments
+            speaker_turns = [
+                {
+                    "start": round(turn["start"], 3),
+                    "end": round(turn["end"], 3),
+                    "speaker": turn["speaker"],
+                }
+                for turn in output.serialize()["diarization"]  # type: ignore[attr-defined]
+            ]
+
+            segments = self._assign_speakers(segments, speaker_turns)
+            return segments, speaker_turns
+        except Exception as exc:  # noqa: BLE001
+            # Diarization is best-effort; degrade to no-speaker transcription.
+            logging.getLogger(__name__).warning(
+                f"Speaker diarization failed, continuing without speakers: {exc}"
+            )
+            return segments, []
+
+    @staticmethod
+    def _assign_speakers(
+        segments: list[dict], speaker_turns: list[dict]
+    ) -> list[dict]:
+        """Assign a speaker to each segment by temporal overlap ratio.
+
+        A segment takes the speaker whose turn covers the largest fraction of
+        the segment's own duration. Segments with no overlap keep speaker=None.
+        """
+        for seg in segments:
+            seg_start = seg["start"]
+            seg_end = seg["end"]
+            seg_len = max(seg_end - seg_start, 1e-6)
+
+            best_speaker = None
+            best_ratio = 0.0
+            for turn in speaker_turns:
+                overlap = max(0.0, min(seg_end, turn["end"]) - max(seg_start, turn["start"]))
+                ratio = overlap / seg_len
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_speaker = turn["speaker"]
+
+            seg["speaker"] = best_speaker
+
+        return segments
