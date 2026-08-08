@@ -180,3 +180,7 @@ models/pyannote/
 # Runtime state & downloaded test media
 data/
 downloads/
+
+# ComfyUI workflow scratch/backup files
+tools/_comfyui/workflows/_tmp_*.json
+tools/_comfyui/workflows/*.bak.json
