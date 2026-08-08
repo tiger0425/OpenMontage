@@ -8,6 +8,18 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
+    "timing_source": {
+      "type": "string",
+      "enum": ["estimated", "tts_actual"],
+      "description": "Whether scene timing is based on script estimation or real TTS timestamps"
+    },
+    "timing_calibration_status": {
+      "type": "string",
+      "enum": ["pending", "calibrated", "exceeds_threshold", "rewind_required"],
+      "description": "Status of TTS timing calibration"
+    },
+    "script_duration_seconds": { "type": "number", "minimum": 0 },
+    "target_duration_seconds": { "type": "number", "minimum": 1 },
     "scenes": {
       "type": "array",
       "items": {
@@ -17,9 +29,19 @@
           "id": { "type": "string" },
           "type": {
             "type": "string",
-            "enum": ["talking_head", "broll", "animation", "character_scene", "diagram", "text_card", "transition", "generated", "screen_recording"]
+            "enum": ["talking_head", "broll", "animation", "paper_collage", "character_scene", "diagram", "text_card", "transition", "generated", "screen_recording"]
           },
           "description": { "type": "string" },
+          "paragraph_label": {
+            "type": "string",
+            "enum": ["viral_hook", "quick_intro", "main_story", "turning_point", "big_picture", "powerful_ending", "viral_hook+quick_intro", "big_picture+powerful_ending"],
+            "description": "Which six-act paragraph this scene corresponds to"
+          },
+          "locked_camera": {
+            "type": "boolean",
+            "default": true,
+            "description": "Camera is locked for the entire scene (no zoom/pan/tilt/rotation)"
+          },
           "start_seconds": { "type": "number", "minimum": 0 },
           "end_seconds": { "type": "number", "minimum": 0 },
           "script_section_id": { "type": "string" },
@@ -104,6 +126,86 @@
                 "source": { "type": "string", "enum": ["generate", "source", "provided", "record"] }
               },
               "required": ["type", "description", "source"]
+            }
+          },
+          "beats": {
+            "type": "array",
+            "description": "Semantic beats inside this scene. Each beat expresses one complete visual idea, bound to a narration sentence.",
+            "items": {
+              "type": "object",
+              "required": ["id", "sync_sentence", "semantic_family", "duration_seconds", "core_idea", "visual_metaphor"],
+              "properties": {
+                "id": { "type": "string" },
+                "sync_sentence": { "type": "string", "description": "The narration sentence/beat this visual element syncs to" },
+                "semantic_family": {
+                  "type": "string",
+                  "enum": ["drop", "rise", "shake", "pop", "slide", "grow", "pulse", "slap", "fade"]
+                },
+                "core_idea": {
+                  "type": "string",
+                  "description": "What this narration sentence essentially means — the distilled concept, not the literal words. Per Playbook: 抛弃字面，提炼含义，如：老龄化危机/巨大财富/经济崩溃."
+                },
+                "visual_metaphor": {
+                  "type": "string",
+                  "description": "The strongest symbolic graphic replacing the literal meaning. Per Playbook: 财富→金库/皇冠，时间→沙漏/钟表，技术→芯片/服务器. Must be a concrete visual, not a description of the literal subject."
+                },
+                "duration_seconds": { "type": "number", "minimum": 0 },
+                "start_seconds": { "type": "number", "minimum": 0 },
+                "end_seconds": { "type": "number", "minimum": 0 },
+                "visual_idea": { "type": "string", "description": "One sentence describing what this beat shows" },
+                "image_prompt": {
+                  "type": "string",
+                  "description": "Playbook-grade full image prompt for this beat (director's complete scene description): background, main subject, supporting elements with narrative relationships, typography, composition proportions, atmosphere, and negative prompt. Written in the style of Playbook prompt 2 — the model generates the blueprint directly from this. English only (bilingual-spec section 10)."
+                },
+                "elements": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "layer": { "type": "string", "enum": ["bg", "hero", "element", "decor"] },
+                      "kind": { "type": "string", "enum": ["img", "css"] },
+                      "data_class": {
+                        "type": "string",
+                        "enum": ["real_data", "real_content", "creative", "css"]
+                      },
+                      "data_source": { "type": "string" },
+                      "description": { "type": "string" },
+                      "box": {
+                        "type": "array",
+                        "items": { "type": "number" },
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "description": "[left, top, width, height] as percentages of the canvas (0-100). Planned position BEFORE generation; the image prompt translates this into layout wording. Compose places the element at this box."
+                      },
+                      "rot": {
+                        "type": "number",
+                        "description": "Rotation angle in degrees for compose placement (kept small, <3 for paper feel)."
+                      },
+                      "z": {
+                        "type": "integer",
+                        "description": "z-index stacking order for compose placement (bg=0, hero high, decor highest)."
+                      },
+                      "family": {
+                        "type": "string",
+                        "enum": ["slide", "drop", "slap", "pop", "unfold", "wipe", "mask_reveal", "rotate", "fade"],
+                        "description": "Entrance animation per Playbook prompt 3. slide=paper slide in; drop=paper drop; slap=paper slap down; pop=soft pop (scale 0->1 with tiny bounce); unfold=paper unfold; wipe=simple wipe reveal; mask_reveal=mask/gradient reveal; rotate=micro rotation entrance (<3deg); fade=gradual fade in. NO fancy 3D rotation, NO dramatic effects."
+                      },
+                      "micro": {
+                        "type": "string",
+                        "enum": ["sway", "lift", "pulse", "breathe", "none"],
+                        "description": "Living-paper micro motion per Playbook prompt 3. sway=2-5px displacement; lift=1-2deg rotation; pulse=1-2% scale; breathe=opacity ~5% / shadow breathing; none=static. All tiny, never noticeable displacement."
+                      },
+                      "sfx": {
+                        "type": "string",
+                        "enum": ["paper_slide", "tape_press", "stamp_thud", "string_zip", "pin_click", "paper_tap", "none"]
+                      },
+                      "text": { "type": "string" }
+                    },
+                    "required": ["layer", "kind", "data_class", "description"]
+                  }
+                }
+              },
+              "additionalProperties": false
             }
           }
         },

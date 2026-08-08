@@ -35,6 +35,31 @@ Beat 数量 sanity range（30s≈12-15 / 1min≈22-30 / 2min≈45-60 / 3min≈70
 
 标题语言 = `narration_language`。两语言共用红线：具体钩子（日期/人名/数字/地点）、无 clickbait、无感叹号、无"震惊/惊人/shocking/insane"。
 
+### §3.1 平台标题风格
+
+`target_platform` 决定标题风格。字段 `platform_title_style` 取值如下：
+
+| 平台 | platform_title_style | 标题气质 |
+|---|---|---|
+| youtube, tiktok, bilibili, xiaohongshu | `viral` | 好奇心驱动、强钩子、短标题、接近 YouTube 爆款纪录片 |
+| linkedin, generic | `documentary` | 克制纪录片句式、专业、信息密度优先 |
+| instagram | 按内容判断：知识类用 `viral`，品牌/产品类用 `documentary` | 可混合 |
+
+### §3.2 viral 标题句式（爆款平台）
+
+**en shapes：**
+`Why [place/country/company] [is doing X]` / `How [X] Took Over [Y]` / `The [adjective] Story of [subject]` / `What Really Happened to [subject]` / `The [thing] Nobody Talks About` / `Inside [place/operation]` / `The [number] [things] That Changed [everything]` / `Why [common thing] Is Actually [surprising fact]` / `The Hidden World of [X]` / `How [company/brand] Tricked the World`
+
+**zh shapes（禁止逐字翻译英文句式）：**
+《为什么……正在……》/《……是如何统治……的》/《……不为人知的真相》/《……真正发生了什么》/《……背后的秘密》/《为什么……都是错的》/《那家控制了……的公司》/《为什么……永远不会……》/《……：一段被遗忘的……》/《世界上最危险的……》
+
+Playbook 示例：
+- `en "Why Japan Is Running Out of People"` → `zh 《为什么日本正在消失？》`
+- `en "The Company That Owns Almost Everything"` → `zh 《那家悄悄控制了几乎一切的公司》`
+- `en "How McDonald's Took Over the World"` → `zh 《麦当劳是如何统治全球的？》`
+
+### §3.3 documentary 标题句式（克制纪录片风格）
+
 **en shapes（引擎原始）：**
 `How [event] Unfolded` / `The Hunt for [target]` / `The [adjective] Story of [subject]` / `Why [place] [did X]` / `[Event] Explained` / `The Man/Woman Who [impossible act]` / `What Really Happened to [subject]` / `The [number] Days That [changed everything]` / `Inside the [place or operation]` / `The [year] [event] Nobody Remembers`
 
@@ -42,6 +67,10 @@ Beat 数量 sanity range（30s≈12-15 / 1min≈22-30 / 2min≈45-60 / 3min≈70
 《……始末》/《追缉……》/《……真相》/《……年……案》/《……年……事件》/《谁在……》/《……全记录》/《……之谜》/《最后一个……的人》/《……：一段被遗忘的……》
 
 示例：`en "What Really Happened to D.B. Cooper"` → `zh 《D.B. 库珀劫机案始末》`
+
+### §3.4 默认标题语言与风格
+
+本次优化后默认 `narration_language = zh`，因此 `zh` 标题形状为默认。`target_platform` 默认若未指定，则使用 `documentary` 风格；爆款平台（youtube/tiktok/bilibili/xiaohongshu）必须使用 `viral` 风格。用户可显式指定 override。
 
 ## §4 冷开场（script 引用）
 
@@ -97,7 +126,7 @@ Beat 数量 sanity range（30s≈12-15 / 1min≈22-30 / 2min≈45-60 / 3min≈70
 1. **生图 prompt 一律英文**——无论旁白语言。生图模型对英文 prompt 响应最佳；STYLE BLOCK / CLOSER 本来就是英文模板，verbatim 拼接不变
 2. **中文字符绝不进生图 prompt**（AI 生图中文字必出错字/鬼画符，零例外）。中文标题/标签/图章/日期章全部走 CSS 渲染
 3. en 视频同样遵循"仅指定 label 文字进图，其余文字走 CSS"——但 zh 是硬性零例外
-4. TTS 语音方向：en = calm deadpan male, ~155 wpm；zh = 同音色同参考音频（spk_audio_prompt 不变），~4.7 字/秒，speed=1.0 零变速
+4. TTS 语音方向：en = calm deadpan male, ~155 wpm；zh = 同音色同参考音频（spk_audio_prompt 不变），~4.7 字/秒，speed=1.0 零变速。**保持 calm 必须每次显式传 `emo_vector=[0,0,0,0,0,0,0,1.0]`**——indextts_tts 默认"不传即自动从文字判情感"，漏传会破坏平静纪录片语感（见 `assets-director.md` 旁白节）
 
 ## §11 缩略图文字（publish 引用）
 

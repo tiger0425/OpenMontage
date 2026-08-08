@@ -1,0 +1,160 @@
+{
+  "version": "1.0",
+  "assets": [
+    {
+      "id": "multi_grid_01",
+      "type": "image",
+      "path": "assets/multi_grid_01.png",
+      "source_tool": "image_selector",
+      "scene_id": "sc1-sc6",
+      "element_role": "multi_grid_ref",
+      "prompt": "6-panel 2x3 grid, each panel a full paper-collage composition for scenes sc1-sc6",
+      "model": "google_imagen",
+      "resolution": "1296x2304",
+      "provider": "google_imagen",
+      "generation_summary": "User-confirmed composed-scene reference before element splitting (A3 layer 1)"
+    },
+    {
+      "id": "collage_sc1_b1.1",
+      "type": "image",
+      "path": "assets/collages/sc1_b1.1.png",
+      "source_tool": "image_selector",
+      "scene_id": "sc1",
+      "element_role": "full_collage",
+      "layer": "hero",
+      "prompt": "SCENE: small 1980s NYC apartment building cutout on aged newspaper... EDITORIAL TITLE: 'SMALL START'. + style_block.md + closer.md + negative prompt",
+      "model": "google_imagen",
+      "resolution": "1080x1920",
+      "generation_summary": "Beat full collage with mandatory Editorial Title, final-frame anchor (A3 layer 2)"
+    },
+    {
+      "id": "el_sc1_b1.1_apartment",
+      "type": "image",
+      "path": "assets/elements/sc1_b1.1_apartment.png",
+      "source_tool": "image_selector",
+      "scene_id": "sc1",
+      "element_role": "independent_element",
+      "layer": "hero",
+      "derived_from": "assets/collages/sc1_b1.1.png",
+      "prompt": "isolated single subject: 1980s NYC apartment building, solid flat tan background #D8C7A3, no other objects",
+      "model": "google_imagen",
+      "resolution": "1024x1024",
+      "generation_summary": "Independent element PNG img2img from beat full collage (B3), PIL cutout, alpha verified"
+    },
+    {
+      "id": "photo_blackrock_hq",
+      "type": "image",
+      "path": "assets/shared_library/images/photos/blackrock_hq.jpg",
+      "source_tool": "asset_library",
+      "scene_id": "sc1",
+      "element_role": "independent_element",
+      "layer": "hero",
+      "data_class": "real_content",
+      "data_source": "Wikimedia Commons - BlackRock headquarters New York",
+      "library_ref": "assets/shared_library/images/photos/blackrock_hq.jpg",
+      "original_url": "https://commons.wikimedia.org/wiki/File:BlackRock_50_Hudson_Yards.jpg",
+      "license": "cc_by",
+      "generation_summary": "Real photo via Real Photo Cascade (Wikimedia), archived to asset library with add, used as img2img reference for VOX restyle"
+    },
+    {
+      "id": "chart_aum_10_5t",
+      "type": "image",
+      "path": "assets/charts/aum_10_5t.png",
+      "source_tool": "image_selector",
+      "scene_id": "sc1",
+      "element_role": "independent_element",
+      "layer": "element",
+      "data_class": "real_data",
+      "data_source": "BlackRock 2024 Q4 AUM report",
+      "prompt": "SOLID FLAT TAN paper background #D8C7A3, halftone print quality, keep original data shape",
+      "generation_summary": "matplotlib real-data chart -> img2img VOX restyle -> PIL cutout (real_data flow)"
+    },
+    {
+      "id": "narration_zh",
+      "type": "audio",
+      "path": "assets/audio/narration_zh.wav",
+      "source_tool": "tts_selector",
+      "scene_id": "all",
+      "kind": "narration_wav",
+      "duration_seconds": 168.2,
+      "provider": "indextts_tts",
+      "voice_performance": {
+        "delivery_cues_applied": true,
+        "provider_settings": {
+          "emo_vector": [0, 0, 0, 0, 0, 0, 0, 1.0],
+          "speed": 1.0
+        }
+      },
+      "generation_summary": "Chinese calm deadpan narration, 4.7 chars/s, emo_vector calm locked"
+    },
+    {
+      "id": "timestamps_01",
+      "type": "subtitle",
+      "path": "assets/audio/timestamps_01.json",
+      "source_tool": "whisper",
+      "scene_id": "all",
+      "kind": "narration_timestamps",
+      "generation_summary": "Whisper word/sentence timestamps for compose element entrances"
+    },
+    {
+      "id": "music_epic_egyptian",
+      "type": "music",
+      "path": "assets/audio/music_epic_egyptian.mp3",
+      "source_tool": "pixabay_music",
+      "scene_id": "all",
+      "provider": "pixabay",
+      "license": "Pixabay Content License",
+      "original_url": "https://pixabay.com/music/...",
+      "generation_summary": "Epic documentary trailer score from Pixabay"
+    },
+    {
+      "id": "sfx_paper_asmr",
+      "type": "sfx",
+      "path": "assets/audio/sfx_paper_asmr.wav",
+      "source_tool": "freesound_music",
+      "scene_id": "all",
+      "provider": "freesound",
+      "generation_summary": "Paper ASMR: slide, tape press, stamp thud, string zip, pin click"
+    },
+    {
+      "id": "decal_tape_red",
+      "type": "image",
+      "path": "assets/shared_library/images/decals/tape_red.png",
+      "source_tool": "asset_library",
+      "scene_id": "all",
+      "element_role": "independent_element",
+      "layer": "decor",
+      "data_class": "css",
+      "library_ref": "assets/shared_library/images/decals/tape_red.png",
+      "generation_summary": "Red tape decal reused from asset library (CSS decor layer), usage_count touched"
+    }
+  ],
+  "total_cost_usd": 0,
+  "multi_grid_refs": [
+    "assets/multi_grid_01.png"
+  ],
+  "missing_photos": [
+    {
+      "element_id": "photo_1988_apt_interior",
+      "description": "1988 年纽约小公寓内部（贝莱德创立地）",
+      "data_class": "real_content",
+      "search_channels_attempted": ["user_upload", "asset_library", "wikimedia", "image_selector_search"],
+      "suggested_fallback": "downgrade_to_creative or user-provided photo"
+    }
+  ],
+  "timing_calibration_ref": {
+    "tts_timestamps_path": "assets/audio/timestamps_01.json",
+    "estimated_duration_seconds": 171.49,
+    "actual_duration_seconds": 168.2,
+    "deviation_percent": 1.92,
+    "status": "calibrated"
+  },
+  "metadata": {
+    "pipeline": "vox-paper-collage",
+    "concept_id": "c1",
+    "scene_plan_ref": "examples/vox-paper-collage/scene_plan/scene_plan_v2_tts_actual.json",
+    "visual_direction": "old-newspaper archival",
+    "layer3_skills_read": ["google-gemini-image", "flux-best-practices", "voxcpm-tts", "asset_library"],
+    "generated_at": "2026-08-05"
+  }
+}

@@ -76,7 +76,7 @@ stages:
   - 'BUDGET FORMULA (2026-08 用户优化): multi_grid_refs x $0.05 + (bg_count + hero_count + element_count) x $0.05 + thumbnail_count x $0.05 + 30% retry buffer. Old formula "image count x $0.05" is deprecated and underestimates by ~80% (multi-layer structure is 4-5 images per scene, not 1)'
   - narration_language decided (default en, switchable to zh)
   - Cost estimate itemized and honest
-  - 'DATA AUTHENTICITY PLAN (2026-08): every beat''s visual elements classified as real_data / real_content / creative / css; real_data elements carry source (yfinance/official/verified) + key data points; real_data and real_content planned for img2img (real chart -> VOX restyle) — NEVER AI-invented numbers/names/dates (Gemini hallucination incident)'
+  - 'DATA AUTHENTICITY PLAN (2026-08): every beat''s visual elements classified as real_data / real_content / creative / css; real_data elements carry source (yfinance/official/verified) + key data points; real_data and real_content planned for Klein-img2image restyle (real chart / real photo -> VOX restyle) — NEVER AI-invented numbers/names/dates'
   - 'Multi-layer structure budgeted: L1 bg texture + L2 hero transparent cutout + L3 elements + L4 CSS decor (bg + cutout images counted in image budget)'
   success_criteria:
   - Schema-valid proposal_packet artifact
@@ -152,41 +152,51 @@ stages:
   - asset_manifest
   required_tools:
   - tts_selector
+  - asset_library
+  - comfyui_image
   optional_tools:
   - image_selector
   - pixabay_music
   - freesound_music
   tools_available:
   - tts_selector
+  - asset_library
+  - comfyui_image
   - image_selector
   - pixabay_music
   - freesound_music
   checkpoint_required: true
   human_approval_default: true
   review_focus:
-  - 'VOICE-LED ORDER (2026-08): narration TTS + whisper timestamps run FIRST (before scene_plan planning), then multi-grid reference image, then individual element images'
-  - 'TTS per-segment duration hard-checked (ffprobe): each segment <= scene duration cap (e.g. 10s scene → segment <= 9.5s); over-length = trim text and regenerate, NEVER force-fit timecodes (overlap = broken audio)'
-  - whisper word/sentence timestamps saved to assets/audio/timestamps_*.json for scene_plan + compose
-  - Multi-grid reference image (6 scenes 2x3) generated first and user-confirmed before splitting elements
-  - 'ELEMENT MEGA-GRID (2026-08 用户优化): L2 heroes + L3 elements merged into ONE multi-grid image (6x4 = 24 cells per 2-min project), each cell = 1 element on solid #D8C7A3 background; PIL grid-line bbox crop + color threshold cutout yields transparent PNGs. Cuts L3 cost from $1.20 (24 images x $0.05) to $0.05 (1 mega-grid). Total project budget drops from $3.45 to $0.65. L1 bg themes stay as 5 separate images (theme conflicts in shared grid); composed-scene ref grid kept separate for user visual approval'
-  - 'Elements generated as isolated single-subject images on solid #D8C7A3 background; PIL background removal + bbox crop; connected-component check (elements > 1 = regenerate or move to CSS)'
-  - 'BACKGROUND TEXTURE per scene (2026-08): generate one bg_sN texture image per scene (newspaper front page / graph paper / ranking layout / ledger / ticker grid / nautical map), low-contrast, center empty; bg fades in 0.1s before hero'
-  - 'REAL-DATA elements via img2img (2026-08): real_data class elements = matplotlib real-data reference chart -> image_selector img2img (image_path) with SOLID FLAT TAN background constraint in prompt -> PIL cutout; NEVER AI-invented numbers/names/dates; model names written explicitly in prompt (Qwen 3.8-MAX = Fable 5, not Gemini)'
-  - Text decorations (stamps/labels/tape/pins/headlines) rendered as CSS, zero cost
-  - 'BILINGUAL image rules (bilingual-spec sections 9-10): image prompts ALWAYS in English regardless of narration_language; Chinese characters NEVER in image prompts (zh labels go CSS only); Recurring Subject Rule - identical wording for recurring subjects across beats'
-  - Every image prompt = SCENE description + style_block.md verbatim + closer.md verbatim (template red line)
-  - Narration via tts_selector after script approval (calm deadpan male, about 155 wpm, 20-25 second batches)
-  - Reference voice convention followed (spk_audio_prompt, INDEXTTS_VOICE_REF, repo/voice_reference.wav)
-  - Music from pixabay_music with Epic Egyptian trailer search terms
-  - Paper ASMR SFX from freesound_music (paper slide, cardstock tap, tape press, stamp thud, string zip, pin click)
-  - Layer 3 skills read for every generation tool before writing prompts
+  - 'TTS FIRST (2026-08): narration TTS + whisper timestamps run FIRST, then timing calibration vs scene_plan (≤5% update to tts_actual / >5% rewind to script), then asset library search, then multi-grid reference, then beat full collages, then independent elements'
+  - 'TTS per-segment duration hard-checked (ffprobe): each segment <= its beat duration cap; over-length = trim text and regenerate, NEVER force-fit timecodes (overlap = broken audio)'
+  - whisper word/sentence timestamps saved to assets/audio/timestamps_*.json for compose
+  - 'ASSET LIBRARY (2026-08): asset_library search MUST run before any generation; hits reused with touch; external-source assets archived with add; AI-generated content NOT archived'
+  - 'THREE-LAYER PRODUCTION (2026-08 方案3): multi-grid reference (user-confirmed) -> visual blueprint per beat (Klein-txt2image, position-driven by scene_plan box, Editorial Title mandatory) -> independent element PNGs (standalone Klein-txt2image, NOT extracted from collage — img2img extraction was unreliable)'
+  - 'EDITORIAL TITLE (2026-08 Playbook): every beat full collage carries a mandatory 1-4 word magazine-cover headline integrated into composition, not optional'
+  - 'NEGATIVE PROMPT (2026-08 Playbook): every image prompt includes playbook image_negative_prompt verbatim, never omitted'
+  - 'IMAGE GENERATION (2026-08 用户确认): ALL image generation via local comfyui_image + Klein workflows ONLY (Klein-txt2image.json for text2img, Klein-img2image.json for img2img/restyle). No other ComfyUI workflows, no cloud image services. image_selector used ONLY for real-photo search (search_image -> pixabay/pexels)'
+  - 'KLEIN WORKFLOW PARAMS: txt2image output_node=78 prompt=115:111; img2image output_node=9 prompt=114:113 reference=76 <UPLOADED_IMAGE>; model flux-2-klein-9b'
+  - 'REAL PHOTO CASCADE (2026-08 决策 C4): real_content elements sourced via user upload -> asset library -> Wikimedia -> image_selector search_image -> Bing/Google (reference only) -> user-approved stylized generation; restyle via Klein-img2image'
+  - 'MISSING PHOTOS (2026-08 决策 C7): real_content photos not found anywhere are collected in asset_manifest.missing_photos[] and submitted to user decision; NEVER silently pure-generate'
+  - 'REAL-DATA elements via Klein-img2image (2026-08): real_data = matplotlib real-data reference chart -> comfyui_image Klein-img2image (reference_image_path) with SOLID FLAT TAN background constraint in prompt -> PIL cutout; NEVER AI-invented numbers/names/dates'
+  - Text decorations (stamps/labels/tape/pins/headlines) rendered as CSS or from asset library decals, zero-cost
+  - 'BILINGUAL image rules (bilingual-spec sections 9-10): image prompts ALWAYS in English; Chinese characters NEVER in image prompts (zh labels go CSS only); Recurring Subject Rule across beats'
+  - Every image prompt = SCENE + Editorial Title + style_block.md verbatim + closer.md verbatim + negative prompt (template red line)
+  - Narration via tts_selector (calm deadpan male, zh ~4.7 chars/s, en ~155 wpm, emo_vector calm locked, 20-25 second batches)
+  - Music from pixabay_music or asset library; Paper ASMR SFX from freesound_music or asset library
+  - Layer 3 skills read for every generation tool before writing prompts (recorded in layer3_skills_read)
   - Use selector tools - never call provider tools directly
   success_criteria:
   - Schema-valid asset_manifest artifact
-  - One element mega-grid + 5 bg texture images + 1 composed-scene ref + 3 thumbnail candidates, all referenced files exist on disk
-  - Element mega-grid PIL-cropped into individual hero/element PNGs with alpha (PIL-verified opaque ratio 10-50% per cell)
+  - asset_library search called for each asset category (recorded in manifest; search before generate)
+  - Multi-grid reference image generated and user-confirmed before element splitting
+  - One beat full collage per beat with Editorial Title, all files exist on disk
+  - Independent element PNGs with alpha, standalone text2img with solid flat tan bg, Recurring Subject Rule matching blueprint wording (PIL-verified opaque ratio 10-50%)
   - One bg texture per scene + hero/element cutout PNGs with alpha (PIL-verified opaque ratio 10-50%)
+  - "timing_calibration_ref present: status calibrated (deviation <=5%) or rewind_required recorded"
   - real_data elements traceable to data source (yfinance JSON / official docs) recorded in manifest
+  - real_content elements traceable to real photo source or listed in missing_photos[]
   - Narration, music, and SFX assets present with provenance
   - layer3_skills_read list present and includes all tools used
 - name: edit

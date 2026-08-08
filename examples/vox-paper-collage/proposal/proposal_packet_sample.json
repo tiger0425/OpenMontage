@@ -1,0 +1,284 @@
+{
+  "version": "1.0",
+  "concept_options": [
+    {
+      "id": "c1",
+      "title": "那家悄悄控制了几乎一切的公司",
+      "hook": "2024年，贝莱德管理的资产超过10.5万亿美元，相当于全球GDP的10%以上。",
+      "narrative_structure": "story",
+      "visual_approach": "旧报纸档案拼贴：金融档案纸、数据表格、公司 logo 印章、红绳连接 ownership diagram、复古银行建筑剪影",
+      "suggested_playbook": "vox-paper-collage",
+      "target_platform": "bilibili",
+      "target_duration_seconds": 180,
+      "key_points": [
+        "贝莱德是全球最大的资产管理公司",
+        "通过 ETF 和指数基金持有大量上市公司股份",
+        "影响力来自普通人养老金和投资的钱",
+        "这种股权集中引发了 shadow power 讨论"
+      ],
+      "core_message": "你从未听说过的公司，可能正在替你投票。",
+      "cta": "关注下期，了解更多你不知道的资本力量",
+      "tone": "calm deadpan documentary",
+      "why_this_works": "选题有强数字钩子（10.5万亿美元），视觉可大量使用金融档案元素，符合 Bilibili 知识区爆款纪录片偏好。"
+    },
+    {
+      "id": "c2",
+      "title": "为什么麦当劳在中国越来越像本地快餐？",
+      "hook": "2017年，麦当劳中国80%的股权被中信收购，这个美国品牌开始了一场彻底的本土化。",
+      "narrative_structure": "comparison",
+      "visual_approach": "现代杂志拼贴：中美菜单对比、门店照片、收购文件印章、地图热力图",
+      "suggested_playbook": "vox-paper-collage",
+      "target_platform": "bilibili",
+      "target_duration_seconds": 180,
+      "key_points": [
+        "中信收购后麦当劳中国菜单本土化",
+        "跨国品牌在中国必须妥协",
+        "本土化 vs 全球化之间的张力"
+      ],
+      "core_message": "没有品牌能真正全球化，只有在本地市场妥协的全球品牌。",
+      "cta": "关注下期，看更多品牌中国化故事",
+      "tone": "calm deadpan documentary",
+      "why_this_works": "品牌本土化是 Bilibili 年轻用户熟悉的话题，对比结构清晰。"
+    },
+    {
+      "id": "c3",
+      "title": "华为被制裁三年后，凭什么还能活下来？",
+      "hook": "2023年，华为Mate 60 Pro发布，外界才发现它可能已经突破了7nm芯片封锁。",
+      "narrative_structure": "journey",
+      "visual_approach": "蓝图/工程图纸风格：电路板纹理、芯片特写、时间线、制裁文件印章、手机剪影",
+      "suggested_playbook": "vox-paper-collage",
+      "target_platform": "bilibili",
+      "target_duration_seconds": 180,
+      "key_points": [
+        "2019年起美国多轮制裁",
+        "华为被迫重建供应链",
+        "2023年 Mate 60 Pro 暗示芯片突破",
+        "技术自主与全球化的冲突"
+      ],
+      "core_message": "制裁没有杀死华为，反而把它逼成了一家更完整的技术公司。",
+      "cta": "关注下期，了解中国制造突围",
+      "tone": "calm deadpan documentary",
+      "why_this_works": "华为话题热度高，时间线叙事天然适合纪录片，有强反转结构。"
+    }
+  ],
+  "selected_concept": {
+    "concept_id": "c1",
+    "rationale": "用户从 idea 阶段已选择 '那家悄悄控制了几乎一切的公司'，概念 c1 直接对应。",
+    "modifications": []
+  },
+  "production_plan": {
+    "pipeline": "vox-paper-collage",
+    "playbook": "vox-paper-collage",
+    "stages": [
+      {
+        "stage": "script",
+        "tools": [
+          {
+            "tool_name": "llm_script_writer",
+            "role": "Generate continuous narration in 5-act structure based on proposal parameters",
+            "available": true,
+            "estimated_cost_usd": 0,
+            "why_this_provider": "Local LLM / no cost for script generation"
+          }
+        ],
+        "approach": "以 Fern DNA 连续旁白形式输出 5 段式内容，生成为 450 字左右中文旁白（3 分钟约 840 字，扣除 music/ending 余量）。",
+        "fallback_if_unavailable": "Manually write narration outline"
+      },
+      {
+        "stage": "scene_plan",
+        "tools": [
+          {
+            "tool_name": "llm_scene_planner",
+            "role": "Map 5-act paragraphs to semantic scenes and beats",
+            "available": true,
+            "estimated_cost_usd": 0
+          }
+        ],
+        "approach": "根据语义分镜策略，每个 paragraph 对应一个 scene，每个 scene 内按 5-8 秒标准切分为 beats。"
+      },
+      {
+        "stage": "assets",
+        "tools": [
+          {
+            "tool_name": "image_selector",
+            "role": "Generate VOX-style collage images and reference-based restyles",
+            "available": true,
+            "estimated_cost_usd": 0,
+            "why_this_provider": "Image generation cost deferred to actual generation; no fixed budget"
+          },
+          {
+            "tool_name": "tts_selector",
+            "role": "Generate Chinese narration with IndexTTS2 calm deadpan male voice",
+            "available": true,
+            "estimated_cost_usd": 0,
+            "why_this_provider": "Local IndexTTS2, no API cost"
+          },
+          {
+            "tool_name": "pixabay_music",
+            "role": "Select background music track",
+            "available": true,
+            "estimated_cost_usd": 0
+          },
+          {
+            "tool_name": "freesound_music",
+            "role": "Select paper ASMR sound effects",
+            "available": true,
+            "estimated_cost_usd": 0
+          }
+        ],
+        "approach": "生成真实照片参考图（贝莱德总部、logo、金融档案）、数据参考图（matplotlib 资产增长图）、纸拼贴元素和 ASMR。"
+      },
+      {
+        "stage": "edit",
+        "tools": [
+          {
+            "tool_name": "llm_edit_director",
+            "role": "Define per-beat clip timing and build-on/living-paper ratios",
+            "available": true,
+            "estimated_cost_usd": 0
+          }
+        ],
+        "approach": "每个 beat 约 70% build-on + 30% living-paper，相机锁定，无 zoom/pan/tilt。"
+      },
+      {
+        "stage": "compose",
+        "tools": [
+          {
+            "tool_name": "video_compose",
+            "role": "Assemble clips, narration, music, and SFX in HyperFrames",
+            "available": true,
+            "estimated_cost_usd": 0
+          }
+        ],
+        "approach": "使用 HyperFrames 渲染最终视频，输出 1080p 竖版或横版（按平台）。"
+      },
+      {
+        "stage": "publish",
+        "tools": [
+          {
+            "tool_name": "image_selector",
+            "role": "Generate 3 thumbnail candidates",
+            "available": true,
+            "estimated_cost_usd": 0
+          }
+        ],
+        "approach": "生成 3 张 Bilibili 风格缩略图，强调大号文字、高对比、红黄色调。"
+      }
+    ],
+    "render_runtime": "hyperframes",
+    "composition_mode": "atelier",
+    "art_direction": "旧报纸金融档案风格：温暖的米色新闻纸、PIL 抠出的黑白建筑与人物 cutout、红色图钉和日期印章、数据图表作为背景纹理。整体低饱和、文档质感、无硬阴影。",
+    "music_source": {
+      "source_type": "ai_generated",
+      "provider": "pixabay_music",
+      "mood_direction": "Epic documentary trailer with restrained piano and low strings, no vocals",
+      "estimated_cost_usd": 0
+    },
+    "voice_selection": {
+      "provider": "indextts_tts",
+      "voice_id": "calm_deadpan_male_zh",
+      "rationale": "中文冷静男声，符合纪录片旁白气质，语速约 4.7 字/秒。",
+      "delivery_style": "calm deadpan male narrator, neutral emotional vector, no dramatic emphasis",
+      "pacing_policy": "Maintain steady 4.7 chars/s; short pauses between sentences; no speed adjustment below 0.8 or above 1.1",
+      "sample_approval_required": false
+    },
+    "visual_direction": {
+      "default_by_niche": "old-newspaper archival",
+      "available_styles": [
+        "old-newspaper archival",
+        "guofeng 国风",
+        "blueprint engineering",
+        "parchment historical",
+        "modern-magazine"
+      ],
+      "selected_style": "old-newspaper archival",
+      "style_rationale": "business and corporations / finance 主题与金融档案纸、ledger、报纸头条视觉高度契合；默认无需用户 override。",
+      "user_override": null
+    },
+    "paragraph_structure": {
+      "mode": "six-act",
+      "compressed_to": 5,
+      "rationale": "3 分钟时长（180 秒）适合 5 段式：Hook → Intro → Story → Turning → Ending。完整 6 段式的 Big Picture 可合并入 Ending。"
+    },
+    "segment_timing": {
+      "mode": "semantic",
+      "simple_beat": "3-5s",
+      "standard_beat": "5-8s",
+      "complex_beat": "8-12s",
+      "reveal_beat": "up to 15s",
+      "total_tolerance": "±5% of target_duration_seconds"
+    },
+    "data_authenticity_plan": [
+      {
+        "element_id": "blackrock_logo_building",
+        "element_description": "贝莱德总部大楼与 logo 作为主要 hero cutout",
+        "data_class": "real_content",
+        "data_source": "User-upload or web search: BlackRock headquarters New York / official logo",
+        "key_data_points": [
+          "BlackRock Inc. headquarters in New York City",
+          "Founded 1988, logo color blue"
+        ],
+        "reference_strategy": "photo_reference",
+        "fallback": "If no photo available, generate based on accurate textual description and label as 'stylized representation'"
+      },
+      {
+        "element_id": "10.5_trillion_asset_chart",
+        "element_description": "2024 年贝莱德资产管理规模数据图表",
+        "data_class": "real_data",
+        "data_source": "BlackRock official 2024 Q4 report / Yahoo Finance BLK",
+        "key_data_points": [
+          "AUM > 10.5 trillion USD as of 2024",
+          "Global GDP ~105 trillion USD (approx 10% comparison)"
+        ],
+        "reference_strategy": "data_chart",
+        "fallback": "Use latest verifiable AUM figure from official report"
+      },
+      {
+        "element_id": "ownership_diagram",
+        "element_description": "贝莱德通过 ETF 持有苹果、微软、特斯拉等公司股份的 ownership 关系图",
+        "data_class": "real_data",
+        "data_source": "SEC 13F filings / Yahoo Finance institutional holders",
+        "key_data_points": [
+          "BlackRock is among top 5 institutional holders of AAPL, MSFT, TSLA",
+          "Data via latest 13F filing"
+        ],
+        "reference_strategy": "data_chart",
+        "fallback": "Use representative sample of top holdings if full list unavailable"
+      },
+      {
+        "element_id": "pension_money_people",
+        "element_description": "代表普通人养老金和投资的抽象人群剪影",
+        "data_class": "creative",
+        "data_source": "N/A - abstract representation",
+        "reference_strategy": "pure_generation",
+        "fallback": "Use stylized paper cutout figures"
+      },
+      {
+        "element_id": "date_stamp_2024",
+        "element_description": "2024 年日期印章装饰",
+        "data_class": "css",
+        "data_source": "N/A",
+        "reference_strategy": "asset_library_decal",
+        "fallback": "Generate with CSS if no suitable decal in library"
+      }
+    ],
+    "decision_log_ref": "projects/vox-paper-collage-blackrock/decision_log.json"
+  },
+  "cost_estimate": {
+    "total_estimated_usd": 0,
+    "line_items": [],
+    "budget_verdict": "no_budget_set",
+    "savings_options": []
+  },
+  "approval": {
+    "status": "pending",
+    "user_notes": "",
+    "approved_budget_usd": 0
+  },
+  "metadata": {
+    "narration_language": "zh",
+    "target_platform": "bilibili",
+    "pipeline_version": "1.0",
+    "optimized_from_playbook": true
+  }
+}

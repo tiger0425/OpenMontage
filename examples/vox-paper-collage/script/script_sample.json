@@ -1,0 +1,109 @@
+{
+  "version": "1.0",
+  "title": "那家悄悄控制了几乎一切的公司",
+  "narration_language": "zh",
+  "paragraph_structure": {
+    "mode": "six-act",
+    "compressed_to": 5,
+    "rationale": "3 分钟时长（180 秒）使用 5 段式：Viral Hook → Quick Introduction → Main Story → Turning Point → Powerful Ending（Big Picture 内容合并入 Ending）。"
+  },
+  "total_duration_seconds": 180,
+  "word_count": {
+    "target": 840,
+    "actual": 806,
+    "unit": "chars"
+  },
+  "voice_performance": {
+    "performance_intent": "calm deadpan documentary narrator in Chinese",
+    "pacing_profile": "contemplative",
+    "energy_curve": "flat with slight emphasis on turning point",
+    "pause_policy": "short pause at sentence boundaries, no dramatic pauses",
+    "provider_notes": {
+      "indextts_tts": "emo_vector=[0,0,0,0,0,0,0,1.0], speed=1.0, calm deadpan male"
+    }
+  },
+  "sections": [
+    {
+      "id": "s1",
+      "label": "Viral Hook",
+      "paragraph_label": "viral_hook",
+      "text": "1988年，纽约一间小公寓里，两个男人创立了一家资产管理公司。37年后，这家公司管理着超过10.5万亿美元的资产，相当于全球GDP的十分之一。它叫贝莱德。",
+      "start_seconds": 0,
+      "end_seconds": 15.53,
+      "delivery_cues": {
+        "pace": "measured",
+        "energy": "low",
+        "emphasis_words": ["10.5万亿美元", "全球GDP", "贝莱德"],
+        "delivery_note": "冷静陈述，数字清晰但不夸张"
+      },
+      "source_ref": "BlackRock 2024 Q4 AUM report; World Bank GDP estimates"
+    },
+    {
+      "id": "s2",
+      "label": "Quick Introduction",
+      "paragraph_label": "quick_intro",
+      "text": "你可能从未听说过它，但你的养老金、你买的ETF、甚至你所在公司的股票，很可能都在它的账上。它不生产手机，不卖咖啡，也不写软件，但它可能是这个世界上最有影响力的公司之一。",
+      "start_seconds": 15.53,
+      "end_seconds": 34.04,
+      "delivery_cues": {
+        "pace": "measured",
+        "energy": "low",
+        "emphasis_words": ["养老金", "ETF", "最有影响力"],
+        "delivery_note": "建立 stakes，把观众个人与主题连接"
+      },
+      "source_ref": "BlackRock institutional holdings data via SEC filings"
+    },
+    {
+      "id": "s3",
+      "label": "Main Story",
+      "paragraph_label": "main_story",
+      "text": "贝莱德做的事情，可以概括成一句话：把你的钱，和其他人的钱，汇总起来，然后买下全世界最有价值公司的股份。苹果、微软、谷歌、亚马逊、特斯拉，这些公司的前五大股东名单里，几乎都有它的名字。它不只是某一家公司的老板，而是很多家公司的共同老板。更关键的是，它持有的不是偶然买入的少量股票，而是成千上万个指数基金和养老基金的底层资产。当普通投资者说「我想买一点标普500」时，最终汇集到市场里的资金，很多都流入了贝莱德这样的公司。",
+      "start_seconds": 34.04,
+      "end_seconds": 72.77,
+      "delivery_cues": {
+        "pace": "measured",
+        "energy": "low",
+        "emphasis_words": ["汇总起来", "前五大股东", "共同老板", "指数基金", "养老基金"],
+        "delivery_note": "解释机制，保持纪录片节奏"
+      },
+      "source_ref": "Yahoo Finance institutional holders; S&P 500 fund flow data"
+    },
+    {
+      "id": "s4",
+      "label": "Turning Point",
+      "paragraph_label": "turning_point",
+      "text": "这种权力的真正特别之处在于，它是隐形的。当苹果决定是否要在你的手机上增加一项功能，当特斯拉决定要不要在中国建厂，当迪士尼决定下一部拍什么电影，这些公司的股东大会上，都有贝莱德的代表在投票。而他们投的每一票，背后都可能是你每个月缴纳的养老金、你买的基金、甚至你银行账户里的一部分钱。这不是某个富豪在幕后操控，而是现代金融体系把一个又一个普通人的决定，汇聚成了一个少数机构手中的巨大影响力。",
+      "start_seconds": 72.77,
+      "end_seconds": 112.77,
+      "delivery_cues": {
+        "pace": "measured",
+        "energy": "slightly elevated",
+        "emphasis_words": ["隐形的", "股东大会上", "投票", "养老金", "巨大影响力"],
+        "delivery_note": "全段核心反转，语调保持克制但加重「隐形的」和「投票」"
+      },
+      "source_ref": "Proxy voting records; institutional shareholder voting studies"
+    },
+    {
+      "id": "s5",
+      "label": "Powerful Ending",
+      "paragraph_label": "big_picture+powerful_ending",
+      "text": "当然，这也不是阴谋。指数基金让普通人能以极低的成本持有整个市场，这是过去几十年金融领域最重要的创新之一。问题在于，当所有人的钱都通过少数几家资产管理公司进入市场时，这些公司就拥有了前所未有的投票权和话语权。它们不需要喜欢某一家公司，它们只需要市场本身继续上涨。它们的利益，某种意义上和每一个普通人的利益绑定在了一起，但也因此拥有了改变企业方向的杠杆。所以下一次，当你听说某家大公司做了一个重大决定，先不要急着赞美或者批评那个登上新闻的CEO。你可以先问一个更基本的问题：在这家公司背后，有没有一部分是你的钱？而那个替你投票的机构，又是否真的知道你想要什么？",
+      "start_seconds": 112.77,
+      "end_seconds": 171.49,
+      "delivery_cues": {
+        "pace": "measured",
+        "energy": "low",
+        "emphasis_words": ["不是阴谋", "投票权", "话语权", "你的钱", "想要"],
+        "delivery_note": "结尾回到观众自身，最后一句放慢，留出思考空间"
+      },
+      "source_ref": "Index fund history and governance literature"
+    }
+  ],
+  "metadata": {
+    "pipeline": "vox-paper-collage",
+    "concept_id": "c1",
+    "target_platform": "bilibili",
+    "narration_language": "zh",
+    "generated_at": "2026-08-05"
+  }
+}

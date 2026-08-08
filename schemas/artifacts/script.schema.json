@@ -4,11 +4,44 @@
   "title": "Production Script",
   "description": "Timestamped script produced by the Script Writer agent.",
   "type": "object",
-  "required": ["version", "title", "total_duration_seconds", "sections"],
+  "required": ["version", "title", "total_duration_seconds", "narration_language", "paragraph_structure", "sections"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "title": { "type": "string" },
+    "narration_language": {
+      "type": "string",
+      "enum": ["en", "zh"],
+      "description": "Primary language of the narration"
+    },
+    "paragraph_structure": {
+      "type": "object",
+      "required": ["mode", "compressed_to", "rationale"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["six-act"],
+          "description": "Underlying narrative structure applied as a content checklist"
+        },
+        "compressed_to": {
+          "type": "integer",
+          "enum": [3, 4, 5, 6],
+          "description": "Number of paragraphs actually produced for the target duration"
+        },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "total_duration_seconds": { "type": "number", "minimum": 1 },
+    "word_count": {
+      "type": "object",
+      "required": ["target", "actual", "unit"],
+      "properties": {
+        "target": { "type": "integer", "minimum": 1 },
+        "actual": { "type": "integer", "minimum": 1 },
+        "unit": { "type": "string", "enum": ["words", "chars"] }
+      },
+      "additionalProperties": false
+    },
     "voice_performance": {
       "type": "object",
       "description": "Narration delivery contract used by TTS asset generation.",
@@ -35,10 +68,15 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "text", "start_seconds", "end_seconds"],
+        "required": ["id", "text", "paragraph_label", "start_seconds", "end_seconds"],
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string" },
+          "paragraph_label": {
+            "type": "string",
+            "enum": ["viral_hook", "quick_intro", "main_story", "turning_point", "big_picture", "powerful_ending", "viral_hook+quick_intro", "big_picture+powerful_ending"],
+            "description": "Which six-act paragraph this section belongs to. Compound labels are used when compressed paragraph structure merges adjacent paragraphs."
+          },
           "text": { "type": "string" },
           "start_seconds": { "type": "number", "minimum": 0 },
           "end_seconds": { "type": "number", "minimum": 0 },

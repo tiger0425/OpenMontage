@@ -363,9 +363,21 @@ html = f"""<!doctype html>
       --ink-soft: rgba(26,25,23,0.72);
       --red: #C33B2E;
       --mustard: #D4A83D;
-      --mono: 'Courier New', 'Courier', monospace;
-      --headline: 'Arial Narrow', 'Franklin Gothic Medium', 'Impact', sans-serif;
+      --mono: 'IBM Plex Mono', 'Courier New', 'Courier', monospace;
+      --headline-en: 'Oswald', 'Anton', 'Bebas Neue', 'Arial Narrow', 'Impact', sans-serif;
+      --headline-zh: 'NotoSansSC', 'NotoSerifSC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --serif-zh: 'NotoSerifSC', 'NotoSansSC', 'Songti SC', serif;
+      --brush-zh: 'MaShanZheng', 'LongCang', 'NotoSansSC', sans-serif;
     }}
+    /* G1: 素材库字体（assets/shared_library/fonts/） */
+    @font-face {{ font-family: 'Oswald'; src: url('../../../assets/shared_library/fonts/Oswald-Bold.ttf'); }}
+    @font-face {{ font-family: 'Anton'; src: url('../../../assets/shared_library/fonts/Anton.ttf'); }}
+    @font-face {{ font-family: 'Bebas Neue'; src: url('../../../assets/shared_library/fonts/BebasNeue.ttf'); }}
+    @font-face {{ font-family: 'IBM Plex Mono'; src: url('../../../assets/shared_library/fonts/IBM-Plex-Mono.ttf'); }}
+    @font-face {{ font-family: 'NotoSansSC'; src: url('../../../assets/shared_library/fonts/NotoSansSC-Black.ttf'); }}
+    @font-face {{ font-family: 'NotoSerifSC'; src: url('../../../assets/shared_library/fonts/NotoSerifSC-Bold.ttf'); }}
+    @font-face {{ font-family: 'MaShanZheng'; src: url('../../../assets/shared_library/fonts/MaShanZheng.ttf'); }}
+    @font-face {{ font-family: 'LongCang'; src: url('../../../assets/shared_library/fonts/LongCang.ttf'); }}
     @font-face {{ font-family: 'PingFang SC'; src: local('PingFang SC'); }}
     @font-face {{ font-family: 'Microsoft YaHei'; src: local('Microsoft YaHei'); }}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -375,8 +387,10 @@ html = f"""<!doctype html>
 
     .grain {{
       position: absolute; inset: 0; pointer-events: none; z-index: 60;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.09'/%3E%3C/svg%3E");
-      opacity: 0.5;
+      /* G3: 更强的纸张颗粒（baseFrequency 0.45 + multiply 混合） */
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.45' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E");
+      opacity: 0.6;
+      mix-blend-mode: multiply;
     }}
 
     .board {{ position: absolute; inset: 0; opacity: 0; }}
@@ -391,8 +405,9 @@ html = f"""<!doctype html>
 
     .tape {{
       position: absolute; width: 150px; height: 40px;
-      background: rgba(212,168,61,0.40);
-      box-shadow: 0 2px 6px rgba(60,45,20,0.25);
+      /* G2: 素材库 SVG 胶带（质感来自素材，CSS 只管定位） */
+      background-image: url('../../../assets/shared_library/images/decals/tape_mustard.svg');
+      background-size: 100% 100%;
       opacity: 0.9;
     }}
     .tstrip {{
@@ -409,37 +424,58 @@ html = f"""<!doctype html>
     }}
     .stamp {{
       position: absolute;
-      font-family: 'PingFang SC', 'Microsoft YaHei', var(--headline);
+      /* G3: 印刷质感印章 — 素材库 SVG 框 + 宋体 + 墨迹混合 */
+      font-family: var(--serif-zh);
       font-weight: 900; font-size: 68px; letter-spacing: 0.12em;
       color: var(--red);
-      border: 7px double var(--red);
-      padding: 14px 32px;
+      background-image: url('../../../assets/shared_library/images/decals/stamp_ring_red.svg');
+      background-size: 100% 100%;
+      background-position: center;
+      padding: 24px 44px;
       opacity: 0.88;
       transform: rotate(-7deg);
       mix-blend-mode: multiply;
       white-space: nowrap;
     }}
     .pin {{
-      position: absolute; width: 30px; height: 30px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #E8C56A, #A87B2F 70%);
-      box-shadow: 0 3px 8px rgba(60,45,20,0.5), inset 0 -2px 4px rgba(0,0,0,0.3);
+      position: absolute; width: 34px; height: 34px;
+      /* G2: 素材库 SVG 黄铜图钉 */
+      background-image: url('../../../assets/shared_library/images/decals/pin_brass.svg');
+      background-size: 100% 100%;
       z-index: 5;
     }}
     .headline {{
       position: absolute;
-      font-family: 'PingFang SC', 'Microsoft YaHei', var(--headline);
+      font-family: var(--headline-zh), var(--headline-en);
       font-weight: 900;
       color: var(--ink);
       line-height: 1.05;
       letter-spacing: 0.02em;
-      text-shadow: 0 3px 0 rgba(255,255,255,0.5), 0 6px 18px rgba(60,45,20,0.25);
+      /* G3: 印刷墨迹质感（多层 text-shadow 模拟印刷压力） */
+      text-shadow:
+        0 1px 0 rgba(255,255,255,0.4),
+        0 2px 1px rgba(0,0,0,0.15),
+        0 0 2px rgba(26,25,23,0.8),
+        0 6px 18px rgba(60,45,20,0.28);
       white-space: nowrap;
     }}
     .string {{
-      position: absolute; height: 3px;
-      background: var(--red);
-      border-radius: 2px;
+      position: absolute; height: 6px;
+      /* G2: 素材库 SVG 红绳 */
+      background-image: url('../../../assets/shared_library/images/decals/string_red.svg');
+      background-repeat: repeat-x;
+      background-size: auto 100%;
+    }}
+    .arrow {{
+      position: absolute;
+      background-image: url('../../../assets/shared_library/images/decals/arrow_ink.svg');
+      background-size: 100% 100%;
+    }}
+    .highlight {{
+      /* G3: 记号笔高亮 */
+      background: linear-gradient(100deg, transparent 3%, rgba(212,168,61,0.55) 8%, rgba(212,168,61,0.55) 92%, transparent 97%);
+      padding: 0 0.1em;
+      box-decoration-break: clone;
     }}
   </style>
 </head>

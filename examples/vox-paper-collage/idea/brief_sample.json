@@ -1,0 +1,238 @@
+{
+  "version": "1.0",
+  "title": "那家悄悄控制了几乎一切的公司",
+  "hook": "2024年，贝莱德管理的资产超过10.5万亿美元，相当于全球GDP的10%以上，而大多数人从未听说过它。",
+  "key_points": [
+    "贝莱德是全球最大的资产管理公司，通过指数基金持有苹果、微软、特斯拉等巨头的股份。",
+    "投资者购买的 ETF 和养老金基金，最终都可能汇集到贝莱德等几家巨头手中。",
+    "这种股权集中引发了关于资本 shadow power 与投票权影响力的长期讨论。",
+    "贝莱德在中国也有投资布局，但规模和角色与在西方市场不同。",
+    "这家公司的影响力不来自产品，而来自它代表的无数普通人的钱。"
+  ],
+  "tone": "calm deadpan documentary",
+  "style": "vox-paper-collage",
+  "target_platform": "bilibili",
+  "target_duration_seconds": 180,
+  "niche": "business and corporations",
+  "platform_title_style": "viral",
+  "reference_material": [],
+  "angle_options": [
+    {
+      "name": "那家悄悄控制了几乎一切的公司",
+      "description": "全球最大的资产管理公司如何通过指数基金持有几乎所有上市公司的股份，成为人们从未听说过却无处不在的资本力量。",
+      "hook": "2024年贝莱德管理资产超过10.5万亿美元",
+      "style": "viral",
+      "sub_niche": "金融资本"
+    },
+    {
+      "name": "为什么麦当劳在中国越来越像本地快餐？",
+      "description": "麦当劳中国被中信收购后，从菜单到门店形象都发生了本土化转变，这背后是跨国品牌在中国市场的妥协。",
+      "hook": "2017年麦当劳中国80%股权被中信收购",
+      "style": "viral",
+      "sub_niche": "消费品牌"
+    },
+    {
+      "name": "阿里巴巴如何变成了一家物流公司？",
+      "description": "从电商巨头到菜鸟网络、盒马、即时零售，阿里巴巴为什么越来越重、越来越像基础设施。",
+      "hook": "2023年菜鸟网络宣布上市计划",
+      "style": "viral",
+      "sub_niche": "电商平台"
+    },
+    {
+      "name": "腾讯的游戏帝国是怎么建成的？",
+      "description": "从QQ到王者荣耀，从Riot到Supercell，腾讯如何通过投资并购成为全球最大的游戏公司。",
+      "hook": "腾讯持有超过800家游戏公司的股份",
+      "style": "viral",
+      "sub_niche": "游戏产业"
+    },
+    {
+      "name": "字节跳动如何重塑了全球注意力？",
+      "description": "TikTok和抖音的推荐算法如何改变人们观看、创作和消费信息的方式，以及它背后的全球化扩张。",
+      "hook": "2023年TikTok全球月活用户超过15亿",
+      "style": "viral",
+      "sub_niche": "社交媒体"
+    },
+    {
+      "name": "拼多多的低价算法背后藏着什么？",
+      "description": "从下沉市场到海外Temu，拼多多如何用低价和社交裂变挑战阿里和京东，以及这种模式的代价。",
+      "hook": "2023年Temu进入全球50个国家和地区",
+      "style": "viral",
+      "sub_niche": "电商模式"
+    },
+    {
+      "name": "华为被制裁三年后，凭什么还能活下来？",
+      "description": "从芯片断供到Mate 60回归，华为如何在极端制裁下重建供应链，并重返高端手机市场。",
+      "hook": "2023年华为Mate 60 Pro突破7nm芯片封锁",
+      "style": "viral",
+      "sub_niche": "科技制造业"
+    },
+    {
+      "name": "为什么星巴克永远只开在街角？",
+      "description": "星巴克的选址策略、第三空间理念和会员体系如何让它成为城市生活的固定背景。",
+      "hook": "星巴克全球门店超过38000家",
+      "style": "viral",
+      "sub_niche": "连锁零售"
+    },
+    {
+      "name": "耐克为什么不敢离开中国？",
+      "description": "尽管越南和印度在崛起，中国依然是耐克最重要的生产和消费市场，这背后是复杂的供应链绑定。",
+      "hook": "中国生产了耐克全球约20%的产品",
+      "style": "viral",
+      "sub_niche": "制造业供应链"
+    },
+    {
+      "name": "那家中国公司如何让全世界离不开稀土？",
+      "description": "中国在全球稀土开采和加工中的主导地位，以及这如何影响从手机到电动车的全球产业链。",
+      "hook": "中国供应了全球60%以上的稀土",
+      "style": "viral",
+      "sub_niche": "原材料"
+    },
+    {
+      "name": "为什么迪士尼在中国总是水土不服？",
+      "description": "上海迪士尼的成与败，以及迪士尼流媒体在中国无法落地的深层原因。",
+      "hook": "上海迪士尼开业首年亏损超过10亿元",
+      "style": "viral",
+      "sub_niche": "娱乐传媒"
+    },
+    {
+      "name": "顺丰凭什么比京东慢不了多少？",
+      "description": "顺丰如何从一家快递小公司变成中国物流网络的 backbone，并与京东物流正面竞争。",
+      "hook": "顺丰拥有超过70架全货机",
+      "style": "viral",
+      "sub_niche": "物流"
+    },
+    {
+      "name": "宁德时代如何成为全球最大电池厂？",
+      "description": "从宁德时代到比亚迪，中国电池产业如何在全球电动车转型中占据核心位置。",
+      "hook": "宁德时代全球动力电池市占率超过35%",
+      "style": "viral",
+      "sub_niche": "新能源"
+    },
+    {
+      "name": "为什么大疆敢拒绝美国军方？",
+      "description": "大疆如何占据全球消费无人机市场70%以上份额，以及它与美国政府之间的长期博弈。",
+      "hook": "大疆占据全球消费无人机市场70%以上份额",
+      "style": "viral",
+      "sub_niche": "智能硬件"
+    },
+    {
+      "name": "那家公司如何让中国人喝下了全世界最多的奶茶？",
+      "description": "蜜雪冰城、喜茶、奈雪的茶，中国奶茶行业如何从小摊变成千亿市场，并走向海外。",
+      "hook": "蜜雪冰城全球门店超过36000家",
+      "style": "viral",
+      "sub_niche": "新消费"
+    },
+    {
+      "name": "美团外卖如何改变了三千万人的生活？",
+      "description": "外卖骑手、商家和算法之间的三角关系，以及美团如何成为城市生活的基础设施。",
+      "hook": "美团外卖骑手超过600万人",
+      "style": "viral",
+      "sub_niche": "本地服务"
+    },
+    {
+      "name": "为什么苹果离不开中国工厂？",
+      "description": "尽管印度和越南在承接产能，苹果供应链的精密制造能力短期内仍无法离开中国。",
+      "hook": "中国制造了全球约95%的iPhone",
+      "style": "viral",
+      "sub_niche": "电子制造"
+    },
+    {
+      "name": "比亚迪怎么从山寨车变成了全球第三？",
+      "description": "从电池厂到新能源车巨头，比亚迪如何通过垂直整合和刀片电池技术反超传统车企。",
+      "hook": "2023年比亚迪全球销量超过300万辆",
+      "style": "viral",
+      "sub_niche": "新能源汽车"
+    },
+    {
+      "name": "那家日本公司如何垄断了全球相机传感器？",
+      "description": "索尼如何占据手机和专业相机图像传感器市场的大半江山，并影响全球影像产业。",
+      "hook": "索尼占据全球图像传感器市场约40%份额",
+      "style": "viral",
+      "sub_niche": "半导体"
+    },
+    {
+      "name": "为什么OpenAI真正害怕的是中国模型？",
+      "description": "从百度文心到阿里通义，中国大模型如何在算力受限和数据优势之间寻找自己的路。",
+      "hook": "中国发布了超过200个自研大模型",
+      "style": "viral",
+      "sub_niche": "人工智能"
+    },
+    {
+      "name": "瑞幸咖啡如何从造假丑闻中活过来？",
+      "description": "财务造假、退市、品牌重塑，瑞幸如何用加盟模式和下沉市场完成逆袭。",
+      "hook": "2023年瑞幸门店数量超过星巴克中国",
+      "style": "viral",
+      "sub_niche": "消费品牌"
+    },
+    {
+      "name": "SHEIN如何让美国年轻人爱上了中国制造？",
+      "description": "快时尚、小单快返、算法推荐，SHEIN如何绕过传统品牌直接占领海外Z世代衣橱。",
+      "hook": "SHEIN 2023年估值超过600亿美元",
+      "style": "viral",
+      "sub_niche": "跨境电商"
+    },
+    {
+      "name": "那家德国公司如何垄断了全球汽车刹车？",
+      "description": "博世如何成为几乎所有汽车都离不开的供应商，并掌握从ABS到ESP的关键安全技术。",
+      "hook": "博世为全球超过60%的汽车提供零部件",
+      "style": "viral",
+      "sub_niche": "汽车零部件"
+    },
+    {
+      "name": "中国新能源汽车为什么能反超德国日本？",
+      "description": "从电池产业链到智能化再到政策支持，中国新能源车如何在全球市场实现弯道超车。",
+      "hook": "2023年中国新能源车出口超过120万辆",
+      "style": "viral",
+      "sub_niche": "汽车出口"
+    },
+    {
+      "name": "为什么方便面在中国卖不动了？",
+      "description": "外卖、预制菜、健康观念的改变，如何一步步挤压这个曾经统治中国速食市场的品类。",
+      "hook": "中国方便面销量连续六年下滑",
+      "style": "viral",
+      "sub_niche": "食品饮料"
+    }
+  ],
+  "selected_angle": "那家悄悄控制了几乎一切的公司",
+  "candidate_count": 25,
+  "candidate_count_reason": "business and corporations 属于高广度领域，可拆分为金融资本、消费品牌、电商平台、科技制造、物流、新能源、半导体、人工智能、跨境电商、汽车等多个子领域，因此生成 25 个候选。",
+  "blacklist_check": {
+    "status": "passed",
+    "notes": "已检查 data/used_ideas.json，未发现与贝莱德/资本集中主题重复的已发布选题。",
+    "duplicate_titles": []
+  },
+  "design_system": {
+    "background_color": "#D8C7A3 aged newsprint paper texture with subtle halftone dots and soft grain",
+    "lighting_style": "soft flat diffused light, no dramatic shadows, even paper illumination",
+    "global_mood": "old-newspaper archival paper collage, documentary gravitas, muted premium palette, 1970s financial archive aesthetic"
+  },
+  "beat_plan": [
+    {
+      "scene_name": "cold_open",
+      "composition_rule": "Full-screen aged newspaper headline: '10.5 TRILLION' in large condensed type, small BlackRock logo cutout lower-right, torn paper edge, red pin at top-left corner."
+    },
+    {
+      "scene_name": "what_is_blackrock",
+      "composition_rule": "Hero cutout of a modern glass office tower centered on ledger paper background, small index-fund ticker strips sliding in from bottom, red string connecting to 'ETF' label."
+    },
+    {
+      "scene_name": "ownership_network",
+      "composition_rule": "Circular ownership diagram on nautical-map paper, Apple, Microsoft, Tesla logos as small black-and-white stamps, red thread linking them to a central 'BLK' stamp."
+    },
+    {
+      "scene_name": "pension_connection",
+      "composition_rule": "Old pension ledger page with handwritten numbers, small cutout of anonymous workers, headline strip 'YOUR MONEY' upper-left, soft vignette."
+    },
+    {
+      "scene_name": "cliffhanger",
+      "composition_rule": "Minimal composition: single vintage bank vault door cutout on cream paper, small red question mark stamp bottom-right, heavy negative space."
+    }
+  ],
+  "metadata": {
+    "narration_language": "zh",
+    "target_platform": "bilibili",
+    "platform_title_style": "viral",
+    "source_material": "none",
+    "generated_at": "2026-08-05"
+  }
+}

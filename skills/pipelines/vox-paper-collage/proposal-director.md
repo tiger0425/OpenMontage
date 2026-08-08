@@ -2,62 +2,81 @@
 
 ## 职责
 
-执行 VOX 引擎 STATE 3（DURATION）：确定视频时长，锁定 render_runtime、预算、旁白语言，产出 `proposal_packet` + `decision_log`。这是成本与治理决策点。
+执行 VOX 引擎 STATE 3（DURATION / PLAN）：基于 `brief` 确定视频时长、锁定旁白语言、动态段落结构、语义分镜策略、视觉方向、render_runtime、数据真实性规划，产出 `proposal_packet` + `decision_log`。这是全局创作与治理决策点。
 
 ## 流程
 
-1. **时长选择**：向用户呈现引擎选项
-   ```
-   "How long should the video be? Options: 30 seconds, 1 minute, 2 minutes,
-   3 minutes, or 5 minutes. Reply with a length."
-   ```
-2. **字数目标**：先定 `narration_language`（默认 `en`，可切换 `zh`），再按 `bilingual-spec.md §1` 对应语言查表（en 2.5 wps：30s≈75 词 … 5min≈750 词；zh 4.7 字/秒：30s≈140 字 … 5min≈1400 字）。容差 ±5%。中英常数只在 bilingual-spec 维护，此处不复制。
-3. **锁定 render_runtime = hyperframes**（基于注册表实测：若 remotion 可用则按 AGENT_GUIDE 双运行时 HARD RULE 先呈现两种选项并记录 `options_considered`；若只有 hyperframes 可用，则锁定并记录 `rejected_because: runtime not available`。引擎 FINAL RULE 要求确定性动画，hyperframes 是合规路径）。在 `decision_log` 记录 `category: "render_runtime_selection"`
-4. **预算估算**：
-   - 图像：节拍数 × $0.05（约等于字数目标/6，因为每节拍 5-8 词）
-   - 配音：indextts_tts 本地免费
-   - 音乐：pixabay_music 免费
-   - 纸 ASMR：freesound_music 免费
-   - 默认总预算上限 $3.00
-5. **旁白语言**：`narration_language` 默认 `en`，可切换 `zh`。影响：script 字数表（§1）、标题句式（§3）、TTS 语速（§10）、缩略图文字（§11）——全部见 `bilingual-spec.md`
-6. 产出 `proposal_packet`，含概念、工具路径、成本明细、approval 状态
+1. **旁白语言**：默认 `zh`。若用户或平台明确需要英文，可切换为 `en`。中文默认下所有文案层规则读取 `bilingual-spec.md` 中文部分。
+2. **目标平台确认**：从 `brief.target_platform` 读取。若用户未指定，默认按选题气质推断（知识/纪录片类默认 bilibili，商业类默认 linkedin）。
+3. **时长推荐**：按 `target_platform` 推荐，但用户可 override。推荐规则：
+   - **YouTube**：默认 5 分钟（300s），可选 3 / 8 / 12 / 20 分钟。
+   - **Bilibili**：默认 3 分钟（180s），可选 1 / 5 / 8 / 12 分钟。
+   - **TikTok / Instagram / 小红书**：默认 30-60 秒，可选 1 / 2 分钟。
+   - **LinkedIn / Generic**：默认 1-2 分钟，可选 3 / 5 分钟。
+   - 用户可直接指定时长，不强制平台推荐。
+4. **字数目标**：根据 `narration_language` 和锁定时长，读取 `bilingual-spec.md §1`。容差 ±5%。
+   - `zh`：4.7 字/秒（30s≈140，1min≈280，3min≈840，5min≈1400）。
+   - `en`：2.5 wps（30s≈75，1min≈150，3min≈450，5min≈750）。
+5. **概念选项（concept_options）**：`proposal_packet.schema.json` 要求至少 3 个概念选项。第一个 `c1` 必须对应 `brief.selected_angle` 的深化方案；`c2`、`c3` 是同一主题或相近主题下的备选视觉/叙事切入点，用于用户反悔时快速切换。`selected_concept` 默认选择 `c1`。
+6. **动态段落压缩**：根据 `target_duration_seconds` 选择 Six-Act Structure 的压缩形态：
+   - 30s–1min：3 段式（Hook → Core → Ending）
+   - 1–2min：4 段式（Hook → Story → Turning → Ending）
+   - 3–5min：5 段式（Hook → Intro → Story → Turning → Ending）
+   - 8min+：6 段式（Viral Hook → Quick Introduction → Main Story → Turning Point → Big Picture → Powerful Ending）
+   - 在 `proposal_packet` 中记录 `paragraph_structure`。
+6. **语义分镜策略**：`segment_timing.mode = semantic`。记录 beat 时长范围：
+   - 简单 beat：3-5s
+   - 标准 beat：5-8s
+   - 复杂 beat：8-12s
+   - 关键 reveal：可达 15s
+   - 总时长约束：所有 beat 之和 ≈ target_duration ±5%。
+7. **视觉方向**：
+   - 默认按 `niche` 推荐：
+     - crime / disaster / history → 旧报纸档案（old-newspaper archival）
+     - technology / space / engineering → 蓝图/工程图纸（blueprint）
+     - money / finance / business → 账本/股票票据（ledger）
+     - ancient civilizations / culture → 羊皮纸/手绘（parchment）
+     - sports / lifestyle / modern → 现代杂志拼贴（modern-magazine）
+   - 同时列出可选风格集合：旧报纸、国风、蓝图、羊皮纸、现代杂志。
+   - 用户可提供参考图或描述 override；否则使用 niche 默认推荐。
+   - 在 `proposal_packet` 中记录 `visual_direction`。
+8. **锁定 render_runtime = hyperframes**：基于注册表实测；若 remotion 可用，按 AGENT_GUIDE HARD RULE 记录 `options_considered`，但 vox-paper-collage 引擎要求确定性纸拼贴动画，默认锁定 hyperframes。在 `decision_log` 记录 `category: "render_runtime_selection"`。
+9. **数据真实性规划**：
+   - 对 `brief` 中的 `key_points` 和预期 beat 进行元素分类。
+   - 真实人物/地点/产品（`real_content`）：必须真实照片或用户提供图像作为参考图。
+   - 真实数据（`real_data`）：必须来自真实数据源（yfinance、官方文档、权威榜单），用 matplotlib 生成参考图。
+   - 创意元素（`creative`）：纯生成。
+   - CSS 装饰（`css`）：优先从 `assets/shared_library/decals/` 取贴图，CSS 负责动画。
+   - 在 `proposal_packet` 中记录 `data_authenticity_plan`（元素清单 + data_class + 数据源 + 参考图获取方式）。
+10. **预算**：本次优化删除预算公式。`cost_estimate.total_estimated_usd` 填 0，`line_items` 为空，`budget_verdict` 为 `"no_budget_set"`。前期不做预算控制，后续阶段按工具实际消耗计费。
+11. **产出 `proposal_packet`**：含概念、工具路径、段落结构、语义分镜策略、视觉方向、数据真实性规划、approval 状态。
 
 ## 质量要求
 
-- 工具绑定来自注册表实测：image_selector（google_imagen 首选，flux/FAL_KEY 升级路径）、tts_selector（indextts_tts）、pixabay_music、freesound_music、video_compose（hyperframes）
-- 预算明细 itemized，免费路径明确标注
-- 无 approvaal 前不进入任何付费生成
+- 工具绑定来自注册表实测：`comfyui_image`（本地 Klein 工作流，仅此一种图像生成）、`image_selector`（仅真实照片搜索）、`tts_selector`（indextts_tts）、`pixabay_music`、`freesound_music`、`video_compose`（hyperframes）。
+- 段落结构、语义分镜、视觉方向必须在 proposal 阶段显式锁定，并写入 `decision_log`。
+- 数据真实性规划必须在 proposal 阶段完成，不能在 assets 阶段临时决定。
+- 无 approval 前不进入任何付费生成。
+- 所有中文文案遵循 `bilingual-spec.md` 红线（标点、日期格式、标题句式）。
 
-## 数据真实性规划（2026-08 用户确认，proposal 阶段必须完成）
+## `proposal_packet` 必填字段（Schema 相关）
 
-**这是新闻/纪录片题材的硬性要求：涉及真实数据/事实的视觉元素，其数据必须真实可查证，禁止 AI 编造。** 必须在 proposal 阶段就识别并锁定，不能等到 assets 阶段才处理。
+按 `schemas/artifacts/proposal_packet.schema.json` 校验，确保包含：
 
-### 元素分类（proposal 阶段逐节拍标记）
-
-| 类别 | 定义 | 生成方式 | 示例 |
-|------|------|---------|------|
-| **真实数据类** | 含数字/排名/行情/参数等可查证数据 | **真实数据 → 参照图 → img2img** | K线图、榜单排名、参数对比、股价涨幅 |
-| **真实内容类** | 真实人物/地点/产品（无数据） | **真实图参照 → img2img** 或纯文生图 | 发布会外景、产品 logo、公司总部 |
-| **创意元素类** | 抽象概念/装饰 | 纯文生图（VOX 风格） | 神经网络示意、世界地图、印章 |
-| **CSS 装饰类** | 文字图章/标签/胶带/图钉 | CSS 纯渲染（零成本） | TOP2、+7%、日期章、未来已来 |
-
-### 数据来源锁定（proposal 阶段记录到 decision_log）
-
-对每个"真实数据类"元素，规划阶段就要明确：
-1. **数据来源**：yfinance/官方发布/权威榜单/新闻稿
-2. **关键数据点**：具体数字（如 9988.HK 8月3日 +7.01%）
-3. **获取方式**：`yfinance` 拉取 / 官方文档 / 已核实事实
-4. **参照图生成**：matplotlib 用真实数据画图（作为 img2img 参照底图）
-5. **AI 幻觉红线**：模型名/数字/日期必须来自数据源，提示词中显式写出精确值（Qwen 3.8-MAX = Fable 5，禁止 Gemini 幻觉）
-
-### 预算影响
-
-- 真实数据类元素 = 2 次生成成本（matplotlib 本地 0 成本 + img2img 1 次 $0.05）
-- proposal 预算按此估算，不按单次文生图
+- `version`: "1.0"
+- `concept_options`: 至少 3 个不同概念方向（通常 1 个即可，vox-paper-collage 可直接复用 brief 中的 selected_angle 做单一概念）
+- `selected_concept`: 包含 `concept_id`, `rationale`
+- `production_plan`: 包含 pipeline, stages, render_runtime=hyperframes
+- `production_plan.visual_direction`: 默认风格 + 可选风格 + 用户选择 + 理由
+- `production_plan.paragraph_structure`: 压缩后的段落结构
+- `production_plan.segment_timing`: 语义分镜策略
+- `production_plan.data_authenticity_plan`: 元素分类与数据源清单
+- `cost_estimate`: 按删除预算公式后的占位方式填写
+- `approval`: 状态为 pending / approved / approved_with_changes
 
 ## 成功标准
 
-- `proposal_packet` 含 duration、word_target、render_runtime、cost_estimate（line_items）
-- `decision_log` 记录 render_runtime_selection 与预算决策
-- `proposal_packet` 含 `data_authenticity_plan`（真实数据类元素清单 + 数据来源 + 关键数据点）
-- `approval.status` 为 approved 或 approved_with_changes 后才继续
+- `proposal_packet` 通过 schema 校验。
+- `selected_concept` 包含 duration、word_target、render_runtime、visual_direction、paragraph_structure、segment_timing。
+- `data_authenticity_plan` 包含真实数据/内容元素清单 + 数据源 + 参考图获取方式。
+- `approval.status` 为 approved 或 approved_with_changes 后才继续。

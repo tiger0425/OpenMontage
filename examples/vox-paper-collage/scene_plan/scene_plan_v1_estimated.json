@@ -1,0 +1,1090 @@
+{
+  "version": "1.0",
+  "style_playbook": "vox-paper-collage",
+  "timing_source": "estimated",
+  "timing_calibration_status": "pending",
+  "script_duration_seconds": 171.49,
+  "target_duration_seconds": 180,
+  "scenes": [
+    {
+      "id": "sc1",
+      "type": "paper_collage",
+      "description": "Viral Hook：1988 年创立 → 37 年后管理 10.5 万亿 → 贝莱德",
+      "paragraph_label": "viral_hook",
+      "locked_camera": true,
+      "start_seconds": 0,
+      "end_seconds": 15.53,
+      "script_section_id": "s1",
+      "shot_intent": "用强数字钩子建立好奇心：两个男人、一间公寓、10.5 万亿美元",
+      "narrative_role": "deliver_payload",
+      "beats": [
+        {
+          "id": "b1.1",
+          "sync_sentence": "1988年，纽约一间小公寓里，两个男人创立了一家资产管理公司。",
+          "semantic_family": "drop",
+          "duration_seconds": 4.0,
+          "start_seconds": 0,
+          "end_seconds": 4.0,
+          "visual_idea": "旧报纸标题 + 小公寓楼 hero cutout + 红色图钉",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "aged newspaper front page texture with 1988 date, halftone dots",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "small 1980s New York apartment building black-and-white cutout",
+              "box": [
+                22,
+                18,
+                45,
+                50
+              ],
+              "rot": -2,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "red push pin at top-left",
+              "text": "",
+              "family": "pop",
+              "micro": "pulse"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "1988 date stamp in red ink, vintage rubber stamp effect, slightly rotated",
+              "box": [
+                78,
+                15,
+                16,
+                10
+              ],
+              "rot": -8,
+              "z": 15,
+              "family": "slap",
+              "micro": "pulse"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "two men silhouettes in 1980s suits standing together, black-and-white paper cutout",
+              "box": [
+                28,
+                62,
+                18,
+                20
+              ],
+              "rot": 0,
+              "z": 13,
+              "family": "pop",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "微小起点：从一间公寓开始的帝国",
+          "visual_metaphor": "小公寓楼剪影：一座即将长大的微小建筑",
+          "image_prompt": "Warm beige paper background with grain and halftone texture, museum-quiet archival mood. LEFT FOREGROUND, LOW: a tiny 1980s New York brownstone apartment building, black-and-white cut-out, humble three-story with fire escape and stoop steps, small and fragile against the vast empty paper around it, a tiny red pushpin holding it down. RIGHT BACKGROUND, HUGE: a colossal Manhattan skyline of skyscrapers, black-and-white cut-out, towering financial towers rising to the top of the frame, dwarfing the small building like a giant beside a toy, slightly faded and distressed like an old newsprint photo, the towers overlapping the top-right corner. CENTER-RIGHT, MIDDLE DISTANCE: a small paper specimen label pinned by a red pushpin, blank, museum-exhibit style, a thin red thread looped around the pin trailing toward the small building. BEHIND the skyline, huge flat bold typography \"SMALL START\" in muted gold, the towers slightly occluding two letters, text occupying 30% of frame, condensed magazine-cover style. Layered paper collage with soft drop shadows, museum-quiet minimal composition, generous negative space, flat print, premium VOX-style documentary editorial collage, 16:9. No clutter, no unnecessary objects, no excessive icons, no visual noise, no random decorations, no fantasy elements, no sci-fi elements unless required, no anime, no cartoon style, no CGI look, no glossy 3D rendering, no photorealistic background, no oversaturated colors, no poor composition, no distorted anatomy, no blurry details, no watermark, no logos, maintain a clean premium VOX-style editorial collage with layered paper textures and documentary-quality composition."
+        },
+        {
+          "id": "b1.2",
+          "sync_sentence": "37年后，这家公司管理着超过10.5万亿美元的资产，相当于全球GDP的十分之一。",
+          "semantic_family": "grow",
+          "duration_seconds": 7.0,
+          "start_seconds": 4.0,
+          "end_seconds": 11.0,
+          "visual_idea": "10.5 万亿大数字标题 + 增长曲线 + 全球 GDP 对比图章",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "financial newspaper front page with stock tables and market columns, aged paper",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "real_data",
+              "data_source": "BlackRock 2024 Q4 AUM report; World Bank GDP estimates",
+              "description": "large numeral 10.5 TRILLION as editorial headline, growth curve beneath",
+              "box": [
+                18,
+                10,
+                50,
+                45
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "real_data",
+              "data_source": "World Bank GDP estimates",
+              "description": "matplotlib bar chart comparing AUM vs global GDP, restyled as VOX paper chart",
+              "box": [
+                55,
+                55,
+                35,
+                30
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "date stamp 2024, red ink",
+              "text": "2024",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "巨大财富：37年膨胀到无法想象的规模",
+          "visual_metaphor": "沙漏金字塔：时间让金钱膨胀成一座塔"
+        },
+        {
+          "id": "b1.3",
+          "sync_sentence": "它叫贝莱德。",
+          "semantic_family": "slap",
+          "duration_seconds": 4.53,
+          "start_seconds": 11.0,
+          "end_seconds": 15.53,
+          "visual_idea": "BlackRock logo 印章砸下，全屏定格",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "institutional letterhead paper with faint company registry texture",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "real_content",
+              "data_source": "BlackRock official logo (user upload or web search)",
+              "description": "BlackRock logo as black-and-white stamp, centered, slightly rotated",
+              "box": [
+                30,
+                25,
+                40,
+                50
+              ],
+              "rot": -3,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "ink stamp effect overlay, red ring underline",
+              "text": "BLACKROCK",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "名字揭晓：这个帝国叫贝莱德",
+          "visual_metaphor": "官方图章落下：像宣告一样盖章确认名字"
+        }
+      ]
+    },
+    {
+      "id": "sc2",
+      "type": "paper_collage",
+      "description": "Quick Introduction：你的钱很可能在它账上，它不生产任何东西但最有影响力",
+      "paragraph_label": "quick_intro",
+      "locked_camera": true,
+      "start_seconds": 15.53,
+      "end_seconds": 34.04,
+      "script_section_id": "s2",
+      "shot_intent": "建立个人关联：把观众的钱包/养老金与贝莱德连接",
+      "narrative_role": "establish_context",
+      "beats": [
+        {
+          "id": "b2.1",
+          "sync_sentence": "你可能从未听说过它，但你的养老金、你买的ETF、甚至你所在公司的股票，很可能都在它的账上。",
+          "semantic_family": "pop",
+          "duration_seconds": 10.0,
+          "start_seconds": 15.53,
+          "end_seconds": 25.53,
+          "visual_idea": "钱包/养老金手册 hero + ETF 标签 + 箭头指向账本",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "ledger paper background with handwritten numbers",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "black-and-white cutout of a wallet and pension booklet",
+              "box": [
+                15,
+                25,
+                40,
+                45
+              ],
+              "rot": -2,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "css",
+              "data_class": "css",
+              "description": "ETF label tag with red string",
+              "text": "ETF",
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "hand-drawn arrow pointing from wallet to ledger book",
+              "box": [
+                55,
+                60,
+                30,
+                15
+              ],
+              "rot": 0,
+              "z": 8,
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "个人牵连：你的钱在它账上",
+          "visual_metaphor": "钱包链条：你的钱包被红绳连向远方账本"
+        },
+        {
+          "id": "b2.2",
+          "sync_sentence": "它不生产手机，不卖咖啡，也不写软件，但它可能是这个世界上最有影响力的公司之一。",
+          "semantic_family": "shake",
+          "duration_seconds": 8.51,
+          "start_seconds": 25.53,
+          "end_seconds": 34.04,
+          "visual_idea": "三个否定符号（手机/咖啡/软件打叉）+ 影响力王冠印章",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "old magazine cover paper, muted archival tone",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "three small black-and-white icons of phone, coffee cup, software chip, each with red X",
+              "box": [
+                10,
+                55,
+                22,
+                18
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "crown stamp as metaphor for influence",
+              "box": [
+                35,
+                25,
+                40,
+                50
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "red underline beneath 'most influential company'",
+              "text": "最有影响力的公司之一",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "无形的存在：不生产任何东西却最有影响力",
+          "visual_metaphor": "王冠宝座：没有实体产品却戴着权力王冠"
+        }
+      ]
+    },
+    {
+      "id": "sc3",
+      "type": "paper_collage",
+      "description": "Main Story：贝莱德做什么 → 持有哪些公司 → 指数基金底层资产",
+      "paragraph_label": "main_story",
+      "locked_camera": true,
+      "start_seconds": 34.04,
+      "end_seconds": 72.77,
+      "script_section_id": "s3",
+      "shot_intent": "解释机制：钱如何汇总、买下哪些公司、为什么它到处都是",
+      "narrative_role": "build_tension",
+      "beats": [
+        {
+          "id": "b3.1",
+          "sync_sentence": "贝莱德做的事情，可以概括成一句话：把你的钱，和其他人的钱，汇总起来，然后买下全世界最有价值公司的股份。",
+          "semantic_family": "rise",
+          "duration_seconds": 10.0,
+          "start_seconds": 34.04,
+          "end_seconds": 44.04,
+          "visual_idea": "无数小钱币汇入中央漏斗 → 变成股份清单",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "ledger and stock ticker tape background",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "cutout of many small coin figures funneling into a central pool",
+              "box": [
+                25,
+                20,
+                50,
+                55
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "stock certificate paper with company names listed",
+              "box": [
+                55,
+                60,
+                30,
+                25
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "资金汇聚：把普通人的钱汇聚成巨大购买力",
+          "visual_metaphor": "中央漏斗：无数硬币汇入一个中央漏斗"
+        },
+        {
+          "id": "b3.2",
+          "sync_sentence": "苹果、微软、谷歌、亚马逊、特斯拉，这些公司的前五大股东名单里，几乎都有它的名字。",
+          "semantic_family": "drop",
+          "duration_seconds": 12.0,
+          "start_seconds": 44.04,
+          "end_seconds": 56.04,
+          "visual_idea": "五家公司 logo 印章依次落下，红绳连接到一个中心",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "stock exchange ticker tape background, faint market indices",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "real_content",
+              "data_source": "Company logos (web search or official trademark references)",
+              "description": "five company logos as black-and-white stamps: Apple, Microsoft, Google, Amazon, Tesla",
+              "box": [
+                10,
+                30,
+                80,
+                40
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "red string connecting each logo to central point",
+              "text": "",
+              "family": "pop",
+              "micro": "pulse"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "small stamp 'TOP 5 HOLDINGS'",
+              "text": "前五大股东",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "无处不在：它持有所有巨头的股份",
+          "visual_metaphor": "蛛网中心：五家公司被红绳连向一个中心"
+        },
+        {
+          "id": "b3.3",
+          "sync_sentence": "更关键的是，它持有的不是偶然买入的少量股票，而是成千上万个指数基金和养老基金的底层资产。",
+          "semantic_family": "grow",
+          "duration_seconds": 10.0,
+          "start_seconds": 56.04,
+          "end_seconds": 66.04,
+          "visual_idea": "指数基金和养老基金文件堆叠成塔",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "pension fund annual report pages texture, ledger lines",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "stack of fund prospectus papers growing upward",
+              "box": [
+                30,
+                15,
+                40,
+                65
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "css",
+              "data_class": "css",
+              "description": "label: index funds / pension funds",
+              "text": "指数基金 · 养老基金",
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "底层资产：它掌握的是基金的根基",
+          "visual_metaphor": "水下冰山：水面下巨大的底层资产冰山"
+        },
+        {
+          "id": "b3.4",
+          "sync_sentence": "当普通投资者说「我想买一点标普500」时，最终汇集到市场里的资金，很多都流入了贝莱德这样的公司。",
+          "semantic_family": "slide",
+          "duration_seconds": 6.73,
+          "start_seconds": 66.04,
+          "end_seconds": 72.77,
+          "visual_idea": "标普500 指数图 + 资金流向箭头",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "stock market chart paper with grid lines, technical analysis background",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "real_data",
+              "data_source": "S&P 500 fund flow data",
+              "description": "matplotlib chart of S&P 500 index with fund flow arrows, VOX restyled",
+              "box": [
+                15,
+                25,
+                70,
+                45
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "路径依赖：普通人的投资最终流向它",
+          "visual_metaphor": "河流改道：标普500的河流汇入贝莱德的湖"
+        }
+      ]
+    },
+    {
+      "id": "sc4",
+      "type": "paper_collage",
+      "description": "Turning Point：隐形权力，贝莱德在股东大会投票，而票可能是你的钱",
+      "paragraph_label": "turning_point",
+      "locked_camera": true,
+      "start_seconds": 72.77,
+      "end_seconds": 112.77,
+      "script_section_id": "s4",
+      "shot_intent": "最大反转：投票权在你没注意到的地方，票来自普通人的钱",
+      "narrative_role": "deliver_payload",
+      "beats": [
+        {
+          "id": "b4.1",
+          "sync_sentence": "这种权力的真正特别之处在于，它是隐形的。",
+          "semantic_family": "fade",
+          "duration_seconds": 6.0,
+          "start_seconds": 72.77,
+          "end_seconds": 78.77,
+          "visual_idea": "隐形人轮廓 / 半透明人影，暗示不可见的权力",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "dark newspaper background, high contrast",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "half-transparent silhouette cutout, ghost-like",
+              "box": [
+                35,
+                30,
+                30,
+                40
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            }
+          ],
+          "core_idea": "隐形权力：看不见的权力",
+          "visual_metaphor": "隐形人：半透明的西装人影"
+        },
+        {
+          "id": "b4.2",
+          "sync_sentence": "当苹果决定是否要在你的手机上增加一项功能，当特斯拉决定要不要在中国建厂，当迪士尼决定下一部拍什么电影，这些公司的股东大会上，都有贝莱德的代表在投票。",
+          "semantic_family": "slap",
+          "duration_seconds": 16.0,
+          "start_seconds": 78.77,
+          "end_seconds": 94.77,
+          "visual_idea": "三家公司场景 + 投票箱 + 贝莱德代表剪影，红圈强调",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "shareholder meeting agenda paper, corporate minute texture",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "real_content",
+              "data_source": "Apple/Tesla/Disney brand references (web search)",
+              "description": "three small scenes: smartphone, factory, movie clapper, as paper cutouts",
+              "box": [
+                5,
+                15,
+                30,
+                20
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "voting box cutout with a BlackRock representative silhouette dropping a ballot",
+              "box": [
+                25,
+                30,
+                50,
+                45
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "red circle emphasis on voting box",
+              "text": "",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "决策渗透：它在别人的董事会里替你做决定",
+          "visual_metaphor": "无面投票手：一只没有面孔的手投下决定性一票"
+        },
+        {
+          "id": "b4.3",
+          "sync_sentence": "而他们投的每一票，背后都可能是你每个月缴纳的养老金、你买的基金、甚至你银行账户里的一部分钱。",
+          "semantic_family": "rise",
+          "duration_seconds": 12.0,
+          "start_seconds": 94.77,
+          "end_seconds": 106.77,
+          "visual_idea": "你的钱 → 养老金/基金/银行账户 → 投票权链条",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "bank statement paper with faint transaction rows",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "chain diagram: pension, fund, bank account papers connected to ballot",
+              "box": [
+                20,
+                20,
+                60,
+                55
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "css",
+              "data_class": "css",
+              "description": "labels: 养老金 / 基金 / 银行账户",
+              "text": "养老金 · 基金 · 银行账户",
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "你的钱在投票：你的钱替你投了票",
+          "visual_metaphor": "钱币投票：一枚硬币落入选票箱"
+        },
+        {
+          "id": "b4.4",
+          "sync_sentence": "这不是某个富豪在幕后操控，而是现代金融体系把一个又一个普通人的决定，汇聚成了一个少数机构手中的巨大影响力。",
+          "semantic_family": "grow",
+          "duration_seconds": 6.0,
+          "start_seconds": 106.77,
+          "end_seconds": 112.77,
+          "visual_idea": "无数小票汇聚成巨大投票权印章",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "voting record ledger paper, ballot tally marks texture",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "many small ballots converging into one giant voting-power stamp",
+              "box": [
+                25,
+                20,
+                50,
+                55
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            }
+          ],
+          "core_idea": "体系性汇聚：不是阴谋，是体系把决定汇聚",
+          "visual_metaphor": "百川汇流：无数小票汇成一条大河"
+        }
+      ]
+    },
+    {
+      "id": "sc5",
+      "type": "paper_collage",
+      "description": "Big Picture + Powerful Ending：不是阴谋，但你的钱的投票权在它手里",
+      "paragraph_label": "big_picture+powerful_ending",
+      "locked_camera": true,
+      "start_seconds": 112.77,
+      "end_seconds": 171.49,
+      "script_section_id": "s5",
+      "shot_intent": "升华 + 悬念：把问题抛回给观众",
+      "narrative_role": "resolution",
+      "beats": [
+        {
+          "id": "b5.1",
+          "sync_sentence": "当然，这也不是阴谋。指数基金让普通人能以极低的成本持有整个市场，这是过去几十年金融领域最重要的创新之一。",
+          "semantic_family": "fade",
+          "duration_seconds": 12.0,
+          "start_seconds": 112.77,
+          "end_seconds": 124.77,
+          "visual_idea": "平衡构图：一面是创新益处，一面是集中风险",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "calm cream paper background with faint market chart texture",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "balanced scales cutout, one side index fund benefits, other side concentration risk",
+              "box": [
+                30,
+                30,
+                40,
+                40
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            }
+          ],
+          "core_idea": "双面性：创新与风险的平衡",
+          "visual_metaphor": "天平：一边是基金好处，一边是集中风险"
+        },
+        {
+          "id": "b5.2",
+          "sync_sentence": "问题在于，当所有人的钱都通过少数几家资产管理公司进入市场时，这些公司就拥有了前所未有的投票权和话语权。",
+          "semantic_family": "grow",
+          "duration_seconds": 14.0,
+          "start_seconds": 124.77,
+          "end_seconds": 138.77,
+          "visual_idea": "少数机构图标放大，代表话语权的扩音器/话筒印章",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "financial regulation report cover paper, official document texture",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "four asset-manager logos converging and growing large",
+              "box": [
+                20,
+                25,
+                60,
+                45
+              ],
+              "rot": 0,
+              "z": 5,
+              "family": "slide",
+              "micro": "sway"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "megaphone stamp with red '话语权' label",
+              "text": "话语权",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "权力集中：少数机构拥有话语权",
+          "visual_metaphor": "巨型扩音器：一个放大的扩音器占据画面"
+        },
+        {
+          "id": "b5.3",
+          "sync_sentence": "所以下一次，当你听说某家大公司做了一个重大决定，先不要急着赞美或者批评那个登上新闻的CEO。",
+          "semantic_family": "pop",
+          "duration_seconds": 10.0,
+          "start_seconds": 138.77,
+          "end_seconds": 148.77,
+          "visual_idea": "新闻报纸 CEO 照片剪影 + 红叉划掉 CEO 名字，指向背后机构",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "front page newspaper with headline columns, high contrast",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "newspaper front page with CEO photo, red X over name",
+              "box": [
+                25,
+                15,
+                50,
+                55
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "decor",
+              "kind": "css",
+              "data_class": "css",
+              "description": "red X crossing out 'CEO', arrow pointing to institution",
+              "text": "×CEO",
+              "family": "pop",
+              "micro": "pulse"
+            }
+          ],
+          "core_idea": "转移视线：表面的CEO不是真正决策者",
+          "visual_metaphor": "提线木偶：CEO是被看不见的线操控的木偶"
+        },
+        {
+          "id": "b5.4",
+          "sync_sentence": "你可以先问一个更基本的问题：在这家公司背后，有没有一部分是你的钱？而那个替你投票的机构，又是否真的知道你想要什么？",
+          "semantic_family": "fade",
+          "duration_seconds": 22.72,
+          "start_seconds": 148.77,
+          "end_seconds": 171.49,
+          "visual_idea": "极简留白：一个问号印章 + 一句字幕，画面逐渐安静",
+          "elements": [
+            {
+              "layer": "bg",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "near-empty cream paper, heavy negative space",
+              "box": [
+                0,
+                0,
+                100,
+                100
+              ],
+              "rot": 0,
+              "z": 0,
+              "family": "fade",
+              "micro": "breathe"
+            },
+            {
+              "layer": "hero",
+              "kind": "img",
+              "data_class": "creative",
+              "description": "single large question mark stamp, red ink",
+              "box": [
+                40,
+                30,
+                20,
+                35
+              ],
+              "rot": 0,
+              "z": 10,
+              "family": "drop",
+              "micro": "breathe"
+            },
+            {
+              "layer": "element",
+              "kind": "css",
+              "data_class": "css",
+              "description": "final line text: 你的钱，是否真的在替你投票？",
+              "text": "你的钱，是否真的在替你投票？",
+              "family": "slide",
+              "micro": "sway"
+            }
+          ],
+          "core_idea": "终极追问：你的钱在替你投票，但它懂你吗",
+          "visual_metaphor": "红色问号：巨大问号印章旁一枚硬币悬而未落",
+          "image_prompt": "Warm cream paper background with subtle grain and halftone texture, museum-quiet minimal composition, vast generous negative space, near-empty archival mood. CENTER: one enormous red question mark, flat rubber-stamp style with distressed uneven ink edges, slightly rotated, dominating the middle of the frame like a stamp pressed onto an empty page. ABOVE the question mark, slightly left: a single black-and-white cut-out coin suspended in mid-air, tilting, as if frozen at the moment before falling, a thin red thread hangs from above holding it, the thread leading up and out of frame. BENEATH the coin, small: a tiny blank paper ballot slip, half-folded, as if dropped and forgotten. BOTTOM-RIGHT, very small: a faint red ink thumbprint, museum-catalog style mark. Behind everything, huge flat bold typography \"WHOSE VOTE?\" in muted gold, very faint and ghosted behind the question mark, text occupying 25% of frame. Layered paper collage with soft drop shadows, museum-quiet minimal composition, generous negative space, flat print, premium VOX-style documentary editorial collage, 16:9. No clutter, no unnecessary objects, no excessive icons, no visual noise, no random decorations, no fantasy elements, no sci-fi elements unless required, no anime, no cartoon style, no CGI look, no glossy 3D rendering, no photorealistic background, no oversaturated colors, no poor composition, no distorted anatomy, no blurry details, no watermark, no logos, maintain a clean premium VOX-style editorial collage with layered paper textures and documentary-quality composition."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "pipeline": "vox-paper-collage",
+    "concept_id": "c1",
+    "script_ref": "examples/vox-paper-collage/script/script_sample.json",
+    "narration_language": "zh",
+    "calibration_rule": "TTS 实测偏差 ≤5% 时更新为 tts_actual；>5% 时回退 script 阶段",
+    "generated_at": "2026-08-05"
+  }
+}

@@ -1,0 +1,79 @@
+identity:
+  name: vox-paper-collage-guofeng
+  category: custom
+  mood: "calm, precise, documentary, archival, hand-made editorial, Chinese ink aesthetic"
+  pace: deliberate
+  best_for: "Chinese-style paper-collage documentaries: xuan paper (宣纸) archival collage, ink-wash textures, vermilion seal stamps, calligraphy, red string, for Chinese history/culture/crime topics"
+
+visual_language:
+  color_palette:
+    primary:
+      - "#F2EAD8"
+      - "#E8DCC0"
+    accent:
+      - "#A62121"
+      - "#C33B2E"
+    background: "#F2EAD8"
+    text: "#2B2B2B"
+    muted: "#8C8271"
+  composition: "One hero element dominant (about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. Xuan paper torn edges, ink-wash halftone cutouts with rough scissor-cut edges, vermilion seal stamps (印章), red string (红绳), brass pins, thread-bound book (线装) fragments. Clean, minimal, editorial, Chinese archival aesthetic."
+  texture: "Xuan paper (宣纸) and aged rice paper surfaces, subtle ink wash gradients, visible paper fiber and grain, halftone gray, matte flat even documentary lighting with soft cutout drop shadows"
+
+typography:
+  headings:
+    font: "Chinese calligraphy-style bold headline (e.g. 'Noto Serif SC' 900 weight, or system serif with brush feel 'Ma Shan Zheng' if available)"
+    weight: 900
+    tracking: "0.05em"
+  body:
+    font: "Typewriter caption strips in Chinese (system serif 'Noto Serif SC', 'Songti SC', 'SimSun')"
+    weight: 400
+  stat_card:
+    font: "Chinese calligraphy-style bold headline (Noto Serif SC 900)"
+    weight: 900
+
+motion:
+  transitions:
+    - "None inside a clip: camera stays completely locked, no cuts, no transitions, one continuous static shot"
+    - "Between clips: 0.5s cross-dissolve on alternating odd/even tracks, fade out finishes >=0.1s before the boundary"
+  animation_style: "Hand-cut Chinese paper collage in motion. Elements move as rigid physical paper pieces with visible cutout thickness. Stop-motion cadence, stepped easing, 2-3 frame holds, the hand-made cutting on twos feel. Never smooth CGI motion. Build-on assembly occupies about 70 percent of the clip duration (empty xuan paper plate first, then elements enter one by one back to front with paper drag, settle, tiny handcrafted bounce, layered shadows; no element moves again after landing). Living-paper phase occupies the final about 30 percent (corners lift a millimeter, ink halftone shimmers, red string tension quivers once, shadows breathe). Final frame exactly matches the provided image. Clip duration follows the semantic beat from scene_plan, not a fixed 10s."
+  pacing_rules:
+    simple_beat_seconds: "3-5"
+    standard_beat_seconds: "5-8"
+    complex_beat_seconds: "8-12"
+    reveal_beat_seconds: "up to 15"
+    total_tolerance_percent: 5
+  entrance: "Paper drag with small settle and tiny handcrafted bounce, casts a real layered shadow"
+  exit: "No exit: no element leaves after landing (FINAL RULE)"
+
+audio:
+  voice_style: "Calm deadpan male narrator, mid-range, mild gravitas, about 4.7 chars per second in Chinese, minimal emotion spikes, documentary read"
+  music_mood: "Restrained Chinese documentary score: guzheng and erhu strings, low ambient drone, sparse percussion, minor key, slow menacing build, no vocals"
+  music_volume: 0.25
+  sfx_style: "Close-up paper ASMR only: xuan paper sliding, cardstock taps, tape press, seal stamp thud (印章盖下), red string zip, pin click, soft room tone. All subtle. No music or narration inside the clips."
+  ducking_threshold_db: -14
+  voice_variation_allowed: false
+  hero_moment_voice_shift: "None: minimal emotion spikes, calm deadpan throughout"
+
+asset_generation:
+  image_prompt_prefix: "See templates/style_block.md and templates/closer.md - both must be appended verbatim to every image prompt. SCENE: one hero element (dominant, about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. Every image carries an Editorial Title of 1-4 words rendered as a large magazine-cover style headline integrated into the composition, using Chinese calligraphy-style or bold serif type treatment. The Editorial Title is mandatory for every beat, not optional - it carries the core idea distilled from the narration. Type overlaps the hero subject with negative space, flat print, no glow, no bevel, no 3D."
+  image_negative_prompt: "NOT digital illustration, NOT cartoon, NOT 3D render, NOT glossy, no gradients, no clutter, no visual noise, no random decorations, no fantasy elements, no sci-fi elements unless required, no anime, no CGI look, no photorealistic background, no oversaturated colors, no poor composition, no distorted anatomy, no blurry details, no watermark, no logos, no text beyond the specified Editorial Title label"
+  consistency_anchors:
+    - "templates/style_block.md verbatim in every prompt"
+    - "templates/closer.md verbatim at the end of every prompt"
+    - "hand-cut Chinese paper collage on xuan paper and aged rice paper surfaces"
+    - "black and white ink-wash halftone photograph cutouts with rough scissor-cut edges"
+    - "desaturated archival palette of xuan paper white, ink black, halftone gray with ONE hot vermilion red seal accent"
+    - "16:9, ultra-detailed, 8K"
+
+quality_rules:
+  - "Template blocks must be used verbatim from templates/ - never shorten, paraphrase, or merge (extract red line)"
+  - "Every image prompt ends with the full CLOSER from templates/closer.md"
+  - "Camera strictly locked for the entire clip - no zoom, pan, tilt, rotation, orbit, dolly, tracking, shake, focus pulls, reframing, cuts, transitions, morphing, object replacement, time skips"
+  - "FINAL RULE: final frame of each clip must exactly match the source image from build-on completion to the end"
+  - "No element moves again after it lands (after build-on phase)"
+  - "No music, no narration, no voices inside the animation clips - paper ASMR only"
+  - "No text beyond the Editorial Title label in images"
+  - "Chinese characters NEVER go into image prompts - Chinese labels/stamps/headlines render via CSS only (bilingual-spec section 10)"
+  - "Never use em dashes anywhere in any output - use commas, colons, parentheses, or plain hyphens"
+  - "Facts stay accurate - never invent names, dates, or numbers"
+  - "Real-tragedy restraint: no gore, no suffering close-ups, no mockery of victims"

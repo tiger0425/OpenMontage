@@ -17,7 +17,7 @@
 
 1. 从 video hook 选 2-3 个短词（EXPOSED / VANISHED / FOUND / 年份 / 金额）
 2. 写 3 个完整自足缩略图提示词：THUMBNAIL DNA 构图 + 调整版 CLOSER
-3. 经 `image_selector` 生成 3 张图（google_imagen 首选；调用前读 Layer 3 技能）
+3. 经 `comfyui_image` + `Klein-txt2image.json` 生成 3 张图（本管线图像生成仅用 Klein 工作流，见 assets-director §0.5；调用前读 Layer 3 技能）
 4. 组装发布包：成片 + 3 张缩略图 + 元数据（标题、描述、标签）
 
 ## 质量要求

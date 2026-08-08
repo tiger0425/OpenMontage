@@ -167,10 +167,12 @@ EP_STATE:
 - **禁 `tl.from`**（immediateRender 与 HyperFrames seek 打架 + CSS opacity:0 组合 = 空屏）；一律 `tl.fromTo`
 - **渲染 EPERM 坑**：输出到 `projects/<slug>/renders/`（hyperframes/renders 可能被杀软/残留 chrome 锁定）
 
-### 图片生成（2026-08 交子项目补充）
+### 图片生成（2026-08 用户确认：仅 Klein 工作流）
 
-- **单元素生成 ≫ 巨阵图**：单元素 solid-flat-tan 底 corner_std <2（背景纯平完美抠图）；巨阵图（6×4 网格）背景带纹理抠不净 + 每格分辨率低（235px），仅作额度耗尽时的补位手段
-- **google_imagen 免费档**（gemini-3.1-flash-lite-image）有月度额度上限，用尽报 429 RESOURCE_EXHAUSTED；缩略图可用 PIL 合成（bg 纹理 + 元素 + 大字）零成本替代
+- **图像生成只用本地 ComfyUI + Klein 工作流**（`comfyui_image` + `Klein-txt2image.json` / `Klein-img2image.json`），不用云图像服务、不用其他 ComfyUI 工作流
+- **单元素生成 ≫ 巨阵图**：单元素 solid-flat-tan 底 corner_std <2（背景纯平完美抠图）；巨阵图（6×4 网格）背景带纹理抠不净 + 每格分辨率低（235px），仅作备用
+- ComfyUI 服务器未运行时先启动（comfyui-auto-recovery skill），图像生成前检查服务器健康
+- 缩略图可用 PIL 合成（bg 纹理 + 元素 + 大字）零成本替代
 
 ## 反模式
 

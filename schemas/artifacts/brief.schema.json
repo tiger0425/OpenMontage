@@ -4,7 +4,7 @@
   "title": "Video Brief",
   "description": "Creative brief produced by the Idea Explorer agent.",
   "type": "object",
-  "required": ["version", "title", "hook", "key_points", "tone", "style", "target_platform", "target_duration_seconds", "design_system", "beat_plan"],
+  "required": ["version", "title", "hook", "key_points", "tone", "style", "target_platform", "target_duration_seconds", "niche", "platform_title_style", "design_system", "beat_plan", "angle_options", "selected_angle", "candidate_count", "candidate_count_reason", "blacklist_check"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "title": { "type": "string", "minLength": 1 },
@@ -24,6 +24,15 @@
       "enum": ["youtube", "instagram", "tiktok", "linkedin", "bilibili", "xiaohongshu", "generic"]
     },
     "target_duration_seconds": { "type": "number", "minimum": 1 },
+    "niche": {
+      "type": "string",
+      "description": "Selected documentary niche/domain, e.g., 'history', 'technology', 'money and power'"
+    },
+    "platform_title_style": {
+      "type": "string",
+      "enum": ["viral", "documentary", "brand"],
+      "description": "Title style determined by target_platform. viral = curiosity-driven hooks; documentary = restrained documentary style; brand = brand-safe corporate style."
+    },
     "reference_material": {
       "type": "array",
       "items": { "type": "string" },
@@ -35,13 +44,38 @@
         "type": "object",
         "properties": {
           "name": { "type": "string" },
-          "description": { "type": "string" }
+          "description": { "type": "string" },
+          "hook": { "type": "string", "description": "Concrete hook: date, name, number, or place" },
+          "style": { "type": "string", "enum": ["viral", "documentary", "brand"], "description": "Title style for this option" },
+          "sub_niche": { "type": "string", "description": "Sub-niche tag to ensure no two options fall in the same sub-territory" }
         },
-        "required": ["name", "description"]
+        "required": ["name", "description", "hook"]
       },
-      "description": "2-3 angle options for user to choose from"
+      "minItems": 1,
+      "description": "Candidate video angles produced by the idea stage. Count is dynamic, not fixed."
     },
     "selected_angle": { "type": "string" },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of candidate angles actually generated"
+    },
+    "candidate_count_reason": {
+      "type": "string",
+      "description": "Human-readable reason for the chosen candidate count (e.g., 'high-breadth domain generated 25 options')"
+    },
+    "blacklist_check": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["passed", "duplicate_detected", "override"] },
+        "notes": { "type": "string" },
+        "duplicate_titles": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["status"]
+    },
     "design_system": {
       "type": "object",
       "properties": {

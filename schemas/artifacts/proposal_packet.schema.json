@@ -26,7 +26,7 @@
           "target_audience": { "type": "string", "description": "Specific audience segment this angle serves best" },
           "target_platform": {
             "type": "string",
-            "enum": ["youtube", "instagram", "tiktok", "linkedin", "generic"]
+            "enum": ["youtube", "instagram", "tiktok", "linkedin", "bilibili", "xiaohongshu", "generic"]
           },
           "target_duration_seconds": { "type": "number", "minimum": 1 },
           "key_points": {
@@ -66,7 +66,7 @@
     },
     "production_plan": {
       "type": "object",
-      "required": ["pipeline", "stages", "render_runtime"],
+      "required": ["pipeline", "stages", "render_runtime", "visual_direction", "paragraph_structure", "segment_timing", "data_authenticity_plan"],
       "properties": {
         "pipeline": { "type": "string", "description": "Pipeline manifest name, e.g., 'animated-explainer'" },
         "playbook": { "type": "string", "description": "Selected style playbook" },
@@ -198,6 +198,86 @@
             }
           },
           "additionalProperties": false
+        },
+        "visual_direction": {
+          "type": "object",
+          "required": ["default_by_niche", "available_styles", "selected_style", "style_rationale"],
+          "properties": {
+            "default_by_niche": {
+              "type": "string",
+              "description": "Default style recommended by niche, e.g., 'old-newspaper archival'"
+            },
+            "available_styles": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "List of styles presented to the user for selection"
+            },
+            "selected_style": { "type": "string" },
+            "style_rationale": { "type": "string" },
+            "user_override": { "type": ["string", "null"], "description": "Path to user reference image or custom description if provided" }
+          },
+          "additionalProperties": false
+        },
+        "paragraph_structure": {
+          "type": "object",
+          "required": ["mode", "compressed_to", "rationale"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["six-act"],
+              "description": "Underlying narrative structure; compression applied based on duration"
+            },
+            "compressed_to": {
+              "type": "integer",
+              "enum": [3, 4, 5, 6],
+              "description": "Number of paragraphs actually used for the target duration"
+            },
+            "rationale": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "segment_timing": {
+          "type": "object",
+          "required": ["mode", "simple_beat", "standard_beat", "complex_beat", "reveal_beat", "total_tolerance"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["semantic", "voice-led", "fixed"],
+              "description": "How scene/beat boundaries are determined"
+            },
+            "simple_beat": { "type": "string" },
+            "standard_beat": { "type": "string" },
+            "complex_beat": { "type": "string" },
+            "reveal_beat": { "type": "string" },
+            "total_tolerance": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "data_authenticity_plan": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["element_id", "element_description", "data_class", "data_source", "reference_strategy"],
+            "properties": {
+              "element_id": { "type": "string" },
+              "element_description": { "type": "string" },
+              "data_class": {
+                "type": "string",
+                "enum": ["real_data", "real_content", "creative", "css"]
+              },
+              "data_source": { "type": "string" },
+              "key_data_points": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "reference_strategy": {
+                "type": "string",
+                "enum": ["photo_reference", "data_chart", "pure_generation", "asset_library_decal"]
+              },
+              "fallback": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
         },
         "decision_log_ref": {
           "type": "string",
