@@ -102,6 +102,9 @@ tts.infer(
     text="segment text with glossary-applied pronunciations",
     output_path=f"seg_{index:03d}.wav",
     emo_vector=[0, 0, 0, 0, 0, 0, 0, 1.0],  # calm=1.0 for documentary
+    # 语义：显式传 emo_vector = 固定情感、关闭自动文字判情感。
+    # 若省略 emo_vector，indextts_tts 默认从文字自动判情感（use_emo_text）。
+    # 本管线要求纪录片平静语感，必须保持显式传 calm 向量。
     use_fp16=True  # 3090 recommended
 )
 ```
