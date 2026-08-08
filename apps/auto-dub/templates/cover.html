@@ -2,70 +2,394 @@
 <html lang="zh-CN" data-composition-variables='[
   {"id":"title","type":"string","label":"Title","default":"视频标题"},
   {"id":"channel","type":"string","label":"Channel","default":""},
-  {"id":"thumb_path","type":"string","label":"Thumbnail","default":""}
+  {"id":"thumb_path","type":"string","label":"Thumbnail","default":""},
+  {"id":"episode","type":"string","label":"Episode","default":"14"},
+  {"id":"author_right_bg","type":"string","label":"AuthorRightBg","default":""},
+  {"id":"author_name","type":"string","label":"AuthorName","default":""},
+  {"id":"author_title","type":"string","label":"AuthorTitle","default":""},
+  {"id":"author_badges","type":"array","label":"AuthorBadges","default":[]}
 ]'>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
-    <title>Bilibili Cover</title>
-    <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+    <title>Bilibili Premium Cover</title>
     <style>
-      body { margin: 0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
-      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
-      .bg-full {
-        position: absolute; inset: 0;
-        background: linear-gradient(160deg, #0a0820 0%, #151030 35%, #1a1840 65%, #252050 100%);
+      /* 引入项目内共享资料库的顶级字体，确保渲染字体与大V原图 100% 像素吻合 */
+      @font-face {
+        font-family: 'NotoSansSC';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/NotoSansSC-Black.ttf') format('truetype');
+        font-weight: 900;
       }
-      .bg-full::before {
-        content: ""; position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
-        width: 1000px; height: 500px; border-radius: 50%;
-        background: radial-gradient(ellipse, rgba(255,110,90,0.15) 0%, transparent 65%);
+      @font-face {
+        font-family: 'Oswald';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/Oswald-Bold.ttf') format('truetype');
+        font-weight: 700;
       }
-      .bg-full::after {
-        content: ""; position: absolute; bottom: -240px; left: 50%; transform: translateX(-50%);
-        width: 1100px; height: 460px; border-radius: 50%;
-        background: radial-gradient(ellipse, rgba(80,160,255,0.12) 0%, transparent 65%);
+      @font-face {
+        font-family: 'IBMPlexMono';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/IBM-Plex-Mono.ttf') format('truetype');
       }
-      .safe {
-        position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%);
-        width: 1440px;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 26px; padding: 40px 60px; box-sizing: border-box;
+
+      body {
+        margin: 0;
+        font-family: 'NotoSansSC', system-ui, -apple-system, sans-serif;
+        background-color: #04030a;
+        overflow: hidden;
       }
-      .chan { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); font-size: 22px; font-weight: 600; padding: 8px 28px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.12); }
-      h1 { font-size: 64px; font-weight: 800; color: #fff; line-height: 1.3; text-align: center; text-shadow: 0 4px 30px rgba(0,0,0,0.5); max-width: 1000px; margin: 0; }
-      h1 .gold { color: #FFD700; text-shadow: 0 0 30px rgba(255,215,0,0.3); }
-      .thumb-frame { width: 640px; height: 360px; border-radius: 16px; overflow: hidden; border: 3px solid rgba(255,255,255,0.14); box-shadow: 0 20px 60px rgba(0,0,0,0.55); }
-      .thumb-frame img { width: 100%; height: 100%; object-fit: cover; }
-      .tags { display: flex; gap: 14px; }
-      .tag { font-size: 22px; font-weight: 700; padding: 8px 24px; border-radius: 8px; }
-      .t1 { background: linear-gradient(135deg, #ff6b5e, #e03030); color: #fff; }
-      .t2 { background: linear-gradient(135deg, #4facfe, #00b4d8); color: #000; }
-      .t3 { background: linear-gradient(135deg, #a855f7, #7c3aed); color: #fff; }
-      .footer { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: linear-gradient(to right, #ff6b5e, #4facfe, #a855f7, #FFD700); }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: radial-gradient(circle at 40% 50%, #17113c 0%, #080617 70%, #030208 100%);
+      }
+
+      /* 右侧固定技术视觉区：不依赖每期缩略图，保证系列封面一致 */
+      .tech-panel {
+        position: absolute;
+        top: 115px;
+        right: 288px;
+        width: 480px;
+        height: 850px;
+        border: 2px solid rgba(102, 139, 255, 0.55);
+        border-radius: 28px;
+        background: linear-gradient(145deg, rgba(21, 28, 67, 0.94), rgba(5, 8, 25, 0.98));
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55), inset 0 0 60px rgba(83, 92, 255, 0.12);
+        overflow: hidden;
+        z-index: 2;
+      }
+      .tech-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, transparent 0 48%, rgba(70, 103, 255, 0.16) 48.3% 48.8%, transparent 49.1%), repeating-linear-gradient(0deg, transparent 0 62px, rgba(120, 145, 255, 0.06) 63px, transparent 64px);
+        pointer-events: none;
+      }
+      .panel-chrome {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 58px;
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        box-sizing: border-box;
+        background: rgba(4, 6, 20, 0.9);
+        border-bottom: 1px solid rgba(113, 143, 255, 0.3);
+        color: #9cb8ff;
+        font-family: 'IBMPlexMono', monospace;
+        font-size: 18px;
+        letter-spacing: 1px;
+      }
+      .panel-dot {
+        width: 12px;
+        height: 12px;
+        margin-right: 10px;
+        border-radius: 50%;
+        background: #ffb020;
+        box-shadow: 0 0 14px #ffb020;
+      }
+      .skill-stack {
+        position: absolute;
+        top: 138px;
+        left: 52px;
+        right: 52px;
+        display: grid;
+        gap: 22px;
+      }
+      .skill-node {
+        position: relative;
+        padding: 22px 24px;
+        border: 1px solid rgba(106, 137, 255, 0.55);
+        border-left: 8px solid #6c8cff;
+        border-radius: 14px;
+        background: rgba(13, 19, 48, 0.9);
+        color: #e7ecff;
+        font-family: 'IBMPlexMono', monospace;
+        font-size: 27px;
+        font-weight: 700;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+      }
+      .skill-node:nth-child(2) {
+        margin-left: 54px;
+        border-left-color: #ffb020;
+      }
+      .skill-node:nth-child(3) {
+        margin-left: 108px;
+        border-left-color: #f45b82;
+      }
+      .node-caption {
+        display: block;
+        margin-top: 8px;
+        color: #91a7e8;
+        font-family: 'NotoSansSC', sans-serif;
+        font-size: 20px;
+      }
+      .release-stamp {
+        position: absolute;
+        right: 42px;
+        bottom: 52px;
+        padding: 18px 24px;
+        border: 2px solid #ffd45a;
+        border-radius: 12px;
+        color: #ffe58c;
+        font-family: 'Oswald', sans-serif;
+        font-size: 42px;
+        letter-spacing: 2px;
+        transform: rotate(-4deg);
+        box-shadow: 0 0 28px rgba(255, 199, 73, 0.18);
+      }
+
+      /* 左侧内容区：对齐 4:3 安全区 (left = 80px) */
+      .content {
+        position: absolute;
+        top: 115px;
+        left: 320px;
+        bottom: 115px;
+        width: 820px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        z-index: 10;
+      }
+
+      /* 头部标签行 */
+      .header-row {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 24px;
+      }
+
+      /* 橙色集数标签 */
+      .episode-badge {
+        background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+        border: 2px solid #ffffff;
+        border-radius: 16px;
+        padding: 6px 20px;
+        color: #ffffff;
+        font-size: 24px;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        box-shadow: 0 4px 15px rgba(234, 88, 12, 0.4);
+      }
+      .episode-badge span {
+        font-family: 'Oswald', sans-serif;
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      /* 大V身份卡 */
+      .author-card {
+        background: #070514;
+        border: 2px solid #2b2075;
+        border-radius: 12px;
+        padding: 6px 24px;
+        color: #ffffff;
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 1px;
+      }
+
+      /* 背书勋章小标签 */
+      .badges-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 50px;
+      }
+      .badge-pill {
+        background: #08061a;
+        border: 1px solid #281e69;
+        border-radius: 10px;
+        padding: 6px 18px;
+        color: #9cb8ff;
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      /* 主标题上方的高亮药丸 */
+      .promo-pill {
+        background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+        color: #ffffff;
+        font-size: 20px;
+        font-weight: 900;
+        padding: 6px 20px;
+        border-radius: 12px;
+        width: fit-content;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 15px rgba(225, 29, 72, 0.3);
+      }
+
+      /* 核心主标题：思源黑体，带高对比度黑色轮廓 */
+      .title-container {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .title-line {
+        font-size: 80px;
+        font-weight: 900;
+        line-height: 1.15;
+        color: #ffffff;
+        margin: 0;
+        filter: drop-shadow(0 6px 15px rgba(0,0,0,0.95));
+        -webkit-text-stroke: 4px #000000;
+        paint-order: stroke fill;
+      }
+
+      /* 渐变金色主标题行 */
+      .gold-text {
+        background: linear-gradient(to bottom, #ffe600 20%, #ff8800 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* 底部金句 */
+      .footer-quote {
+        margin-top: auto;
+        color: #facc15;
+        font-size: 20px;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer-quote::before {
+        content: "💬";
+      }
+
+      /* 底部亮黄色线条 */
+      .bottom-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background-color: #ffd700;
+        z-index: 100;
+      }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="cover" data-width="1920" data-height="1080" data-start="0" data-duration="0.1">
-      <div class="bg-full"></div>
-      <div class="safe">
-        <div class="chan" id="chan-tag">@channel</div>
-        <h1 id="title-text"><span class="gold">视频</span>标题</h1>
-        <div class="thumb-frame"><img id="thumb-img" src="" alt="" /></div>
-        <div class="tags">
-          <span class="tag t1">AI</span><span class="tag t2">中文配音</span><span class="tag t3">教程</span>
+    <div id="root" data-composition-id="cover" data-no-timeline data-width="1920" data-height="1080" data-start="0" data-duration="0.1">
+      
+      <!-- 右侧固定技术视觉区，不使用每期视频缩略图 -->
+      <div class="tech-panel">
+        <div class="panel-chrome"><span class="panel-dot"></span>skills.release / v1.2.0</div>
+        <div class="skill-stack">
+          <div class="skill-node">/wait-what<span class="node-caption">让 AI 说人话</span></div>
+          <div class="skill-node">/grill-me<span class="node-caption">多问题轮次 · 更快推进</span></div>
+          <div class="skill-node">/wizard<span class="node-caption">交互式基础设施配置</span></div>
         </div>
+        <div class="release-stamp">5 NEW SKILLS</div>
       </div>
-      <div class="footer"></div>
+
+      <!-- 左侧内容区 -->
+      <div class="content">
+        
+        <!-- 第一行：集数与身份卡 -->
+        <div class="header-row">
+          <div class="episode-badge">
+            第 <span id="ep-num">14</span> 集
+          </div>
+          <div class="author-card" id="author-info">
+            真·工程师的 AI 指南 | Matt Pocock (TS教父)
+          </div>
+        </div>
+
+        <!-- 第二行：药丸标签组 -->
+        <div class="badges-row" id="badges-container">
+          <!-- 动态载入标签 -->
+        </div>
+
+        <!-- 第三行：上方粉色推荐胶囊 -->
+        <div class="promo-pill" id="promo-tag">
+          v1.2 震撼发布 · 生产力工具大拉满
+        </div>
+
+        <!-- 第四行：主标题大字区 -->
+        <div class="title-container" id="title-lines">
+          <!-- 动态加载标题行 -->
+        </div>
+
+        <!-- 底部金句 -->
+        <div class="footer-quote" id="footer-text">
+          "拒绝凭感觉写代码！软件工程基础比以往任何时候都重要"
+        </div>
+
+      </div>
+
+      <!-- 底部金色饰条 -->
+      <div class="bottom-bar"></div>
+
     </div>
+
     <script>
+      // 1. 获取动态编译变量
       const v = window.__hyperframes.getVariables();
-      document.getElementById("title-text").innerHTML = v.title || "视频标题";
-      document.getElementById("chan-tag").textContent = v.channel ? "@" + v.channel : "";
-      if (!v.channel) document.getElementById("chan-tag").style.display = "none";
-      const img = document.getElementById("thumb-img");
-      img.src = v.thumb_path || "";
-      if (!v.thumb_path) img.parentElement.style.background = "rgba(255,255,255,0.04)";
+
+      // 2. 渲染集数
+      document.getElementById("ep-num").textContent = v.episode || "14";
+
+      // 3. 渲染大V卡片与勋章
+      if (v.author_name && v.author_title) {
+        document.getElementById("author-info").textContent = `${v.author_title} | ${v.author_name}`;
+      }
+      
+      const badgesContainer = document.getElementById("badges-container");
+      badgesContainer.innerHTML = "";
+      const defaultBadges = ["Total TS 创始人 ($250W+)", "前 Vercel 开发者倡导者", "GitHub 19.5万★", "30.3万订阅 YouTuber"];
+      const badgesToUse = (v.author_badges && v.author_badges.length > 0) ? v.author_badges : defaultBadges;
+      
+      badgesToUse.forEach(badgeText => {
+        const pill = document.createElement("span");
+        pill.className = "badge-pill";
+        pill.textContent = badgeText;
+        badgesContainer.appendChild(pill);
+      });
+
+      // 5. 动态标题智能切分与渲染
+      const titleLinesContainer = document.getElementById("title-lines");
+      titleLinesContainer.innerHTML = "";
+
+      let rawTitle = v.title || "视频标题";
+      let lines = [];
+      
+      if (rawTitle.includes("brings")) {
+        lines = [
+          "skills 1.2 重磅更新！",
+          "/wait-what 与 /writing-for-agents",
+          "集体登场"
+        ];
+        document.getElementById("promo-tag").textContent = "v1.2 震撼发布 · 生产力工具大拉满";
+      } else if (rawTitle.toLowerCase().includes("wayfinder")) {
+        lines = [
+          "Wayfinder 全新解锁！",
+          "AI 自动大项目规划",
+          "硬核实操演示"
+        ];
+        document.getElementById("promo-tag").textContent = "智能体大项目编排 · 生产力工具";
+      } else {
+        lines = rawTitle.split("\n");
+      }
+
+      lines.forEach((lineText, idx) => {
+        const h1 = document.createElement("h1");
+        h1.className = "title-line";
+        h1.textContent = lineText;
+        
+        if (idx > 0 || lineText.startsWith("/")) {
+          h1.classList.add("gold-text");
+        }
+        titleLinesContainer.appendChild(h1);
+      });
     </script>
   </body>
 </html>

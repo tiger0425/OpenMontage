@@ -42,8 +42,33 @@ from lib.gpu_lock import GpuLockHandle
 
 _DEFAULT_REPO_CANDIDATES = [Path("D:/index-tts"), Path("C:/Users/tiger/index-tts")]
 
+CALM_EMO_VECTOR = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
 _SERVER_START_TIMEOUT_SECONDS = 600.0
 _SERVER_READY_MARKER = ">> model ready"
+
+
+def resolve_emotion_mode(
+    emo_vector: list[float] | None,
+    use_emo_text: bool | None,
+    emo_alpha: float,
+) -> dict[str, Any]:
+    """三态情感判定规则（与 D:/index-tts/indextts_server.py 的实现保持一致，改动需两边同步）。
+
+    1) use_emo_text=True  -> auto：自动从文字判情感，覆盖 emo_vector
+    2) use_emo_text=False -> fixed：固定 emo_vector，未传则 calm
+    3) 未指定            -> 传了 emo_vector 则 fixed；未传则 auto
+    返回 {"mode", "emo_vector", "emo_alpha"}；fixed 模式下 emo_alpha 恒为 1.0
+    （服务端此时不传 emo_alpha，infer_v2 默认 1.0，避免缩放显式向量）。
+    """
+    if use_emo_text is True:
+        return {"mode": "auto", "emo_vector": None, "emo_alpha": emo_alpha}
+    if use_emo_text is False:
+        vec = emo_vector if emo_vector is not None else CALM_EMO_VECTOR
+        return {"mode": "fixed", "emo_vector": vec, "emo_alpha": 1.0}
+    if emo_vector is not None:
+        return {"mode": "fixed", "emo_vector": emo_vector, "emo_alpha": 1.0}
+    return {"mode": "auto", "emo_vector": None, "emo_alpha": emo_alpha}
 
 _SERVER_PROC: subprocess.Popen | None = None
 _SERVER_LOCK = threading.Lock()
@@ -173,7 +198,9 @@ def _synthesize_via_server(
     output_path: str,
     voice_ref: str | None,
     seed: int,
-    emo_vector: list[float],
+    emo_vector: list[float] | None,
+    use_emo_text: bool | None,
+    emo_alpha: float,
 ) -> dict[str, Any]:
     global _SERVER_PROC, _SERVER_LAST_ERROR
     with _SERVER_LOCK:
@@ -191,6 +218,8 @@ def _synthesize_via_server(
         "voice_ref": voice_ref,
         "seed": seed,
         "emo_vector": emo_vector,
+        "use_emo_text": use_emo_text,
+        "emo_alpha": emo_alpha,
     }
     try:
         proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
@@ -303,12 +332,39 @@ class IndexTTS2TTS(BaseTool):
                 "items": {"type": "number"},
                 "minItems": 8,
                 "maxItems": 8,
-                "default": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
                 "description": (
                     "8-dim emotion vector: "
                     "[happy, angry, sad, fearful, disgusted, surprised, neutral, calm]. "
-                    "Default is calm [0,0,0,0,0,0,0,1], matching the documentary read. "
-                    "Values are typically in [0, 1] range."
+                    "Values are typically in [0, 1] range. "
+                    "THREE-STATE SEMANTICS: (1) OMIT (default) -> the server auto-detects "
+                    "emotion from the text via use_emo_text (see use_emo_text field); "
+                    "(2) PASS a vector -> fixed emotion, auto-detection OFF (e.g. calm "
+                    "[0,0,0,0,0,0,0,1] for a documentary read); (3) PASS a vector AND "
+                    "use_emo_text=True -> auto-detection wins and OVERRIDES the vector "
+                    "(IndexTTS2 infer_v2 behavior)."
+                ),
+            },
+            "use_emo_text": {
+                "type": ["boolean", "null"],
+                "default": None,
+                "description": (
+                    "Auto-detect emotion from the text with IndexTTS2's built-in Qwen "
+                    "emotion classifier. Three-state: (1) null (default) -> auto-detect "
+                    "IF AND ONLY IF emo_vector is omitted; (2) true -> always auto-detect, "
+                    "overrides any emo_vector passed; (3) false -> never auto-detect, "
+                    "falls back to emo_vector (or calm if none passed)."
+                ),
+            },
+            "emo_alpha": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "default": 0.6,
+                "description": (
+                    "Emotion strength applied when use_emo_text auto-detection is active. "
+                    "0.0 = neutral read, 1.0 = fully match detected emotion, "
+                    "0.6 is a good default for natural narration. Ignored when "
+                    "auto-detection is off."
                 ),
             },
             "use_fp16": {
@@ -355,6 +411,8 @@ class IndexTTS2TTS(BaseTool):
         "text",
         "spk_audio_prompt",
         "emo_vector",
+        "use_emo_text",
+        "emo_alpha",
         "speed",
         "seed",
     ]
@@ -444,15 +502,22 @@ class IndexTTS2TTS(BaseTool):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         spk_audio_prompt: str | None = inputs.get("spk_audio_prompt")
-        emo_vector: list[float] = list(
-            inputs.get("emo_vector", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        emo_vector_raw = inputs.get("emo_vector")
+        emo_vector: list[float] | None = (
+            list(emo_vector_raw) if emo_vector_raw is not None else None
         )
+        use_emo_text: bool | None = inputs.get("use_emo_text")
+        if use_emo_text is not None:
+            use_emo_text = bool(use_emo_text)
+        emo_alpha: float = float(inputs.get("emo_alpha", 0.6))
         use_fp16: bool = bool(inputs.get("use_fp16", True))
         speed: float = float(inputs.get("speed", 1.0))
         seed: int = int(inputs.get("seed", 42))
 
-        if len(emo_vector) != 8:
-            emo_vector = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        if emo_vector is not None and len(emo_vector) != 8:
+            emo_vector = None
+
+        emotion_mode = resolve_emotion_mode(emo_vector, use_emo_text, emo_alpha)
 
         voice_ref = spk_audio_prompt
         if not voice_ref:
@@ -478,6 +543,8 @@ class IndexTTS2TTS(BaseTool):
                 voice_ref=voice_ref,
                 seed=seed,
                 emo_vector=emo_vector,
+                use_emo_text=use_emo_text,
+                emo_alpha=emo_alpha,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -513,6 +580,11 @@ class IndexTTS2TTS(BaseTool):
                 "voice_cloning": bool(voice_ref),
                 "voice_anchor_used": False,
                 "emo_vector": emo_vector,
+                "use_emo_text": use_emo_text,
+                "emo_alpha": emo_alpha,
+                "emotion_mode": emotion_mode["mode"],
+                "effective_emo_vector": emotion_mode["emo_vector"],
+                "effective_emo_alpha": emotion_mode["emo_alpha"],
                 "use_fp16": use_fp16,
                 "speed": speed,
                 "seed": seed,

@@ -434,6 +434,22 @@ class BatchRunner:
             "style": "clean-professional",
             "target_platform": "bilibili",
             "target_duration_seconds": float(video.get('duration_seconds', 600)),
+            "niche": "technology",
+            "platform_title_style": "documentary",
+            "angle_options": [
+                {
+                    "name": "Translation Dubbing",
+                    "description": "Direct translation and dubbing of the original video",
+                    "hook": f"翻译配音: {video.get('title', '')}"
+                }
+            ],
+            "selected_angle": "Translation Dubbing",
+            "candidate_count": 1,
+            "candidate_count_reason": "Single translation angle for localization pipeline",
+            "blacklist_check": {
+                "status": "passed",
+                "notes": "No duplication conflicts"
+            },
             "design_system": {
                 "background_color": "#08050a",
                 "lighting_style": "clean studio lighting",

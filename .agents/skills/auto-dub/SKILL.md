@@ -190,8 +190,11 @@ if rms < 100:  # 静音阈值
 ### 方式 A：HyperFrames 模板渲染（默认，流水线自动执行）
 
 - `pipeline_automator._generate_cover_images` → `apps/auto-dub/templates/cover.html`
-- 输出 1200×900 (4:3) 到 `review/` 与 `published/` 的 `{中文标题}_cover.png`
-- 特点：快、稳定、无外部依赖；样式固定（模板化）
+- **系列一致性（铁律）**：全系列共用同一 HTML 母版；右侧用 HTML/CSS 固定技术视觉，**不要**回退到每期视频缩略图，**不要**用 image_selector 每期生图
+- **单母图双画幅**：母版是 `1920x1080`，**中央 `1440x1080` 为完整 4:3 主封面区**（x=240..1680），左右各 240px 仅作延展背景；4:3 场景用中央区域等比输出，禁止临时裁 16:9 成品
+- 左侧内容与右侧面板统一 `top:115 / bottom:115` 垂直居中；底部金句放进内容容器（`margin-top:auto`），不绝对定位
+- 渲染后输出 16:9 母图到 `review/` 与 `published/` 的 `{中文标题}_cover.png`
+- 更多排版/渲染避坑见 `skills/pipelines/localization-dub/lessons-learned.md` →「系列封面设计」章节
 
 ### 方式 B：AI 生图工具直接生成标题党封面（推荐用于高流量选题）
 

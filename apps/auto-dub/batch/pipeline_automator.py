@@ -342,10 +342,22 @@ class PipelineAutomator:
 
         # 3. 构造 script.json 结构
         sections = []
+        total_dur = float(raw_transcript["duration_seconds"])
         for item in translated_segments:
+            start_sec = float(item["start"])
+            progress = start_sec / total_dur if total_dur > 0 else 0
+            if progress < 0.1:
+                p_label = "quick_intro"
+            elif progress < 0.8:
+                p_label = "main_story"
+            elif progress < 0.9:
+                p_label = "big_picture"
+            else:
+                p_label = "powerful_ending"
             sections.append({
                 "id": str(item["line_id"]),
                 "text": item["text"],
+                "paragraph_label": p_label,
                 "start_seconds": float(item["start"]),
                 "end_seconds": float(item["end"]),
                 "delivery_cues": {
@@ -357,10 +369,17 @@ class PipelineAutomator:
             "version": "1.0",
             "title": self.video.get("title", "No Title"),
             "total_duration_seconds": float(raw_transcript["duration_seconds"]),
+            "narration_language": "zh",
+            "paragraph_structure": {
+                "mode": "six-act",
+                "compressed_to": 3,
+                "rationale": "Direct translation and localization translation paragraph structure"
+            },
             "sections": sections,
             "metadata": {
                 "source_language": "en-US",
-                "target_language": "zh-CN"
+                "target_language": "zh-CN",
+                "narration_language": "zh"
             }
         }
         
@@ -382,174 +401,134 @@ class PipelineAutomator:
         return script_data
 
     def _translate_segments(self, segments: list[dict]) -> Optional[list[dict]]:
-        """分批调用 LLM 翻译分段，使用实测语速预算 + 语义拆分"""
+        """逐句翻译：每个转录分段单独调用 LLM 翻译一条完整语句。
+
+        逐句模式杜绝批量翻译时 LLM 返回 JSON 的 id 串位问题；
+        每句一次调用，返回单个译文，天然一一对应。
+        """
         cps = self._get_cps()
         print(f"    📏 实测 VoxCPM 语速: {cps:.2f} 字/秒")
         translated_lines = []
-        batch_size = 20
 
         system_prompt = (
             "You are a professional video localization translator specializing in AI and cloud technology.\n"
-            "Your task is to translate English transcription lines to Simplified Chinese (zh-CN)."
+            "Your task is to translate ONE English transcription line to Simplified Chinese (zh-CN)."
         )
 
-        for i in range(0, len(segments), batch_size):
-            batch = segments[i:i+batch_size]
-            print(f"    - 翻译分批 [{i+1} to {min(i+batch_size, len(segments))}/{len(segments)}]...")
+        total = len(segments)
+        for idx, item in enumerate(segments):
+            line_id = str(item["id"])
+            dur = item["end"] - item["start"]
+            words_count = len(item["text"].split())
+            wps = words_count / dur if dur > 0 else 0
+            max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
+            is_dense = wps > 4.0
 
-            batch_data = []
-            for item in batch:
-                dur = item["end"] - item["start"]
-                max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
-                words_count = len(item["text"].split())
-                wps = words_count / dur if dur > 0 else 0
-                is_dense = wps > 4.0
-                batch_data.append({
-                    "id": str(item["id"]),
-                    "text": item["text"],
-                    "duration": round(dur, 2),
-                    "max_chinese_characters": max_chars,
-                    "cps": round(cps, 2),
-                    "drift_risk": "high" if is_dense else "low",
-                    "note": (
-                        f"实测预算 {max_chars} 字；密集段落请优先精简！"
-                        if is_dense else f"实测预算 {max_chars} 字"
-                    )
-                })
+            single_data = {
+                "id": line_id,
+                "text": item["text"],
+                "duration": round(dur, 2),
+                "max_chinese_characters": max_chars,
+                "cps": round(cps, 2),
+                "drift_risk": "high" if is_dense else "low",
+                "note": (
+                    f"实测预算 {max_chars} 字；密集段落请优先精简！"
+                    if is_dense else f"实测预算 {max_chars} 字"
+                )
+            }
 
             prompt = (
                 f"{self.glossary.build_translation_prompt()}\n\n"
                 "## 翻译指导规则：\n"
-                "1. 必须精准翻译技术语境下的含义。\n"
-                "2. 在准确、完整、术语合规的前提下，尽量将翻译控制在 max_chinese_characters 预算内。"
-                "若中文翻译天然由多个从句/分句组成，可拆分为多个子条目，id 使用 '<id>_1'、'<id>_2' 格式。\n"
-                "3. 返回格式必须是 JSON 数组，每个对象必须包含 id 和 translated_text。不要返回任何其他解释或 Markdown 包装。\n\n"
-                f"输入数据:\n{json.dumps(batch_data, ensure_ascii=False)}"
+                "1. 必须精准翻译技术语境下的含义，输出一条完整、通顺的中文句子。\n"
+                "2. 在准确、完整、术语合规的前提下，尽量将翻译控制在 max_chinese_characters 预算内。\n"
+                "3. 直接返回该句的中文译文文本，不要返回 JSON 数组、不要解释、不要 Markdown 包装。\n\n"
+                f"输入:\n{json.dumps(single_data, ensure_ascii=False)}"
             )
 
+            if (idx + 1) % 50 == 0 or idx == total - 1:
+                print(f"    - 逐句翻译 {idx+1}/{total}...")
+
+            trans = item["text"]
             try:
-                resp_text = self.llm.generate(prompt, system_instruction=system_prompt, json_mode=True)
-
-                resp_text_clean = resp_text.strip()
-                if resp_text_clean.startswith("```json"):
-                    resp_text_clean = resp_text_clean[7:]
-                if resp_text_clean.endswith("```"):
-                    resp_text_clean = resp_text_clean[:-3]
-                resp_text_clean = resp_text_clean.strip()
-                resp_text_clean = re.sub(r',\s*([\]}])', r'\1', resp_text_clean)
-
-                try:
-                    results = json.loads(resp_text_clean)
-                except Exception as json_err:
-                    logging.warning(f"Standard JSON parse failed, trying regex object extraction: {json_err}")
-                    results = []
-                    for obj_match in re.finditer(r'\{[^{}]*\}', resp_text_clean):
-                        try:
-                            obj = json.loads(obj_match.group(0))
-                            results.append(obj)
-                        except Exception:
-                            pass
-
-                translation_map = {}
-                for r_item in results:
-                    r_id = str(r_item.get("id", ""))
-                    if not r_id:
-                        continue
-                    trans = r_item.get("translated_text", r_item.get("translation", r_item.get("text_zh", r_item.get("translated", ""))))
-                    translation_map[r_id] = trans
-
-                for item in batch:
-                    line_id = str(item["id"])
-                    dur = item["end"] - item["start"]
-                    max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
-                    trans = self._get_segment_translation(line_id, translation_map)
-
-                    if not trans or trans.strip() == "":
-                        trans = item["text"]
-
-                    # === Targeted Glossary Repair Loop ===
-                    violations = self.glossary.validate_translation(item["text"], trans)
-                    src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
-                    tgt_clean = re.sub(r'[^\w]', '', trans).lower()
-                    if src_clean == tgt_clean and len(src_clean) > 3:
-                        violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
-
-                    if violations:
-                        print(f"      ⚠️ 行 {line_id} 违反术语表/未翻译: {violations}，尝试自动修复...")
-                        repair_budget = max(2, int(dur * cps))
-                        for attempt in range(3):
-                            repair_prompt = (
-                                "You are a professional video localization translator.\n"
-                                f"English source text: \"{item['text']}\"\n"
-                                f"Your previous translation: \"{trans}\"\n\n"
-                                "This translation violated technical glossary rules:\n"
-                                f"{chr(10).join(violations)}\n\n"
-                                "Please re-translate. You MUST satisfy all the glossary rules listed above.\n"
-                                f"Additionally, keep the translation concise if possible. "
-                                f"Target characters limit: {repair_budget} "
-                                "(this is only a soft guideline; prioritized accuracy, completeness, and glossary compliance come first).\n"
-                                "Return ONLY the corrected Chinese translation. Do not wrap in markdown or add explanations."
-                            )
-                            try:
-                                repaired_trans = self.llm.generate(
-                                    repair_prompt,
-                                    system_instruction="Re-translate to satisfy technical glossary constraints strictly."
-                                )
-                                repaired_trans = repaired_trans.strip()
-                                new_violations = self.glossary.validate_translation(item["text"], repaired_trans)
-                                new_src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
-                                new_tgt_clean = re.sub(r'[^\w]', '', repaired_trans).lower()
-                                if new_src_clean == new_tgt_clean and len(new_src_clean) > 3:
-                                    new_violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
-                                if not new_violations:
-                                    print(f"      ✅ 行 {line_id} 修复成功: \"{repaired_trans}\"")
-                                    trans = repaired_trans
-                                    break
-                                else:
-                                    violations = new_violations
-                                    trans = repaired_trans
-                            except Exception as e:
-                                logging.error(f"Glossary repair attempt {attempt+1} failed: {e}")
-                        else:
-                            print(f"      ❌ 行 {line_id} 修复 3 次后仍失败，最终翻译: \"{trans}\"")
-
-                    # === 三档拆分决策（预算内单条 / ≤max_single_line 整句不拆 / 超长语义拆分） ===
-                    # 修复：短句预算下限、超长/错位翻译不再被盲目切碎、子段时长按 len/cps 预测
-                    plan = self.plan_split(
-                        trans, max_chars, self.max_single_line_chars, cps
-                    )
-                    if len(plan) == 1:
-                        translated_lines.append({
-                            "line_id": line_id,
-                            "start": item["start"],
-                            "end": item["end"],
-                            "text": item["text"],
-                            "translated_text": trans
-                        })
-                    else:
-                        offset = 0.0
-                        for ci, (chunk, sub_dur) in enumerate(plan):
-                            sub_start = item["start"] + offset
-                            sub_end = sub_start + (sub_dur or dur / len(plan))
-                            offset += sub_dur or dur / len(plan)
-                            sub_id = f"{line_id}_c{ci}"
-                            translated_lines.append({
-                                "line_id": sub_id,
-                                "start": sub_start,
-                                "end": sub_end,
-                                "text": item["text"],
-                                "translated_text": chunk
-                            })
-
+                resp_text = self.llm.generate(prompt, system_instruction=system_prompt)
+                trans = resp_text.strip().strip('"').strip()
+                if not trans:
+                    trans = item["text"]
             except Exception as e:
-                logging.error(f"Translation batch failed: {e}")
-                for item in batch:
+                logging.error(f"逐句翻译失败 (行 {line_id}): {e}，保留原文")
+
+            # === Glossary 校验修复（逐句） ===
+            violations = self.glossary.validate_translation(item["text"], trans)
+            src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
+            tgt_clean = re.sub(r'[^\w]', '', trans).lower()
+            if src_clean == tgt_clean and len(src_clean) > 3:
+                violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
+
+            if violations:
+                print(f"      ⚠️ 行 {line_id} 违反术语表/未翻译: {violations}，尝试自动修复...")
+                repair_budget = max(2, int(dur * cps))
+                for attempt in range(3):
+                    repair_prompt = (
+                        "You are a professional video localization translator.\n"
+                        f"English source text: \"{item['text']}\"\n"
+                        f"Your previous translation: \"{trans}\"\n\n"
+                        "This translation violated technical glossary rules:\n"
+                        f"{chr(10).join(violations)}\n\n"
+                        "Please re-translate. You MUST satisfy all the glossary rules listed above.\n"
+                        f"Additionally, keep the translation concise if possible. "
+                        f"Target characters limit: {repair_budget} "
+                        "(this is only a soft guideline; prioritized accuracy, completeness, and glossary compliance come first).\n"
+                        "Return ONLY the corrected Chinese translation. Do not wrap in markdown or add explanations."
+                    )
+                    try:
+                        repaired_trans = self.llm.generate(
+                            repair_prompt,
+                            system_instruction="Re-translate to satisfy technical glossary constraints strictly."
+                        )
+                        repaired_trans = repaired_trans.strip()
+                        new_violations = self.glossary.validate_translation(item["text"], repaired_trans)
+                        new_src_clean = re.sub(r'[^\w]', '', item["text"]).lower()
+                        new_tgt_clean = re.sub(r'[^\w]', '', repaired_trans).lower()
+                        if new_src_clean == new_tgt_clean and len(new_src_clean) > 3:
+                            new_violations.append("翻译与英文原文完全相同，未能正确翻译为中文。你必须将其翻译为符合语境的中文，不能直接复制英文原文。")
+                        if not new_violations:
+                            print(f"      ✅ 行 {line_id} 修复成功: \"{repaired_trans}\"")
+                            trans = repaired_trans
+                            break
+                        else:
+                            violations = new_violations
+                            trans = repaired_trans
+                    except Exception as e:
+                        logging.error(f"Glossary repair attempt {attempt+1} failed: {e}")
+                else:
+                    print(f"      ❌ 行 {line_id} 修复 3 次后仍失败，最终翻译: \"{trans}\"")
+
+            # === 三档拆分决策（预算内单条 / ≤max_single_line 整句不拆 / 超长语义拆分） ===
+            plan = self.plan_split(
+                trans, max_chars, self.max_single_line_chars, cps
+            )
+            if len(plan) == 1:
+                translated_lines.append({
+                    "line_id": line_id,
+                    "start": item["start"],
+                    "end": item["end"],
+                    "text": item["text"],
+                    "translated_text": trans
+                })
+            else:
+                offset = 0.0
+                for ci, (chunk, sub_dur) in enumerate(plan):
+                    sub_start = item["start"] + offset
+                    sub_end = sub_start + (sub_dur or dur / len(plan))
+                    offset += sub_dur or dur / len(plan)
+                    sub_id = f"{line_id}_c{ci}"
                     translated_lines.append({
-                        "line_id": str(item["id"]),
-                        "start": item["start"],
-                        "end": item["end"],
+                        "line_id": sub_id,
+                        "start": sub_start,
+                        "end": sub_end,
                         "text": item["text"],
-                        "translated_text": item["text"]
+                        "translated_text": chunk
                     })
 
         return translated_lines
@@ -654,7 +633,7 @@ class PipelineAutomator:
             return cp["artifacts"]["asset_manifest"]
 
         lines = script_data["sections"]
-        
+
         # 1. 调用 TTS 引擎生成配音音频
         tts_engine = self.tts_engine
         print(f"    🔊 开始调用 {tts_engine.upper()} 本地 GPU 合成音频分段...")
@@ -664,7 +643,7 @@ class PipelineAutomator:
             # 懒加载：仅 voxcpm 引擎才 import VoxCPM provider 工具（indextts 模式不触碰）
             from tools.audio.voxcpm_tts import VoxCPMTTS
             tts = VoxCPMTTS()
-        
+
         # === 从原视频自动提取说话人声纹 ===
         external_voice_ref = self.assets_dir / "voice_ref.wav"
         use_external_ref = False
@@ -678,7 +657,13 @@ class PipelineAutomator:
                 logging.warning(f"voice_ref.wav 不可用, 将重新提取: {e}")
         if not use_external_ref:
             use_external_ref = self._extract_voice_ref(external_voice_ref)
-        
+
+        # === 强制清空旧的 TTS 音频，确保用当前声纹全量重新合成（避免复用旧声纹的 wav 导致时长漂移） ===
+        import shutil as _shutil
+        if self.audio_dir.exists():
+            _shutil.rmtree(self.audio_dir, ignore_errors=True)
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
+
         temp_segments = []
         
         # 逐段合成配音，并获取其实际音频长度 (不进行任何变速/atempo处理)
@@ -1119,18 +1104,11 @@ class PipelineAutomator:
         return self._cps
 
     def _calibrate_indextts_cps(self) -> float:
-        """用 IndexTTS2 实测中文语速，结果缓存到 indextts_cps_cache.json。"""
+        """每次都用 IndexTTS2 实测中文语速（不读旧缓存，避免用过期的虚高 cps）。
+
+        实测后写一份参考缓存（仅留档），但下次仍强制重新实测。
+        """
         import tempfile as _tf
-        cache = self.project_dir.parent / "indextts_cps_cache.json"
-        if cache.exists():
-            try:
-                data = json.loads(cache.read_text(encoding="utf-8"))
-                val = float(data.get("cps", 0))
-                if val > 0:
-                    print(f"    📏 使用缓存 IndexTTS2 cps={val:.2f}")
-                    return val
-            except Exception:
-                pass
         ref_text = (
             "今天我们要介绍如何在本地免费运行大语言模型。"
             "首先你需要安装 Ollama 和 LM Studio 等工具。"
@@ -1149,6 +1127,7 @@ class PipelineAutomator:
                     cps = len(ref_text) / dur
                     print(f"    📏 IndexTTS2 实测 cps={cps:.2f}（参考文本 {len(ref_text)} 字 / {dur:.2f}s）")
                     try:
+                        cache = self.project_dir.parent / "indextts_cps_cache.json"
                         cache.write_text(json.dumps({"cps": round(cps, 2), "text_len": len(ref_text)}, ensure_ascii=False), encoding="utf-8")
                     except Exception:
                         pass
@@ -1160,10 +1139,10 @@ class PipelineAutomator:
     # 漂移超标时的缩短重翻
     # ==========================================
     def _retranslate_shorter(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
-        """漂移超标时，用更紧的字数预算重新翻译所有句子。"""
+        """漂移超标时，用温和的字数预算重新翻译所有句子（保持完整语义，不做硬压缩）。"""
         cps = self._get_cps()
-        budget_factor = 0.85 ** self._drift_retry_count
-        print(f"    🔄 缩短重翻：预算系数 {budget_factor:.2f}，目标更紧凑的中文...")
+        budget_factor = 0.98 ** self._drift_retry_count
+        print(f"    🔄 温和重翻：预算系数 {budget_factor:.2f}，保持完整通顺...")
 
         sections = script_data.get("sections", [])
         batch_size = 20
@@ -1171,9 +1150,8 @@ class PipelineAutomator:
 
         system_prompt = (
             "You are a professional video localization translator. "
-            "CRITICAL: Translate to concise Simplified Chinese. "
-            "Use fewer characters — every character counts. "
-            "Keep technical terms accurate but make sentences as short as naturally possible."
+            "Translate to natural, complete Simplified Chinese. "
+            "Preserve full meaning and keep sentences fluent; do not abbreviate into fragments."
         )
 
         for i in range(0, len(sections), batch_size):
@@ -1193,10 +1171,10 @@ class PipelineAutomator:
 
             prompt = (
                 f"{self.glossary.build_translation_prompt()}\n\n"
-                "## 缩短重翻规则：\n"
-                "1. 你的翻译必须比 current_translation 更短。\n"
-                "2. 精简冗余表达，使用更紧凑的中文句式。\n"
-                "3. 技术术语仍需准确，但可用简称（如'应用程序接口'→'API'）。\n"
+                "## 温和重翻规则：\n"
+                "1. 翻译要完整、通顺、忠实原文，保留全部语义，不做硬压缩。\n"
+                "2. max_chinese_characters 是软性参考预算，不强制压缩；超预算时混音会自动顺延。\n"
+                "3. 技术术语需准确，可适当使用惯例简称（如'应用程序接口'→'API'）。\n"
                 "4. 返回 JSON 数组，每项包含 id 和 translated_text。\n\n"
                 f"输入:\n{json.dumps(batch_data, ensure_ascii=False)}"
             )
@@ -1771,12 +1749,38 @@ class PipelineAutomator:
         # concat demuxer 对第二个文件的偏移计算会出错，产生数百秒的时间戳跳变空档
         # （表现为视频中间长时间定格黑屏/静音）。concat filter 会为所有包重建连续时间戳。
         final_video = self.renders_dir / "final.mp4"
-        print("    🎬 正在拼接主视频与片尾（concat filter 重建时间戳）...")
+        print("    🎬 正在拼接主视频与片尾（concat filter 重建时间戳，自动对齐分辨率与音频）...")
+        
+        # 获取主视频的真实分辨率，动态生成缩放与通道统一 filter
+        width, height = 1920, 1080
+        try:
+            probe_cmd = [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0", str(main_video)
+            ]
+            probe_res = subprocess.run(probe_cmd, capture_output=True, text=True)
+            if probe_res.returncode == 0 and probe_res.stdout.strip():
+                parts = probe_res.stdout.strip().split('x')
+                if len(parts) >= 2:
+                    width = int(parts[0])
+                    height = int(parts[1])
+        except Exception as e:
+            print(f"    ⚠️ 获取主视频分辨率失败，使用默认 1920x1080: {e}")
+
+        filter_complex = (
+            f"[0:v]setsar=1[v0];"
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v1];"
+            f"[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];"
+            f"[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
+            f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
+        )
+
         cmd_concat = [
             "ffmpeg", "-y",
             "-i", str(main_video),
             "-i", str(outro_with_audio),
-            "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
+            "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
             "-c:a", "aac", "-b:a", "192k",
