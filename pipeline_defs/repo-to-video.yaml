@@ -1,0 +1,242 @@
+name: repo-to-video
+version: "0.1.0"
+description: >
+  Turn a GitHub repository URL into a Chinese AI-voiced explainer video for
+  Bilibili's developer channel (B号). The agent fetches repo metadata
+  (README, stars, license, language, tags), extracts the core value
+  proposition with verifiable data points, rewrites an independent Chinese
+  narration script (not translation), designs a metro-map visual concept,
+  generates per-scene HyperFrames compositions, narrates via IndexTTS2 with
+  the user's cloned voice, adds BGM + SFX, renders via HyperFrames, and
+  produces a full Bilibili publishing bundle (title/tags/description/chapters).
+category: custom
+stability: beta
+
+default_checkpoint_policy: guided
+
+orchestration:
+  mode: guided
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 60
+
+required_skills:
+  - pipelines/repo-to-video/fetch-director
+  - pipelines/repo-to-video/brief-director
+  - pipelines/repo-to-video/script-director
+  - pipelines/repo-to-video/scene-director
+  - pipelines/repo-to-video/asset-director
+  - pipelines/repo-to-video/compose-director
+  - pipelines/repo-to-video/review-director
+  - pipelines/repo-to-video/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+stages:
+
+  # ── Source Ingestion ───────────────────────────────────────────
+
+  - name: fetch
+    skill: pipelines/repo-to-video/fetch-director
+    produces:
+      - fetch_report
+    tools_available:
+      - web_fetch
+      - gh_cli
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Repo metadata fetched (README, stars, license, language, tags, latest release)
+      - Facts marked with source (README / docs / release page) and snapshot date
+      - No hallucinated metrics — every claim traceable to fetched source
+    success_criteria:
+      - fetch_report records repo_url, stars, license, language, description
+      - Claims list has source + snapshot_date per item
+      - README text saved to disk
+
+  # ── Brief / Research ───────────────────────────────────────────
+
+  - name: brief
+    skill: pipelines/repo-to-video/brief-director
+    required_artifacts_in:
+      - fetch_report
+    produces:
+      - knowledge_brief
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Core value proposition extracted (what problem it solves, for whom)
+      - At least 5 verifiable facts with specific data points (model names, dates, figures)
+      - Target audience and angle for the Bilibili developer channel
+      - No creative interpretation yet — raw extraction only
+    success_criteria:
+      - Schema-valid knowledge_brief with >=1 core_argument and >=5 key_facts
+      - All facts have source references
+
+  # ── Script ─────────────────────────────────────────────────────
+
+  - name: script
+    skill: pipelines/repo-to-video/script-director
+    required_artifacts_in:
+      - knowledge_brief
+    produces:
+      - script
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Chinese script is an independent rewrite, not a line-by-line README translation
+      - Duration target within +/-10% (measured ~2.98 wps)
+      - "Hooks per section, narrative arc: hook - context - body - climax - conclusion"
+      - Data claims match knowledge_brief facts with source attribution
+      - Technical terms match glossary pronunciations
+    success_criteria:
+      - Schema-valid script with narrative sections
+      - Each section includes visual_direction field
+      - Estimated duration within target range
+
+  # ── Scene Planning ─────────────────────────────────────────────
+
+  - name: scene_plan
+    skill: pipelines/repo-to-video/scene-director
+    required_artifacts_in:
+      - script
+    optional_artifacts_in:
+      - knowledge_brief
+    produces:
+      - scene_plan
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Full script duration covered with no timeline gaps
+      - "Visual variety: >=3 different scene types used"
+      - "No 3+ consecutive scenes of the same type"
+      - Animation type specified per scene
+      - Scene windows follow voice boundaries (no mid-sentence cuts)
+    success_criteria:
+      - Schema-valid scene_plan with required_resources per scene
+      - At least 3 different scene types
+      - Continuous windows with no gaps
+
+  # ── Asset Generation ───────────────────────────────────────────
+
+  - name: assets
+    skill: pipelines/repo-to-video/asset-director
+    required_artifacts_in:
+      - scene_plan
+      - script
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+    optional_tools:
+      - music_gen
+      - audio_mixer
+    tools_available:
+      - tts_selector
+      - music_gen
+      - audio_mixer
+      - video_compose
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Narration uses the user's cloned voice (voice_reference from config)
+      - No silent WAV segments (RMS amplitude check on each audio file)
+      - Narration duration matches scene_plan windows
+      - BGM generated and mixed below narration (-18dB)
+      - SFX synthesized and placed at element landings
+    success_criteria:
+      - Schema-valid asset_manifest with all required files generated
+      - All file paths in manifest resolve to existing files on disk
+      - narration_segments have measured durations
+
+  # ── Composition ────────────────────────────────────────────────
+
+  - name: compose
+    skill: pipelines/repo-to-video/compose-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - composition_report
+    required_tools:
+      - hyperframes_compose
+      - video_compose
+    optional_tools:
+      - audio_mixer
+    tools_available:
+      - hyperframes_compose
+      - video_compose
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - HyperFrames workspace scaffolded with all assets staged
+      - index.html implements the metro-map visual concept (GSAP animation, dynamic charts, typography)
+      - hyperframes lint passes without errors
+      - hyperframes validate passes (browser-based check)
+      - Final render output exists at renders/final.mp4
+      - Duration within +/-5% of script target
+      - Audio levels balanced (narration clear, BGM under, SFX at landings)
+    success_criteria:
+      - Schema-valid composition_report with output path
+      - final.mp4 exists and passes ffprobe validation
+      - hyperframes lint exit 0, hyperframes render exit 0
+
+  # ── Review ─────────────────────────────────────────────────────
+
+  - name: review
+    skill: pipelines/repo-to-video/review-director
+    required_artifacts_in:
+      - composition_report
+      - script
+    optional_artifacts_in:
+      - asset_manifest
+    produces:
+      - final_review
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - "Voice fidelity: narration sounds like the user's reference voice"
+      - Repo facts accurate and sourced (no invented metrics)
+      - Visual-to-audio sync is frame-accurate
+      - Audio is clean (no clipping, BGM not overpowering narration)
+      - "Bilibili suitability: 3-minute target, developer audience"
+    success_criteria:
+      - Schema-valid final_review with approval status
+      - If rejected, specific revision items listed with target stages
+
+  # ── Publish ────────────────────────────────────────────────────
+
+  - name: publish
+    skill: pipelines/repo-to-video/publish-director
+    required_artifacts_in:
+      - composition_report
+      - final_review
+    optional_artifacts_in:
+      - script
+      - knowledge_brief
+    produces:
+      - publish_log
+    tools_available:
+      - export_bundle
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Bilibili title is hook-driven (【分区】好奇钩子 + 细节 + 情感锚)
+      - Description contains intro + key points + follow hook + tags + disclosure
+      - Tags cover repo, developer tools, category
+      - Chapters with timestamps match scene_plan
+      - Cover image concept on-brand (B号 hard-tech dark style)
+    success_criteria:
+      - Schema-valid publish_log
+      - Export directory contains video, cover, metadata JSON
+      - Description includes required disclosure statement

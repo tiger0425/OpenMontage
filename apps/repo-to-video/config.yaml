@@ -1,0 +1,103 @@
+# repo-to-video 配置文件
+# GitHub 仓库链接 → 中文 AI 解读视频管线
+
+# ============================================================
+# 频道配置（B 号：开发者省钱实操 + 开源项目盘点）
+# ============================================================
+channel:
+  id: "B"
+  name: "开发者开源号（B号）"
+  positioning: "开发者省钱实操 + 开源项目盘点"
+  series_rule: "开源黑科技 #N"
+  follow_hook: "每周盘点能省钱的开发者工具与开源项目"
+
+# ============================================================
+# 视频默认规格
+# ============================================================
+video:
+  target_duration_seconds: 180        # 目标 3 分钟
+  fps: 30
+  resolution: "1920x1080"
+  language: "zh-CN"
+
+# ============================================================
+# TTS 配置（IndexTTS2 本地声音克隆，用户音色）
+# ============================================================
+tts:
+  provider: "indextts_tts"
+  measured_wps: 2.98             # 实测语速（词/秒）: 用户音色 my_voice.wav 实测 36词/12.10s（indextts 常驻服务）
+  voice_reference: "D:/index-tts/my_voice.wav"   # 用户音色参考（已转换）
+  emotion: "calm"                                 # 纪录片风格：平静
+  emo_vector: [0, 0, 0, 0, 0, 0, 0, 1.0]          # [喜怒哀惧厌恶低落惊喜平静]
+  fp16: true                                       # 3090 推荐 FP16
+  model_dir: "D:/index-tts/checkpoints"
+  cfg_path: "D:/index-tts/checkpoints/config.yaml"
+  repo_root: "D:/index-tts"
+  min_segment_chars: 15            # 中文最短句子（避免过度拆分）
+  max_single_line_chars: 60        # 超过预算但在此阈值内不拆分
+
+# ============================================================
+# 音频配置（BGM + 音效）
+# ============================================================
+audio:
+  bgm:
+    provider: "music_gen"          # 或 freesound_music / 本地音乐库
+    style: "subtle tech documentary background, low intensity, no percussion, synth pads"
+    volume_db: -18                 # 相对旁白
+  sfx:
+    enabled: true
+    provider: "ffmpeg_synth"       # 用 ffmpeg 合成（无 SFX provider 时）
+    volume: 0.28                   # SFX 在旁白之下
+    set:
+      code_window: "synthetic-ui-swipe"    # 代码窗口/图表进入
+      node_light: "soft-boop"              # 节点点亮
+      chart_draw: "line-draw"              # 图表绘制
+      stat_pop: "pop"                      # 数据弹出
+      terminal_typing: "keystroke"         # 终端打字
+      end_slam: "thud"                    # 落版
+
+# ============================================================
+# 组合配置（HyperFrames）
+# ============================================================
+composition:
+  runtime: "hyperframes"
+  hyperframes_version_check: true
+  registry: "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry"
+  render_runtime: "hyperframes"
+
+# ============================================================
+# 管线阶段
+# ============================================================
+pipeline:
+  name: "repo-to-video"
+  stages: ["fetch", "brief", "script", "scene_plan", "assets", "compose", "review", "publish"]
+  human_approval_stages: ["script", "review", "publish"]
+
+# ============================================================
+# 术语表（IndexTTS2 发音控制）
+# ============================================================
+glossary:
+  path: "apps/repo-to-video/glossary.yaml"
+
+# ============================================================
+# 输出路径
+# ============================================================
+output:
+  base_dir: "projects/repo-to-video/{slug}"
+  review_dir: "projects/repo-to-video/review"
+  published_dir: "projects/repo-to-video/published"
+
+# ============================================================
+# B站 发布配置
+# ============================================================
+bilibili:
+  default_tags:
+    - "开源项目"
+    - "GitHub"
+    - "开发者工具"
+    - "AI编程"
+    - "程序员"
+    - "开源"
+    - "代码"
+    - "技术分享"
+  disclosure: "本视频由 AI 辅助生成，配音为创作者本人音色的 IndexTTS2 克隆语音。"

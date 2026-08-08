@@ -1,0 +1,15 @@
+# repo-to-video 术语表（IndexTTS2 发音控制）
+
+# 保留英文发音的词（用中文常见读音标注）
+pronunciations:
+  "Tree-sitter": "特里西特"
+  "SQLite": "SQL 莱特"
+  "MCP": "M-C-P"
+  "GitHub": "GitHub"
+  "Python": "派森"
+  "FastAPI": "法斯特 API"
+  "grep": "格瑞普"
+  "LSP": "L-S-P"
+  "README": "瑞德米"
+  "token": "托肯"
+  "BFS": "B-F-S"
