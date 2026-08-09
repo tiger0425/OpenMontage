@@ -27,6 +27,101 @@ from tools.base_tool import (
 )
 
 
+# 句末标点：作为原句（Utterance）边界判断依据（ADR-003 D1）
+_SENTENCE_ENDINGS = (".", "!", "?", "...", "…")
+
+
+def _ends_with_sentence_endings(text: str) -> bool:
+    """判断文本是否以句末标点结尾（Utterance 合并的句子边界条件）。"""
+    text = (text or "").strip()
+    return any(text.endswith(e) for e in _SENTENCE_ENDINGS)
+
+
+def _majority_speaker(segments: list[dict]) -> Optional[str]:
+    """取一组转录段中出现最多、且最早出现的说话人；全无则返回 None。"""
+    from collections import Counter
+
+    counts = Counter(s.get("speaker") for s in segments if s.get("speaker"))
+    if not counts:
+        return None
+    best, best_count = None, -1
+    for seg in segments:
+        spk = seg.get("speaker")
+        if spk and counts[spk] > best_count:
+            best_count, best = counts[spk], spk
+    return best
+
+
+def _utterance_from_segments(segments: list[dict], uid: str) -> dict:
+    """把一个转录段列表合并为一个原句（Utterance）。
+
+    Utterance 是字幕与逐句时长对齐的锚点单位（ADR-003 D1/D2）：
+    1 原句 = N 个合成子块 = 1 条字幕。
+    """
+    text = " ".join(s.get("text", "").strip() for s in segments).strip()
+    words: list[dict] = []
+    for seg in segments:
+        words.extend(seg.get("words", []) or [])
+    return {
+        "id": uid,
+        "start": round(float(segments[0]["start"]), 3),
+        "end": round(float(segments[-1]["end"]), 3),
+        "text": text,
+        "speaker": _majority_speaker(segments),
+        "segment_ids": [s["id"] for s in segments],
+        "words": words,
+    }
+
+
+def merge_into_utterances(
+    segments: list[dict],
+    merge_gap: float = 0.5,
+    max_seconds: float = 15.0,
+) -> list[dict]:
+    """把 Whisper 碎段按确定性规则合并为原句（Utterance）。
+
+    满足任一条件即开启新原句：
+    - 与上一段的时间间隙 >= merge_gap（默认 0.5s，Merge Gap）
+    - 上一段以句末标点（. ! ?）结尾（真正的句子边界）
+    - 并入后原句时长超过 max_seconds（默认 15s，超长单句不硬并）
+
+    纯函数，不依赖 GPU/模型，可直接单测。
+    """
+    if not segments:
+        return []
+    utterances: list[dict] = []
+    current = [segments[0]]
+    for seg in segments[1:]:
+        prev = current[-1]
+        gap = float(seg["start"]) - float(prev["end"])
+        sentence_boundary = _ends_with_sentence_endings(prev.get("text", ""))
+        over_limit = (float(seg["end"]) - float(current[0]["start"])) > max_seconds
+        if gap < merge_gap and not sentence_boundary and not over_limit:
+            current.append(seg)
+        else:
+            utterances.append(_utterance_from_segments(current, f"u{len(utterances)}"))
+            current = [seg]
+    utterances.append(_utterance_from_segments(current, f"u{len(utterances)}"))
+    return utterances
+
+
+def assign_utterance_speakers(utterances: list[dict]) -> list[dict]:
+    """填充无 speaker 的原句：继承最近的相邻原句说话人（前向补，再后向补）。"""
+    last = None
+    for utt in utterances:
+        if utt.get("speaker"):
+            last = utt["speaker"]
+        elif last:
+            utt["speaker"] = last
+    last = None
+    for utt in reversed(utterances):
+        if utt.get("speaker"):
+            last = utt["speaker"]
+        elif last:
+            utt["speaker"] = last
+    return utterances
+
+
 class Transcriber(BaseTool):
     name = "transcriber"
     version = "0.2.0"
@@ -64,6 +159,8 @@ class Transcriber(BaseTool):
             },
             "language": {"type": "string", "description": "ISO 639-1 language code, or null for auto-detect"},
             "diarize": {"type": "boolean", "default": False},
+            "merge_gap": {"type": "number", "default": 0.5, "description": "原句合并最大时间间隙（秒）"},
+            "max_utterance_seconds": {"type": "number", "default": 15.0, "description": "原句时长上限（秒），超限不硬并"},
             "output_dir": {"type": "string", "description": "Directory for output files"},
         },
     }
@@ -73,6 +170,10 @@ class Transcriber(BaseTool):
         "properties": {
             "segments": {"type": "array"},
             "word_timestamps": {"type": "array"},
+            "utterances": {
+                "type": "array",
+                "description": "原句（Utterance）锚点：字幕与逐句时长对齐的单位",
+            },
             "language": {"type": "string"},
             "duration_seconds": {"type": "number"},
             "speaker_turns": {
@@ -124,6 +225,8 @@ class Transcriber(BaseTool):
         model_size = inputs.get("model_size", "base")
         language = inputs.get("language")
         diarize = inputs.get("diarize", False)
+        merge_gap = inputs.get("merge_gap", 0.5)
+        max_utterance_seconds = inputs.get("max_utterance_seconds", 15.0)
         output_dir = Path(inputs.get("output_dir", input_path.parent))
 
         if not input_path.exists():
@@ -197,11 +300,20 @@ class Transcriber(BaseTool):
         else:
             speaker_turns = []
 
+        # 原句（Utterance）合并：字幕与逐句时长对齐的锚点单位（ADR-003 D1）
+        utterances = merge_into_utterances(
+            segments,
+            merge_gap=float(merge_gap),
+            max_seconds=float(max_utterance_seconds),
+        )
+        utterances = assign_utterance_speakers(utterances)
+
         elapsed = time.time() - start
 
         result_data = {
             "segments": segments,
             "word_timestamps": word_timestamps,
+            "utterances": utterances,
             "language": detected_language,
             "duration_seconds": round(duration, 3),
             "model_size": model_size,

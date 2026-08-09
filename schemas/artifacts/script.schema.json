@@ -80,6 +80,10 @@
           "text": { "type": "string" },
           "start_seconds": { "type": "number", "minimum": 0 },
           "end_seconds": { "type": "number", "minimum": 0 },
+          "speaker": {
+            "type": "string",
+            "description": "说话人标签（来自 diarization）。单人/未分离时缺省为空，兼容旧数据。"
+          },
           "speaker_directions": { "type": "string" },
           "delivery_cues": {
             "type": "object",

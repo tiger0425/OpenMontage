@@ -113,17 +113,17 @@
 
 ## 待办事项
 
-- [ ] 阶段 1：重写 `_apply_diarization`（pyannote 4.x，cuda，serialize，librosa）
-- [ ] 阶段 1：新增原句合并（间隙 0.5s / 上限 15s / 句末标点）
-- [ ] 阶段 1：TikTok 视频单测 diarize + 合并输出
-- [ ] 阶段 2：`script.schema.json` 加 `speaker`
-- [ ] 阶段 2：`config.yaml` 加 `pipeline.diarize` + 对齐参数
-- [ ] 阶段 3：`_translate_segments` 按原句 + speaker 上下文 + 预算
-- [ ] 阶段 4：`_extract_speaker_voice_refs` + `_do_assets_stage` 按 speaker 选 ref
-- [ ] 阶段 5：子块合成 + 实测 + 逐句变速 ±5% + 超限重翻
-- [ ] 阶段 5：SRT 按原句合并 + 验收指标（±15% 达标率、碎句率、inherently_long）
+- [x] 阶段 1：重写 `_apply_diarization`（pyannote 4.x，cuda，serialize，librosa）
+- [x] 阶段 1：新增原句合并（间隙 0.5s / 上限 15s / 句末标点）
+- [ ] 阶段 1：TikTok 视频单测 diarize + 合并输出（需 GPU，派发 Compute Worker 执行）
+- [x] 阶段 2：`script.schema.json` 加 `speaker`
+- [x] 阶段 2：`config.yaml` 加 `pipeline.diarize` + 对齐参数
+- [x] 阶段 3：`_translate_segments` 按原句 + speaker 上下文 + 预算
+- [x] 阶段 4：`_extract_speaker_voice_refs` + `_do_assets_stage` 按 speaker 选 ref
+- [x] 阶段 5：子块合成 + 实测 + 逐句变速 ±5% + 超限重翻
+- [x] 阶段 5：SRT 按原句合并 + 验收指标（±15% 达标率、碎句率、inherently_long）
 - [ ] 阶段 6：TikTok 多人端到端（派发 Worker 执行 render-assets）
-- [ ] 阶段 6：单人回归 + F3lL98Pj90o 基线 + `pytest tests/`
+- [ ] 阶段 6：单人回归 + F3lL98Pj90o 基线（需 GPU）；`pytest tests/` 已全绿
 
 ## 风险与约束
 
