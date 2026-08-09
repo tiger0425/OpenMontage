@@ -108,6 +108,10 @@ python bin/auto_dub.py render-video --video-id {video_id} [--json]
 
 # assets + edit + compose 打包一条龙（20~40 分钟，漂移超标自动缩短重翻）
 python bin/auto_dub.py run-heavy --video-id {video_id} [--json]
+
+# ---- 说话人审校闸门（ticket #8，轻任务，主 Agent 可执行） ----
+# 应用 speaker_review.md 人工修正 → 回写 transcript.json/script.json → script 闸门放行
+python bin/auto_dub.py approve-review --video-id {video_id} [--json]
 ```
 
 > ⚠️ **AGENTS.md 红线**：禁止写 ad-hoc 脚本直接调用工具。
@@ -319,7 +323,11 @@ pipeline:
 
 - **转录后按原句（Utterance）合并**：字幕与时长对齐锚点为原句，不再出现碎句；SRT 每条 = 一个原句。
 - **多人视频自动分音色**：`diarize: auto` 时 pyannote 分离说话人，按 speaker 从原视频切声纹，每句按说话人选音色；单人/未分离回退单声纹（零回归）。
-- **说话人审校闸门**（`human_review`）：转录后按说话人数分流——多人（>=2）或 `required` 时 script checkpoint 置 `awaiting_human`，`process` 停在闸门并把 DB 状态标为 `awaiting_review`（非失败），`run-heavy`/`render-assets` 会被前置检查拒绝；单人（auto 模式）自动通过并留档。人审批准与修正回写见说话人审校闸门实现。
+- **说话人审校闸门**（`human_review`）：转录后按说话人数分流——多人（>=2）或 `required` 时生成 `speaker_review.md`（音色概览 + 每音色逐句 + 修正指令区），script checkpoint 置 `awaiting_human`，`process` 停在闸门并把 DB 状态标为 `awaiting_review`（非失败），`run-heavy`/`render-assets` 会被前置检查拒绝；单人（auto 模式）自动通过并留档。
+- **人审修正**：编辑 `projects/auto-dub/auto-dub-{video_id}/speaker_review.md`，语法：
+  - `# 合并 SPEAKER_03 -> SPEAKER_02`：把某音色所有话归给另一音色（删除 = 合并到他人）
+  - `# u10 -> SPEAKER_02`：把某一句改给另一音色
+  改完运行 `python bin/auto_dub.py approve-review --video-id {video_id}`：解析修正 → 回写 `transcript.json`（utterances + speaker_turns）→ 同步 `script.json` sections 的 speaker（**不重翻**，译文文本 per-utterance 独立）→ script checkpoint 置 `completed` 放行。
 - **逐句对齐**：合成 → 实测时长 → 逐句 atempo（±5%）→ 校验；变速不可达句单次缩短重翻；`segment_timings.json`/`alignment_report.json` 输出 ±15% 达标率、碎句率、物理不可达句数。
 - 需 GPU 的端到端验收（TikTok 双人分音色、F3lL98Pj90o 漂移复跑）在无 GPU 会话中**不可执行**，须派发 Compute Worker（`render-assets` / `run-heavy`）。
 

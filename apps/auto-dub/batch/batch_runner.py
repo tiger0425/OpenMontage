@@ -368,6 +368,20 @@ class BatchRunner:
             print(f"  ❌ run-heavy 失败: {summary['error']}")
         return summary
 
+    def approve_review(self, video_id: str) -> dict:
+        """应用 speaker_review.md 人工修正并放行 script 审校闸门（人审通过）。"""
+        video = self._get_video(video_id)
+        print(f"\n  ✅ [approve-review] {video_id}: {video.get('title', '')}")
+        automator = self._build_automator(video)
+        result = automator.apply_speaker_review()
+        if result.get("success"):
+            self.db.update_status(video_id, 'processing')
+            print("  ✅ 说话人审校通过，可派发 Worker 执行 run-heavy")
+        else:
+            error = result.get("error") or "说话人审校应用失败"
+            print(f"  ❌ approve-review 失败: {error}")
+        return result
+
     
     def status(self) -> dict:
         """查看处理状态统计"""

@@ -45,6 +45,49 @@ from tools.audio.voxcpm_speed_calibrator import VoxCPMSpeedCalibrator, measured_
 from batch.llm_client import LLMClient
 
 
+# 说话人审校修正指令（speaker_review.md）的标注语法（ticket #8）
+_SPEAKER_REVIEW_MERGE_RE = re.compile(r"^#\s*合并\s+([A-Za-z0-9_]+)\s*->\s*([A-Za-z0-9_]+)\s*$")
+_SPEAKER_REVIEW_REROUTE_RE = re.compile(r"^#\s*(u\d+|b\d+)\s*->\s*([A-Za-z0-9_]+)\s*$")
+
+
+def parse_speaker_review_md(md_text: str) -> dict:
+    """解析 speaker_review.md 的人工修正指令（纯函数，可单测）。
+
+    支持的标注（每行一条，其余内容忽略）：
+    - `# 合并 SPEAKER_03 -> SPEAKER_02`：把某音色的所有话归给另一音色（删除 = 合并到他人）
+    - `# u10 -> SPEAKER_02`：把某一句（utterance/block id）改给另一音色
+
+    Returns:
+        {"merge_map": {"SPEAKER_03": "SPEAKER_02"}, "reroutes": {"u10": "SPEAKER_02"}}
+    """
+    merge_map = {}
+    reroutes = {}
+    for raw_line in md_text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("#"):
+            continue
+        m = _SPEAKER_REVIEW_MERGE_RE.match(line)
+        if m:
+            src, dst = m.group(1), m.group(2)
+            if src != dst:
+                merge_map[src] = dst
+            continue
+        m = _SPEAKER_REVIEW_REROUTE_RE.match(line)
+        if m:
+            uid, spk = m.group(1), m.group(2)
+            reroutes[uid] = spk
+    return {"merge_map": merge_map, "reroutes": reroutes}
+
+
+def _resolve_merge_target(speaker: Optional[str], merge_map: dict) -> str:
+    """把 speaker 沿 merge_map 解析到最终音色（支持链式合并，纯函数）。"""
+    seen = set()
+    while speaker in merge_map and speaker not in seen:
+        seen.add(speaker)
+        speaker = merge_map[speaker]
+    return speaker or "(未分配)"
+
+
 class PipelineAutomator:
     """管线自动执行器"""
 
@@ -380,6 +423,146 @@ class PipelineAutomator:
             return True
         return self.human_review == "auto" and speaker_count >= 2
 
+    def _generate_speaker_review_md(self, raw_transcript: dict, utterances: list[dict]) -> str:
+        """生成 speaker_review.md（音色概览 + 每音色的话 + 修正指令区）。纯文本生成，可单测。
+
+        依据 transcript.json 的 utterances（按 speaker 分组），供人工确认音色数量与句子归属。
+        """
+        title = self.video.get("title") or self.project_id
+        dur = float(raw_transcript.get("duration_seconds") or 0)
+        by_speaker: dict[str, list[dict]] = {}
+        for u in utterances:
+            by_speaker.setdefault(u.get("speaker") or "(未分配)", []).append(u)
+
+        def _total_secs(us: list[dict]) -> float:
+            return sum(
+                max(0.0, float(u["end"]) - float(u["start"]))
+                for u in us
+                if u.get("start") is not None and u.get("end") is not None
+            )
+
+        lines = [
+            "# 说话人审校文档",
+            "",
+            f"- 项目: {self.project_id}",
+            f"- 视频: {title}",
+            f"- 时长: {dur:.1f}s",
+            f"- 检测到 {len(by_speaker)} 个音色（cluster）",
+            "",
+            "## 音色概览",
+            "",
+            "| 音色 | 话数 | 总时长(s) | 代表句 |",
+            "|------|------|-----------|--------|",
+        ]
+        for spk in sorted(by_speaker):
+            us = by_speaker[spk]
+            rep = (us[0].get("text") or "").strip().replace("|", "\\|")
+            if len(rep) > 60:
+                rep = rep[:60] + "..."
+            lines.append(f"| {spk} | {len(us)} | {_total_secs(us):.1f} | {rep} |")
+        lines.append("")
+        lines.append("## 每音色的话")
+        lines.append("")
+        for spk in sorted(by_speaker):
+            us = by_speaker[spk]
+            lines.append(f"### {spk}（{len(us)} 句，{_total_secs(us):.1f}s）")
+            lines.append("")
+            for u in us:
+                uid = u.get("id")
+                s = float(u.get("start") or 0)
+                e = float(u.get("end") or 0)
+                text = (u.get("text") or "").strip()
+                lines.append(f"- [{uid}] ({s:.1f}-{e:.1f}s) {text}")
+            lines.append("")
+        lines.append("## 修正指令")
+        lines.append("")
+        lines.append("> 在下方按行填写修正指令，不修改请留空。改完通知 Agent 运行：")
+        lines.append("> `python bin/auto_dub.py approve-review --video-id {video_id}`")
+        lines.append(">")
+        lines.append("> - `# 合并 SPEAKER_03 -> SPEAKER_02`：把某音色的所有话归给另一音色（删除 = 合并到他人）")
+        lines.append("> - `# u10 -> SPEAKER_02`：把某一句改给另一音色")
+        lines.append("")
+        lines.append("（修正指令填在这里）")
+        return "\n".join(lines)
+
+    def apply_speaker_review(self) -> dict:
+        """应用 speaker_review.md 的人工修正并放行 script 审校闸门（ticket #8）。
+
+        流程：
+        1. 解析 speaker_review.md 的修正指令（合并音色 / 单句改归属）
+        2. 回写 transcript.json（utterances + speaker_turns 的 speaker）
+        3. 同步 script.json 的 sections speaker（不重翻：译文文本 per-utterance 独立）
+        4. script checkpoint 置 completed（human_approved=True）放行后续阶段
+        """
+        md_file = self.project_dir / "speaker_review.md"
+        if not md_file.exists():
+            self._last_error = f"找不到 {md_file}，请先运行 process 生成说话人审校文档"
+            return {"success": False, "error": self._last_error}
+        instr = parse_speaker_review_md(md_file.read_text(encoding="utf-8"))
+        merge_map = instr["merge_map"]
+        reroutes = instr["reroutes"]
+
+        # 1. 回写 transcript.json
+        merged_count = reroute_count = 0
+        transcript_file = self.project_dir / "transcript.json"
+        if transcript_file.exists():
+            with open(transcript_file, encoding="utf-8") as f:
+                trans = json.load(f)
+            for u in trans.get("utterances", []):
+                if u.get("speaker") and u["speaker"] in merge_map:
+                    u["speaker"] = _resolve_merge_target(u["speaker"], merge_map)
+                    merged_count += 1
+                if u.get("id") in reroutes:
+                    u["speaker"] = reroutes[u["id"]]
+                    reroute_count += 1
+            for t in trans.get("speaker_turns", []):
+                if t.get("speaker") and t["speaker"] in merge_map:
+                    t["speaker"] = _resolve_merge_target(t["speaker"], merge_map)
+                    merged_count += 1
+            with open(transcript_file, "w", encoding="utf-8") as f:
+                json.dump(trans, f, indent=2, ensure_ascii=False)
+
+        # 2. 同步 script.json（只改 speaker 字段，不重翻）
+        script_data = None
+        script_file = self.project_dir / "script.json"
+        if script_file.exists():
+            with open(script_file, encoding="utf-8") as f:
+                script_data = json.load(f)
+            for sec in script_data.get("sections", []):
+                if sec.get("speaker") and sec["speaker"] in merge_map:
+                    sec["speaker"] = _resolve_merge_target(sec["speaker"], merge_map)
+                if sec.get("id") in reroutes:
+                    sec["speaker"] = reroutes[sec["id"]]
+            with open(script_file, "w", encoding="utf-8") as f:
+                json.dump(script_data, f, indent=2, ensure_ascii=False)
+
+        # 3. script checkpoint 放行（completed + 更新后的 script artifact）
+        if script_data is None:
+            cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "script")
+            script_data = (cp or {}).get("artifacts", {}).get("script") or {}
+        checkpoint.write_checkpoint(
+            pipeline_dir=self.project_dir.parent,
+            project_id=self.project_id,
+            stage="script",
+            status="completed",
+            artifacts={"script": script_data},
+            pipeline_type="localization-dub",
+            human_approval_required=True,
+            human_approved=True,
+        )
+        self._awaiting_human_review = False
+
+        summary = {
+            "success": True,
+            "merged": merge_map,
+            "rerouted": reroutes,
+            "merged_count": merged_count,
+            "reroute_count": reroute_count,
+        }
+        print(f"    ✅ 说话人审校已应用：合并 {merge_map or '无'}，改归属 {reroutes or '无'}")
+        print(f"       script 闸门已放行，可派发 Worker 执行 run-heavy")
+        return summary
+
     # ==========================================
     # 阶段 1: script
     # ==========================================
@@ -497,10 +680,13 @@ class PipelineAutomator:
         with open(script_file, "w", encoding="utf-8") as f:
             json.dump(script_data, f, indent=2, ensure_ascii=False)
 
-        # 4. 说话人审校分流（ticket #10）：多人/required → 写 awaiting_human checkpoint 等人审，
-        #    不放行后续阶段；单人/未分离 → 走自动审核（自动通过留档）
+        # 4. 说话人审校分流（ticket #10）：多人/required → 生成 speaker_review.md、
+        #    写 awaiting_human checkpoint 等人审，不放行后续阶段；单人/未分离 → 自动审核
         need_review = self._needs_human_review(speaker_count)
         if need_review:
+            review_md = self._generate_speaker_review_md(raw_transcript, utterances)
+            review_file = self.project_dir / "speaker_review.md"
+            review_file.write_text(review_md, encoding="utf-8")
             checkpoint.write_checkpoint(
                 pipeline_dir=self.project_dir.parent,
                 project_id=self.project_id,
@@ -514,7 +700,8 @@ class PipelineAutomator:
             self._awaiting_human_review = True
             print(f"    ⏸️ 检测到 {speaker_count} 位说话人，script 待人工审校说话人归属 "
                   f"(human_review={self.human_review})")
-            print(f"       project: {self.project_id} | script.json 已就绪")
+            print(f"       project: {self.project_id} | 请审校 {review_file.name}，"
+                  f"改完运行 python bin/auto_dub.py approve-review --video-id {self.video.get('video_id')}")
             return None
 
         # 5. 自动审核并写入 checkpoint（单人/未分离：自动通过并留档）

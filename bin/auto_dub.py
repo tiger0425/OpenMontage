@@ -109,6 +109,11 @@ def main():
         'run-heavy', help='assets + edit + compose 打包一条龙（重算力，建议派发子 Agent）')
     parser_run_heavy.add_argument('--video-id', required=True, help='目标视频 ID')
 
+    # ---- 说话人审校闸门（ticket #8）----
+    parser_approve_review = subparsers.add_parser(
+        'approve-review', help='应用 speaker_review.md 人工修正并放行 script 审校闸门')
+    parser_approve_review.add_argument('--video-id', required=True, help='目标视频 ID')
+
     # 让 --json / --quiet 在子命令前后都能使用。
     # default=argparse.SUPPRESS 是关键：子 parser 不覆盖全局已解析的值，
     # 否则 `python bin/auto_dub.py --json status` 会被子 parser 默认 False 覆盖。
@@ -158,6 +163,8 @@ def main():
             result = runner.render_video(args.video_id)
         elif args.command == 'run-heavy':
             result = runner.run_heavy(args.video_id)
+        elif args.command == 'approve-review':
+            result = runner.approve_review(args.video_id)
         else:
             result = {"command": args.command, "success": False, "error": "未知子命令"}
 
