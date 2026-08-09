@@ -76,6 +76,8 @@ class PipelineAutomator:
         # 说话人分离与逐句对齐配置（ADR-003 D1/D3/D4/D7 + 多音色）
         self.diarize_mode = config.get("pipeline", {}).get("diarize", "auto")
         self.diarize_enabled = self.diarize_mode != "off"
+        # 翻译域：tech=技术教程（AI/云技术专业词汇，默认）；general=通用/对话（口语化、保持情感）
+        self.translation_domain = config.get("pipeline", {}).get("translation_domain", "tech")
         _align = config.get("pipeline", {}).get("alignment", {}) or {}
         self.merge_gap_seconds = float(_align.get("merge_gap_seconds", 0.5))
         self.max_utterance_seconds = float(_align.get("max_utterance_seconds", 15.0))
@@ -440,23 +442,64 @@ class PipelineAutomator:
             
         return script_data
 
+    def _build_translation_system_prompt(self) -> str:
+        """按翻译域构造翻译 system prompt。
+
+        tech（默认）：技术教程域，保持 AI/云技术专业词汇；
+        general：通用/对话域，口语化、保持说话人情感。
+        """
+        if self.translation_domain == "general":
+            return (
+                "You are a professional video localization translator for conversational "
+                "and entertainment content.\n"
+                "Your task is to translate ONE English utterance (a complete sentence) to "
+                "natural, spoken Simplified Chinese (zh-CN)."
+            )
+        return (
+            "You are a professional video localization translator specializing in AI and cloud technology.\n"
+            "Your task is to translate ONE English utterance (a complete sentence) to Simplified Chinese (zh-CN)."
+        )
+
+    def _build_translation_rules(self, speaker: str | None = None) -> list[str]:
+        """构造翻译指导规则（域 + 说话人 + 专名一致 + 上下文衔接）。"""
+        rules = [
+            "## 翻译指导规则：",
+            "1. 必须精准翻译语境下的含义，输出一条完整、通顺的中文句子。",
+            "2. 在准确、完整、术语合规的前提下，尽量将翻译控制在 max_chinese_characters 预算内。",
+            "3. 直接返回该句的中文译文文本，不要返回 JSON 数组、不要解释、不要 Markdown 包装。",
+        ]
+        n = 4
+        if self.translation_domain == "general":
+            rules.append(f"{n}. 保持口语化与说话人情感/语气（质问、犹豫、委屈、调侃等），不要书面化。")
+            n += 1
+        if speaker:
+            rules.append(f"{n}. 该句由说话人 '{speaker}' 说出，翻译需保持该说话人的语气与称谓风格。")
+            n += 1
+        rules.append(
+            f"{n}. 人名/专有名词（品牌、模型名、人物名等）全片统一：一律保留英文原文，不要音译或变换写法。"
+        )
+        rules.append(
+            f"{n+1}. 若提供 prev_context（上一句英文原文），翻译需与之衔接，正确使用指代"
+            "（这/它/该方法等），不要曲解上文含义。"
+        )
+        return rules
+
     def _translate_segments(self, utterances: list[dict]) -> Optional[list[dict]]:
         """按原句（Utterance）翻译：每个原句一条译文（ADR-003 D2，原句数守恒）。
 
         不再逐 Whisper 碎段翻译、也不按标点拆出新的字幕条目；超长译文留待
         assets 阶段按中文标点切成合成子块（Chunk）。多人视频在单句数据与
-        prompt 中注入说话人上下文，保持语气/称谓。
+        prompt 中注入说话人上下文，保持语气/称谓；并注入上一句英文作为
+        上下文（prev_context），避免指代断裂与单句幻觉。
         """
         cps = self._get_cps()
         print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒")
         translated_lines = []
 
-        system_prompt = (
-            "You are a professional video localization translator specializing in AI and cloud technology.\n"
-            "Your task is to translate ONE English utterance (a complete sentence) to Simplified Chinese (zh-CN)."
-        )
+        system_prompt = self._build_translation_system_prompt()
 
         total = len(utterances)
+        prev_context = None
         for idx, item in enumerate(utterances):
             line_id = str(item["id"])
             dur = item["end"] - item["start"]
@@ -480,17 +523,10 @@ class PipelineAutomator:
             }
             if speaker:
                 single_data["speaker"] = speaker
+            if prev_context:
+                single_data["prev_context"] = prev_context
 
-            rules = [
-                "## 翻译指导规则：",
-                "1. 必须精准翻译技术语境下的含义，输出一条完整、通顺的中文句子。",
-                "2. 在准确、完整、术语合规的前提下，尽量将翻译控制在 max_chinese_characters 预算内。",
-                "3. 直接返回该句的中文译文文本，不要返回 JSON 数组、不要解释、不要 Markdown 包装。",
-            ]
-            if speaker:
-                rules.append(
-                    f"4. 该句由说话人 '{speaker}' 说出，翻译需保持该说话人的语气与称谓风格。"
-                )
+            rules = self._build_translation_rules(speaker)
 
             prompt = (
                 f"{self.glossary.build_translation_prompt()}\n\n"
@@ -510,6 +546,8 @@ class PipelineAutomator:
                     trans = item["text"]
             except Exception as e:
                 logging.error(f"逐句翻译失败 (原句 {line_id}): {e}，保留原文")
+
+            prev_context = item["text"]
 
             # === Glossary 校验修复（逐句） ===
             violations = self.glossary.validate_translation(item["text"], trans)
@@ -1660,7 +1698,8 @@ class PipelineAutomator:
                 "## 缩短重翻规则：\n"
                 "1. 保留完整语义与术语，但必须比当前译文更短（适合逐句时长对齐）。\n"
                 f"2. 目标长度控制在 {budget} 字以内；可删减口语填充词、合并冗余从句。\n"
-                "3. 只返回一条中文译文，不要解释、不要 JSON、不要 Markdown 包装。\n\n"
+                "3. 人名/专有名词（品牌、模型名、人物名等）保持全片统一：保留英文原文，不要音译或变换写法。\n"
+                "4. 只返回一条中文译文，不要解释、不要 JSON、不要 Markdown 包装。\n\n"
                 f"英文原文: {src}\n当前译文: {cur}"
             )
             new_text = self.llm.generate(

@@ -21,11 +21,12 @@ from batch.glossary import Glossary
 from batch.pipeline_automator import PipelineAutomator
 
 
-def _make_automator():
+def _make_automator(domain="tech"):
     inst = object.__new__(PipelineAutomator)
     inst._cps = 5.0
     inst._voxcpm_calibrator = None
     inst.min_char_budget = 15
+    inst.translation_domain = domain
     inst.glossary = Glossary(keep_english=[], translations={})
     return inst
 
@@ -111,3 +112,81 @@ class TestTranslateUtterances:
         lines = inst._translate_segments(utterances)
         assert len(lines) == 1
         assert lines[0]["translated_text"].startswith("这是一段")
+
+
+class TestTranslationContextAndDomain:
+    def test_prev_context_injected_from_previous_utterance(self):
+        inst = _make_automator()
+        seen = []
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            seen.append(prompt)
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        utterances = [
+            {"id": "u0", "start": 0.0, "end": 3.0, "text": "First question here", "speaker": "A"},
+            {"id": "u1", "start": 3.5, "end": 6.0, "text": "It has been sex.", "speaker": "A"},
+        ]
+        inst._translate_segments(utterances)
+        # 第二句的 prompt 必须携带上一句英文作为 prev_context（防单句幻觉/指代断裂）
+        assert "prev_context" in seen[1]
+        assert "First question here" in seen[1]
+
+    def test_first_utterance_has_no_context(self):
+        inst = _make_automator()
+        seen = []
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            seen.append(prompt)
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
+        inst._translate_segments(utterances)
+        # 首句输入载荷不带 prev_context 键（规则文本里的提及不算）
+        payload = seen[0].split("输入:\n", 1)[1]
+        assert '"prev_context"' not in payload
+
+    def test_general_domain_uses_conversational_prompt(self):
+        inst = _make_automator(domain="general")
+        captured = {}
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            captured["system"] = system_instruction
+            captured["prompt"] = prompt
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
+        inst._translate_segments(utterances)
+        assert "conversational" in (captured["system"] or "")
+        assert "AI and cloud technology" not in (captured["system"] or "")
+        # 口语化/情感规则
+        assert "口语化" in captured["prompt"]
+
+    def test_tech_domain_is_default(self):
+        inst = _make_automator(domain="tech")
+        captured = {}
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            captured["system"] = system_instruction
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
+        inst._translate_segments(utterances)
+        assert "AI and cloud technology" in (captured["system"] or "")
+
+    def test_proper_noun_rule_present_in_prompt(self):
+        inst = _make_automator()
+        seen = []
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            seen.append(prompt)
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello Dino", "speaker": None}]
+        inst._translate_segments(utterances)
+        assert "专有名词" in seen[0] or "人名" in seen[0]
