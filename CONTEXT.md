@@ -281,3 +281,34 @@ Whisper Segment 合并且为 Utterance 时的最大时间间隙，0.5s。
 
 **Inherently-Long Sentence（物理不可达句）**：
 原句本身过短（访谈回应词等 < 1s），中文朗读时长物理上不可能贴合原句、变速与重翻均不可达的句子。标记为 `inherently_long`，允许超对齐容差，验收达标率统计时排除，避免浪费变速/重翻算力。
+
+## 多人说话人与音色
+
+**Speaker Cluster（说话人簇）**：
+pyannote 说话人分离输出的标签（SPEAKER_00/01/…）。在重叠访谈上，pyannote 常把一个真实说话人分裂成多个 cluster（3 人 → 4 cluster），是音色错配的根因。
+
+**Cluster Merge（簇合并）**：
+对每个 cluster 的 voice_ref 提 speaker embedding，余弦相似度 ≥ 0.7 时合并为同一说话人。**必须用拼接后的 voice_ref 提 embedding**（可靠），原始波形切片不准。
+
+**Word-Level Speaker Split（词级说话人切分）**：
+同一 Whisper segment 内跨说话人的句子，按每个 word 的时间中点归属 speaker_turn，在说话人切换处切分子段。pyannote 不产生边界的极短插话仍切不开（模型边界）。
+
+**Voice Ref（声纹参考）**：
+克隆某说话人音色用的参考音频。当前做法：多段择优拼接至 ~30s（甜点段 1.5-12s 优先），供 IndexTTS2 克隆。同一真实说话人必须只有一个 voice_ref（经 Cluster Merge）。
+
+**Speaker Review Gate（说话人审校闸门）**：
+多人（≥2 说话人）流程中，转录后生成审校文档（音色数量 + 每音色说的话），人工确认/修正后才继续翻译。单人默认自动通过（可配置强制）。这是多人访谈全自动完成率差的解决方案（见 wayfinder map）。
+
+**Translation Review Gate（翻译审校闸门）**：
+翻译后生成全量中英对照审校文档，人工修改后才进入合成。与说话人审校闸门配套。
+
+## 变速与预算（2026-08-09 修订）
+
+**Tempo Budget（变速预算）**：
+逐句 atempo 允许的变速上限，默认 ±5%。**听感已验证的上限**；代码中 `clamp_tempo_factor` 支持 `max_ratio=1.15`（来自 tachidubb），但 **15% 变速的中文听感未真机验证，默认不应触发**——变速必须保听感，变怪宁可溢出推挤或缩短译文。
+
+**Budget CPS（预算语速）**：
+翻译字数预算用的 cps = 实测 cps × `cps_safety_factor`(0.7)。因为 IndexTTS2 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），固定下限 15 字会让短句译文过长。
+
+**Global Tempo（全局调速）**：
+末段兜底手段。漂移 > drift_budget(1.5s) 且 ≤ max_drift 才触发整段 atempo；漂移在预算内由逐句对齐 + 溢出推挤吸收。

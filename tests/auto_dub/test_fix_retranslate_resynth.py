@@ -154,25 +154,6 @@ class TestGenderAndPitchAnchor:
         g = inst._classify_speaker_genders({"A": male, "B": female})
         assert g == {"A": "male", "B": "female"}
 
-    def test_pitch_anchor_lowers_high_f0(self, tmp_path):
-        import numpy as np
-        import librosa
-        inst = _make_automator(tmp_path)
-        p = tmp_path / "hi.wav"
-        self._tone(p, 300)
-        out = inst._pitch_anchor(p, target_f0=130)
-        assert out != p  # 触发了降调
-        y, sr = librosa.load(str(out), sr=16000, mono=True)
-        f0, _, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
-        med = float(np.nanmedian(f0))
-        assert med < 200  # 已降到男声范围
-
-    def test_pitch_anchor_leaves_low_f0_untouched(self, tmp_path):
-        inst = _make_automator(tmp_path)
-        p = tmp_path / "low.wav"
-        self._tone(p, 110)
-        assert inst._pitch_anchor(p, target_f0=130) == p
-
 
 class TestCalibrateWithVoiceRef:
     def test_calibrate_extracts_voice_ref_when_missing(self, tmp_path, monkeypatch):

@@ -1,0 +1,14 @@
+{
+  "domains": [
+    {
+      "name": "user-interview",
+      "triggers": ["relationship", "dino", "sylvie"],
+      "terms": {
+        "had a sexual relationship": "发生过性关系",
+        "four times": "四次",
+        "Dino": "迪诺",
+        "Sylvie": "西尔维"
+      }
+    }
+  ]
+}

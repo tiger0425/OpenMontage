@@ -65,6 +65,12 @@ class TestExtractSpeakerVoiceRefs:
         inst.assets_dir = Path(tmp_path) / "assets"
         inst.assets_dir.mkdir(parents=True, exist_ok=True)
         inst.source_video = Path(tmp_path) / "source.mp4"
+        inst.voice_ref_target = 30.0
+        inst.voice_ref_min_seconds = 6.0
+        inst.voice_ref_sweet_min = 1.5
+        inst.voice_ref_sweet_max = 12.0
+        inst.voice_ref_long_cap = 15.0
+        inst.ref_merge_enabled = False  # 单测跳过 pyannote 合并（慢）
         return inst
 
     def test_single_speaker_returns_empty(self, tmp_path, monkeypatch):
@@ -81,25 +87,21 @@ class TestExtractSpeakerVoiceRefs:
     def test_two_speakers_generates_two_refs(self, tmp_path, monkeypatch):
         inst = self._make_automator(tmp_path)
 
-        # 模拟 ffmpeg 切片成功
+        # 模拟 ffmpeg 切片成功：写真实 wav 供 soundfile 拼接
+        import numpy as np
+        import soundfile as sf
+
+        def _fake_run(cmd, **kw):
+            args = list(cmd)
+            start = float(args[args.index("-ss") + 1])
+            dur = float(args[args.index("-t") + 1])
+            out = args[-1]
+            sf.write(out, np.zeros(int(dur * 24000), dtype=np.float32), 24000)
+            return __import__("subprocess").CompletedProcess(args=[], returncode=0)
+
         monkeypatch.setattr(
-            "batch.pipeline_automator.subprocess.run",
-            lambda *a, **k: __import__("subprocess").CompletedProcess(args=[], returncode=0),
+            "batch.pipeline_automator.subprocess.run", _fake_run
         )
-
-        # 模拟 AudioSegment.from_wav 返回一个足够长、可归一化的音频对象
-        class _FakeAudio:
-            duration_seconds = 12.0
-            rms = 1000
-
-            def apply_gain(self, gain):
-                return self
-
-            def export(self, out_path, *a, **k):
-                Path(out_path).write_bytes(b"\x00" * 4096)  # 落盘，模拟实际导出
-
-        import batch.pipeline_automator as pa
-        monkeypatch.setattr(pa.AudioSegment, "from_wav", staticmethod(lambda path: _FakeAudio()))
 
         turns = [
             {"start": 0.0, "end": 15.0, "speaker": "A"},

@@ -96,9 +96,35 @@ class PipelineAutomator:
         self.queue_gap_seconds = float(_align.get("queue_gap_seconds", 0.1))
         self.block_gap_seconds = float(_align.get("block_gap_seconds", 1.0))
         self.block_max_pause_seconds = float(_align.get("block_max_pause_seconds", 0.8))
+        # 分段清理链（ticket 01）：diarization 后、原句合并前
+        _seg = config.get("pipeline", {}).get("segments", {}) or {}
+        self.segment_postprocess = bool(_seg.get("enabled", True))
+        self.segment_merge_max_chars = int(_seg.get("merge_max_chars", 240))
+        self.segment_micro_duration = float(_seg.get("micro_duration_seconds", 1.0))
+        self.segment_micro_chars = int(_seg.get("micro_chars", 40))
+        self.segment_split_threshold = float(_seg.get("split_threshold_seconds", 15.0))
+        # 声纹参考：多段择优拼接（ticket 02）
+        _vr = config.get("pipeline", {}).get("voice_ref", {}) or {}
+        self.voice_ref_target = float(_vr.get("target_seconds", 30.0))
+        self.voice_ref_min_seconds = float(_vr.get("min_seconds", 6.0))
+        self.voice_ref_sweet_min = float(_vr.get("sweet_min", 1.5))
+        self.voice_ref_sweet_max = float(_vr.get("sweet_max", 12.0))
+        self.voice_ref_long_cap = float(_vr.get("long_cap", 15.0))
+        # 漏译/未翻译检测（ticket 05）
+        _tr = config.get("pipeline", {}).get("translation", {}) or {}
+        self.untranslated_check = bool(_tr.get("untranslated_check", True))
+        self.untranslated_ratio = float(_tr.get("untranslated_ratio", 0.5))
+        # 翻译长度预算安全因子：cps 校准是长文本均值（~5.8），短句合成有固有起步开销
+        # （首音节拉伸/句首静音），实测短句真实 cps 约 3.6-4.2。乘此因子压低预算
+        # （0.7 → 4.1），让译文更短、合成时长更贴合原句，减少对事后变速/溢出推挤依赖。
+        self.cps_safety_factor = float(_tr.get("cps_safety_factor", 0.7))
         # 缩短重翻：默认关闭——避免为了贴时间窗而砍句子（用户反馈"句子被截断"）。
         # 开启时，变速不可达句会被 LLM 改写得更短以塞进时间窗。
         self.retranslate_enabled = bool(_align.get("retranslate", False))
+
+        # 说话人审校分流（ticket #10）：auto=说话人 >=2 强制人审，单人自动通过留档；
+        # required=所有视频（含单人）强制人审
+        self.human_review = config.get("pipeline", {}).get("human_review", "auto")
 
         # 漂移超标重试计数
         self._drift_retry_count = 0
@@ -111,6 +137,10 @@ class PipelineAutomator:
         self._last_verification_notes: list = []
         self._last_warnings: list = []
         self._last_output_path: Optional[str] = None
+
+        # 说话人审校闸门状态：script checkpoint 写入 awaiting_human 时置位，
+        # 供上层（batch_runner）区分"等待人工审校"与"失败"。
+        self._awaiting_human_review = False
         
         # 确定各文件路径
         self.source_video = self.project_dir / "source.mp4"
@@ -198,6 +228,10 @@ class PipelineAutomator:
         # 恢复 script / scene_plan
         cp_script = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "script")
         cp_scene = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "scene_plan")
+        if cp_script and cp_script.get("status") == "awaiting_human":
+            self._last_error = "render-assets 前置缺失：script 正在等待人工审校说话人归属，请先完成说话人审校"
+            print(f"    ❌ {self._last_error}")
+            return None
         if not (cp_script and cp_script.get("status") == "completed" and cp_script.get("artifacts", {}).get("script")):
             self._last_error = "render-assets 前置缺失：script 阶段未完成，请先运行轻任务 (process) 生成剧本"
             print(f"    ❌ {self._last_error}")
@@ -336,6 +370,16 @@ class PipelineAutomator:
     def get_last_output_path(self) -> Optional[str]:
         return self._last_output_path
 
+    def _needs_human_review(self, speaker_count: int) -> bool:
+        """说话人审校分流判定（ticket #10）。
+
+        human_review=auto（默认）：说话人 >=2 强制人审，单人（含 0/未分离）自动通过留档。
+        human_review=required：所有视频（含单人）都强制人审。
+        """
+        if self.human_review == "required":
+            return True
+        return self.human_review == "auto" and speaker_count >= 2
+
     # ==========================================
     # 阶段 1: script
     # ==========================================
@@ -358,6 +402,10 @@ class PipelineAutomator:
             "diarize": self.diarize_enabled,
             "merge_gap": self.merge_gap_seconds,
             "max_utterance_seconds": self.max_utterance_seconds,
+            "segment_postprocess": self.segment_postprocess,
+            "micro_duration": self.segment_micro_duration,
+            "micro_chars": self.segment_micro_chars,
+            "split_threshold": self.segment_split_threshold,
         })
         if not res.success:
             print(f"    ❌ 转录失败: {res.error}")
@@ -449,7 +497,27 @@ class PipelineAutomator:
         with open(script_file, "w", encoding="utf-8") as f:
             json.dump(script_data, f, indent=2, ensure_ascii=False)
 
-        # 4. 自动审核并写入 checkpoint
+        # 4. 说话人审校分流（ticket #10）：多人/required → 写 awaiting_human checkpoint 等人审，
+        #    不放行后续阶段；单人/未分离 → 走自动审核（自动通过留档）
+        need_review = self._needs_human_review(speaker_count)
+        if need_review:
+            checkpoint.write_checkpoint(
+                pipeline_dir=self.project_dir.parent,
+                project_id=self.project_id,
+                stage="script",
+                status="awaiting_human",
+                artifacts={"script": script_data},
+                pipeline_type="localization-dub",
+                human_approval_required=True,
+                human_approved=False,
+            )
+            self._awaiting_human_review = True
+            print(f"    ⏸️ 检测到 {speaker_count} 位说话人，script 待人工审校说话人归属 "
+                  f"(human_review={self.human_review})")
+            print(f"       project: {self.project_id} | script.json 已就绪")
+            return None
+
+        # 5. 自动审核并写入 checkpoint（单人/未分离：自动通过并留档）
         success, issues = self.auto_reviewer.review_and_approve(
             project_id=self.project_id,
             stage="script",
@@ -604,18 +672,142 @@ class PipelineAutomator:
         blocks.append(PipelineAutomator._block_from_utterances(current, f"b{len(blocks)}"))
         return blocks
 
+    def _build_preceding_context(
+        self,
+        translated: list[dict],
+        max_pairs: int = 4,
+        char_budget: int = 600,
+    ) -> str:
+        """构造翻译前文上下文块（ticket 03，对标 tachidubb preceding_context）。
+
+        取最近已译若干条（src + tgt 对照），供 LLM 保持人名/代词/称谓/时态一致。
+        按字符预算封顶（src+tgt 合计 600 字符 ≈ 150 token，防止撑爆上下文窗口）；
+        只作连续性参考，明确要求不要重译这些行。返回空串表示无前文。
+        """
+        if not translated:
+            return ""
+        pairs: list[tuple[str, str]] = []
+        budget = char_budget
+        for item in reversed(translated):
+            src = (item.get("text") or "").strip()
+            tgt = (item.get("translated_text") or "").strip()
+            if not src or not tgt:
+                continue
+            cost = len(src) + len(tgt)
+            if cost > budget and pairs:
+                break
+            pairs.append((src, tgt))
+            budget -= cost
+            if len(pairs) >= max_pairs:
+                break
+        if not pairs:
+            return ""
+        pairs.reverse()  # 恢复时间序
+        lines = [f"  {s}  ->  {t}" for s, t in pairs]
+        return (
+            "## 前文对话（仅作连续性参考：保持人名/代词/称谓一致；"
+            "不要重译这些行）：\n" + "\n".join(lines) + "\n\n"
+        )
+
+    @staticmethod
+    def _looks_untranslated(
+        text: str,
+        target_lang: str = "zh",
+        cjk_ratio_threshold: float = 0.5,
+        min_meaningful_chars: int = 4,
+    ) -> bool:
+        """判断译文是否明显「未翻译」：中文字符占比过低即视为漏译。
+
+        对标 tachidubb `_looks_untranslated`：检测目标语言脚本（CJK）字符占比。
+        - 中文目标：统计汉字数 / 非空白非标点字符数
+        - CJK 占比 < threshold（默认 0.5）-> 判定漏译
+        - 短文本（如 "OK"）无法判断，不误判
+        - 中文主体 + 少量术语（GPU/API）仍通过，术语不误判
+        """
+        if not text or not text.strip():
+            return False
+        import re
+        cjk = len(re.findall(r"[\u4e00-\u9fff]", text))
+        # 非空白、非标点字符总数（汉字、数字、拉丁字母等）
+        meaningful = len(re.findall(r"[^\s\d\.,!?:;\-()\[\]\"'·。，！？：；、—]", text))
+        if meaningful < min_meaningful_chars:
+            return False
+        return cjk / meaningful < cjk_ratio_threshold
+
+    def _retranslate_untranslated(self, item: dict) -> Optional[str]:
+        """对漏译/未翻译行做单条重译（ticket 05）。
+
+        复用逐句翻译的 prompt 结构，但更强调「必须完整译成中文」。
+        返回 None 表示重译失败（调用方保留原文并记录 warning）。
+        """
+        try:
+            src = item.get("text", "")
+            dur = float(item.get("end", 0)) - float(item.get("start", 0))
+            cps = self._budget_cps()
+            max_chars = self._char_budget_for(dur)
+            single_data = {
+                "id": item.get("id"),
+                "text": src,
+                "duration": round(dur, 2),
+                "max_chinese_characters": max_chars,
+                "target_chars": max_chars,
+                "cps": round(cps, 2),
+                "speaker": item.get("speaker"),
+            }
+            rules = [
+                "## 重译指导规则：",
+                "1. 上一条译文被判定为未翻译（英文残留过多）。你必须把它完整翻译成中文。",
+                "2. 只返回中文译文本身，不要解释、不要 JSON、不要 Markdown 包装。",
+                "3. 专有名词（人名/品牌/模型名）按术语表保留英文或音译，其余全部译成中文。",
+            ]
+            prompt = (
+                f"{self.glossary.build_translation_prompt(source_text=src)}\n\n"
+                + "\n".join(rules)
+                + "\n\n## 输入（一句英文）:\n"
+                + json.dumps(single_data, ensure_ascii=False)
+            )
+            resp = self.llm.generate(prompt, system_instruction=self._build_translation_system_prompt())
+            out = resp.strip().strip('"').strip()
+            if self._looks_untranslated(out):
+                return None
+            return out or None
+        except Exception as e:
+            logging.warning(f"漏译重译失败 ({item.get('id')}): {e}")
+            return None
+
+    def _build_length_rule(self, dur: float, max_chars: int, cps: float) -> str:
+        """构造时长感知的长度目标规则（tt-test 反馈修复）。
+
+        短句（<= 3s）：译文必须在原句秒数内念完，超字必被截断——硬约束，
+        只保留核心语义，宁短勿长。长句：保持"填满时间"导向，避免提前结束。
+        """
+        if dur <= 3.0:
+            return (
+                f"【长度硬约束】该句仅 {dur:.1f} 秒，译文**必须**在 {max_chars} 字以内"
+                f"（约 {cps:.1f} 字/秒），否则超时会被截断。只保留核心语义，"
+                "省略填充词/次要修饰，宁短勿长；确保中文能在原句时长内说完。"
+            )
+        return (
+            f"【长度目标】译文应贴近约 {max_chars} 字（该句约 {dur:.1f} 秒、"
+            f"语速约 {cps:.1f} 字/秒）。译文要完整覆盖这段时间：在忠实原意内"
+            "可补足语气/细节以填满，不要过于简短，避免中文提前结束、与画面说话人不同步；"
+            "也不要刻意堆砌无意义填充词。"
+        )
+
     def _translate_utterances(self, utterances: list[dict]) -> Optional[list[dict]]:
         """逐句翻译：每个原句一条中文译文，时间与英文原句一致。
 
         复用域规则（人名音译/口语化/跳过语气词）+ 长度目标（填满原句时长）。
+        注入前文上下文（最近已译 4 条，600 字符预算）；失败重试时去掉前文。
         """
-        cps = self._get_cps()
-        print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒")
+        cps = self._budget_cps()
+        print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒（长度预算已按短句特性打折）")
         system_prompt = self._build_translation_system_prompt()
         total = len(utterances)
+        translated: list[dict] = []
         for idx, item in enumerate(utterances):
             dur = item["end"] - item["start"]
-            max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
+            max_chars = self._char_budget_for(dur)
             single_data = {
                 "id": item["id"],
                 "text": item["text"],
@@ -626,16 +818,14 @@ class PipelineAutomator:
                 "speaker": item.get("speaker"),
             }
             rules = self._build_translation_rules(item.get("speaker"))
-            rules.append(
-                f"【长度目标】译文应贴近约 {max_chars} 字（该句约 {dur:.1f} 秒、"
-                f"语速约 {cps:.1f} 字/秒）。译文要完整覆盖这段时间：在忠实原意内"
-                "可补足语气/细节以填满，不要过于简短，避免中文提前结束、与画面说话人不同步；"
-                "也不要刻意堆砌无意义填充词。"
-            )
+            rules.append(self._build_length_rule(dur, max_chars, cps))
+            preceding = self._build_preceding_context(translated)
             prompt = (
-                f"{self.glossary.build_translation_prompt()}\n\n"
+                f"{self.glossary.build_translation_prompt(source_text=item['text'])}\n\n"
                 + "\n".join(rules)
-                + "\n\n## 输入（一句英文）:\n"
+                + "\n\n"
+                + preceding
+                + "## 输入（一句英文）:\n"
                 + json.dumps(single_data, ensure_ascii=False)
             )
             if (idx + 1) % 50 == 0 or idx == total - 1:
@@ -645,9 +835,26 @@ class PipelineAutomator:
                 resp = self.llm.generate(prompt, system_instruction=system_prompt)
                 trans = resp.strip().strip('"').strip() or trans
             except Exception as e:
-                logging.error(f"逐句翻译失败 ({item['id']}): {e}，保留原文")
+                # 失败重试：去掉前文上下文（最可能是上下文溢出元凶）
+                logging.warning(f"逐句翻译失败 ({item['id']}): {e}，去前文重试")
+                try:
+                    prompt_no_ctx = prompt.replace(preceding, "")
+                    resp = self.llm.generate(prompt_no_ctx, system_instruction=system_prompt)
+                    trans = resp.strip().strip('"').strip() or trans
+                except Exception as e2:
+                    logging.error(f"逐句翻译重试失败 ({item['id']}): {e2}，保留原文")
+            # 漏译检测（ticket 05）：中文字符占比过低 -> 单条重译
+            if getattr(self, "untranslated_check", True) and self._looks_untranslated(
+                trans, cjk_ratio_threshold=getattr(self, "untranslated_ratio", 0.5)
+            ):
+                retry = self._retranslate_untranslated(item)
+                if retry:
+                    trans = retry
+                else:
+                    logging.warning(f"漏译重译失败 ({item['id']})，保留当前译文")
             item["translated_text"] = trans
             item["max_chars"] = max_chars
+            translated.append(item)
         return utterances
 
     def _translate_blocks(self, blocks: list[dict]) -> Optional[list[dict]]:
@@ -655,14 +862,16 @@ class PipelineAutomator:
 
         规则：意思准确、口语化、跳过 OK/Yeah/Mm-hm 等语气词（除非承载语义）、
         专有名词保留英文。语段即对齐单位，中文只需保证整段落进该段时间范围。
+        注入前文上下文；失败重试时去掉前文。
         """
-        cps = self._get_cps()
-        print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒")
+        cps = self._budget_cps()
+        print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒（长度预算已按短句特性打折）")
         system_prompt = self._build_translation_system_prompt()
         total = len(blocks)
+        translated: list[dict] = []
         for idx, block in enumerate(blocks):
             dur = block["end"] - block["start"]
-            max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
+            max_chars = self._char_budget_for(dur)
             block_data = {
                 "id": block["id"],
                 "text": block["text"],
@@ -673,16 +882,14 @@ class PipelineAutomator:
                 "speaker": block.get("speaker"),
             }
             rules = self._build_translation_rules(block.get("speaker"))
-            rules.append(
-                f"【长度目标】译文应贴近约 {max_chars} 字（该语段约 {dur:.1f} 秒、"
-                f"语速约 {cps:.1f} 字/秒）。译文要完整覆盖这段时间：在忠实原意内"
-                "可补足语气/细节以填满，不要过于简短，避免中文提前结束、与画面说话人不同步；"
-                "也不要刻意堆砌无意义填充词。"
-            )
+            rules.append(self._build_length_rule(dur, max_chars, cps))
+            preceding = self._build_preceding_context(translated)
             prompt = (
-                f"{self.glossary.build_translation_prompt()}\n\n"
+                f"{self.glossary.build_translation_prompt(source_text=block['text'])}\n\n"
                 + "\n".join(rules)
-                + "\n\n## 输入（一个英文语段，可含多句）:\n"
+                + "\n\n"
+                + preceding
+                + "## 输入（一个英文语段，可含多句）:\n"
                 + json.dumps(block_data, ensure_ascii=False)
             )
             if (idx + 1) % 20 == 0 or idx == total - 1:
@@ -692,8 +899,24 @@ class PipelineAutomator:
                 resp = self.llm.generate(prompt, system_instruction=system_prompt)
                 trans = resp.strip().strip('"').strip() or trans
             except Exception as e:
-                logging.error(f"按语段翻译失败 ({block['id']}): {e}，保留原文")
+                logging.warning(f"按语段翻译失败 ({block['id']}): {e}，去前文重试")
+                try:
+                    prompt_no_ctx = prompt.replace(preceding, "")
+                    resp = self.llm.generate(prompt_no_ctx, system_instruction=system_prompt)
+                    trans = resp.strip().strip('"').strip() or trans
+                except Exception as e2:
+                    logging.error(f"按语段翻译重试失败 ({block['id']}): {e2}，保留原文")
+            # 漏译检测（ticket 05）：中文字符占比过低 -> 单条重译
+            if getattr(self, "untranslated_check", True) and self._looks_untranslated(
+                trans, cjk_ratio_threshold=getattr(self, "untranslated_ratio", 0.5)
+            ):
+                retry = self._retranslate_untranslated(block)
+                if retry:
+                    trans = retry
+                else:
+                    logging.warning(f"漏译重译失败 ({block['id']})，保留当前译文")
             block["translated_text"] = trans
+            translated.append(block)
         return blocks
 
     def _build_translation_system_prompt(self) -> str:
@@ -912,6 +1135,12 @@ class PipelineAutomator:
             block_end = float(line["end_seconds"])
             block_dur = max(0.0, block_end - block_start)
             speaker = line.get("speaker")
+            # 说话人 cluster 合并归一化：被合并的 label（如 SPEAKER_03）重定向到
+            # 合并目标（SPEAKER_02），确保同一人用同一音色（tt-test 反馈）。
+            merge_map = getattr(self, "_last_speaker_merge_map", None)
+            if merge_map and speaker in merge_map:
+                speaker = merge_map[speaker]
+                line["speaker"] = speaker  # 同步更新 line，供声像分离/字幕/音轨使用
 
             # 按说话人选择声纹；缺失 speaker 时回退单声纹/最长声纹
             voice_ref = None
@@ -958,25 +1187,23 @@ class PipelineAutomator:
                 output_file, audio_len, align_status, _cw, _gaps = self._build_block_audio(
                     block_id, text, voice_ref, tts_engine, tts, block_dur
                 )
-                if self.retranslate_enabled and align_status == "out_of_budget":
+                # 严重超长句（out_of_budget）：强制定向缩短重译（tt-test 反馈修复）。
+                # 此类句子即使 1.15 高档变速后仍超目标 30%+，靠溢出推挤会把后续全往后推，
+                # 累积成整片漂移。retranslate_enabled 仅控制全局"温和重翻"（漂移兜底），
+                # 不控制此处单句强制重译。
+                if align_status == "out_of_budget":
                     new_text = self._retranslate_utterance(line)
                     if new_text and new_text.strip() and new_text.strip() != text.strip():
                         retranslated_any = True
-                        print(f"      ↻ 语段 {block_id} 变速不可达，缩短重翻后重新合成...")
+                        print(f"      ↻ 语段 {block_id} 严重超长，定向缩短重翻后重新合成...")
                         line["delivery_cues"]["provider_text"] = new_text
                         new_file, new_len, new_status, _, _ = self._build_block_audio(
                             block_id, new_text, voice_ref, tts_engine, tts, block_dur,
                             force_resynthesize=True,
                         )
-                        if new_status in ("aligned", "inherently_long") or new_len < audio_len:
+                        if new_status in ("aligned", "inherently_long", "overflow") or new_len < audio_len:
                             output_file, audio_len, align_status = new_file, new_len, new_status
                             text = new_text
-                # 男声短句克隆不稳：基频过高时降调锚定（保持句子完整，只调音高）
-                if align_status != "silent" and speaker_genders.get(speaker) == "male":
-                    anchored = self._pitch_anchor(output_file)
-                    if anchored != output_file:
-                        output_file = anchored
-                        audio_len = self._wav_duration(output_file) or audio_len
 
             temp_segments.append({
                 "line": line,
@@ -1352,23 +1579,285 @@ class PipelineAutomator:
             logging.warning(f"声纹截取/归一化失败: {e}")
             return False
 
+    @staticmethod
+    def _cut_ref_chunk(source_video: Path, start: float, dur: float, out_path) -> bool:
+        """从原视频切出声纹块（纯 ffmpeg，供多段拼接用）。"""
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-i", str(source_video),
+                "-ss", str(start), "-t", str(dur),
+                "-vn", "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1",
+                str(out_path)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+            return Path(out_path).exists() and Path(out_path).stat().st_size > 1000
+        except Exception as e:
+            logging.warning(f"声纹块截取失败: {e}")
+            return False
+
+    @staticmethod
+    def _stitch_ref_chunks(chunk_paths: list, out_path) -> bool:
+        """把多个声纹块按时间序拼接为一条，并做峰值归一化（>0.9 线性回落到 0.9）。
+
+        参照 tachidubb extract_speaker_audio：拼接后 peak-normalize，避免参考过冲/过闷。
+        """
+        try:
+            import numpy as _np
+            import soundfile as _sf
+
+            pieces = []
+            sr = 24000
+            for p in chunk_paths:
+                data, sr = _sf.read(str(p), dtype="float32")
+                if data.ndim > 1:
+                    data = data.mean(axis=1)
+                pieces.append(data)
+            if not pieces:
+                return False
+            merged = _np.concatenate(pieces).astype(_np.float32)
+            peak = float(_np.abs(merged).max())
+            if peak > 0.01 and peak > 0.9:
+                merged = merged * (0.9 / peak)
+            _sf.write(str(out_path), merged, sr)
+            return True
+        except Exception as e:
+            logging.warning(f"声纹块拼接/归一化失败: {e}")
+            return False
+
+    def _select_voice_ref_candidates(
+        self,
+        speaker_turns: list[dict],
+        target_seconds: float | None = None,
+        min_seconds: float | None = None,
+        sweet_min: float | None = None,
+        sweet_max: float | None = None,
+        long_cap: float | None = None,
+    ) -> dict:
+        """按说话人挑选多段声纹候选（纯逻辑，可单测，ticket 02）。
+
+        同一 speaker 相邻 turn（间隙 < 1.0s）先合并为跨度；对每个 speaker：
+        - 甜点段（sweet_min..sweet_max，默认 1.5–12s）按时长降序优先选，累计到 target（默认 30s）
+        - 甜点不足再补短段（>= 0.4s），仍不足补长段截断（long_cap 15s）
+        - 累计 < min_seconds（默认 6s）的 speaker 跳过（音频不足无法稳定克隆）
+        返回 {speaker: [(start, end), ...]}（按时间序）。
+        """
+        target_seconds = self.voice_ref_target if target_seconds is None else target_seconds
+        min_seconds = self.voice_ref_min_seconds if min_seconds is None else min_seconds
+        sweet_min = self.voice_ref_sweet_min if sweet_min is None else sweet_min
+        sweet_max = self.voice_ref_sweet_max if sweet_max is None else sweet_max
+        long_cap = self.voice_ref_long_cap if long_cap is None else long_cap
+
+        # 1) 相邻 turn 合并为跨度（间隙 < 1.0s）
+        by_speaker: dict[str, list] = {}
+        for t in speaker_turns:
+            spk = t.get("speaker")
+            if not spk:
+                continue
+            by_speaker.setdefault(spk, []).append((float(t["start"]), float(t["end"])))
+
+        result: dict = {}
+        for spk, turns in by_speaker.items():
+            turns = sorted(turns)
+            spans: list[tuple] = []
+            cur_start, cur_end = turns[0]
+            for start, end in turns[1:]:
+                if start - cur_end < 1.0:
+                    cur_end = max(cur_end, end)
+                else:
+                    spans.append((cur_start, cur_end))
+                    cur_start, cur_end = start, end
+            spans.append((cur_start, cur_end))
+
+            # 2) 候选块：甜点/短段/长段截断 三级
+            sweet, short, long_tail = [], [], []
+            for s, e in spans:
+                d = e - s
+                if d < 0.4:
+                    continue  # 太短无用
+                if sweet_min <= d <= sweet_max:
+                    sweet.append((s, e))
+                elif d < sweet_min:
+                    short.append((s, e))
+                else:
+                    # 长段按 long_cap 截成多块
+                    n = max(1, int(d / long_cap))
+                    step = d / n
+                    for i in range(n):
+                        cs = s + i * step
+                        ce = min(e, cs + long_cap)
+                        if ce - cs >= 0.4:
+                            long_tail.append((cs, ce))
+
+            selected: list[tuple] = []
+            total = 0.0
+            for pool in (sweet, short, long_tail):
+                if total >= target_seconds:
+                    break
+                for s, e in pool:
+                    if total >= target_seconds:
+                        break
+                    selected.append((s, e))
+                    total += e - s
+            if total < min_seconds or not selected:
+                continue
+            selected.sort(key=lambda x: x[0])
+            result[spk] = [(round(s, 3), round(e, 3)) for s, e in selected]
+        return result
+
     def _extract_speaker_voice_refs(self, speaker_turns: list[dict]) -> dict:
         """按说话人从原视频切出各自声纹参考片段（ticket 06）。
 
         仅当分离出 >= 2 位说话人时启用多音色；单说话人/未分离返回空映射，
         调用方回退现有单声纹路径（零回归）。
+
+        2.x：改为多段择优拼接（ticket 02），替代单段最长，让 IndexTTS2 克隆更稳。
+        2.2：提取后对 refs 做说话人 embedding 相似度合并（tt-test 反馈：pyannote
+        会把同一人分裂成多 label，导致同一人两个音色/音色差别大）。相似 cluster
+        合并为同一 ref（保留时长较长的），并删除多余 ref 文件。
         """
         speakers = sorted({t["speaker"] for t in speaker_turns if t.get("speaker")})
         if len(speakers) < 2:
             return {}
-        intervals = self._select_voice_ref_intervals(speaker_turns)
+        candidates = self._select_voice_ref_candidates(speaker_turns)
         refs = {}
-        for spk, (start, end) in intervals.items():
+        for spk, intervals in candidates.items():
             out = self.assets_dir / f"voice_ref_{spk}.wav"
-            if self._cut_and_normalize_ref(start, end - start, out):
-                print(f"    🎤 说话人 {spk} 声纹已提取: {out.name} ({end-start:.1f}s)")
+            ok = self._build_stitched_voice_ref(intervals, out)
+            total_secs = sum(e - s for s, e in intervals)
+            if ok:
+                print(f"    🎤 说话人 {spk} 声纹已提取: {out.name} ({total_secs:.1f}s, {len(intervals)} 段拼接)")
                 refs[spk] = out
+        # 合并同人分裂的 cluster（ref embedding 相似度 >= 阈值）
+        if getattr(self, "ref_merge_enabled", True):
+            merged, merge_map = self._merge_voice_refs_by_similarity(refs)
+            if merged and len(merged) < len(refs):
+                # 记录 原始 label -> 合并目标 label，供 utterance speaker 重定向
+                self._last_speaker_merge_map = merge_map
+                print(f"    🎤 说话人 cluster 合并: {len(refs)} -> {len(merged)} "
+                      f"(merge_map={merge_map})")
+            return merged if merged else refs
         return refs
+
+    def _compute_ref_embeddings(self, refs: dict) -> dict:
+        """对每个 voice_ref 提取 speaker embedding（返回 {spk: np.ndarray}）。
+
+        用 pyannote diarization pipeline 的 embedding 子模型；任何 ref 提取失败
+        跳过该 ref。全部失败返回空 dict。
+        """
+        try:
+            import numpy as np
+            import torch
+            from pathlib import Path as _P
+            from pyannote.audio import Pipeline as _Pipeline
+
+            cache_dir = str(_P(__file__).resolve().parents[2] / "models" / "hf_cache")
+            token = os.environ.get("HF_TOKEN", "local-offline")
+            pipe = _Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1", token=token, cache_dir=cache_dir
+            )
+            emb_model = pipe._embedding
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            emb_model.to(device)
+
+            import soundfile as _sf
+            embs = {}
+            for spk, path in refs.items():
+                try:
+                    wav, sr = _sf.read(str(path))
+                    if wav.ndim > 1:
+                        wav = wav.mean(axis=1)
+                    wt = torch.from_numpy(wav.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                    with torch.no_grad():
+                        emb = np.array(emb_model(wt.to(device))).reshape(-1)
+                    embs[spk] = emb
+                except Exception:
+                    continue
+            return embs
+        except Exception as exc:
+            logging.warning(f"ref embedding 提取失败: {exc}")
+            return {}
+
+    def _merge_voice_refs_by_similarity(
+        self, refs: dict, similarity_threshold: float = 0.7
+    ) -> tuple[dict, dict]:
+        """按 speaker embedding 相似度合并同人分裂的 voice_ref。
+
+        对每个 ref 提取 embedding，两两算余弦相似度；相似 >= threshold 的
+        cluster 合并（保留时长较长的 ref，删除其他）。返回 (合并后的 {spk: path},
+        原始label->目标label 映射)。任何异常/无 pyannote 回退 (refs, {})。
+        """
+        if len(refs) < 2:
+            return refs, {}
+        try:
+            import numpy as np
+            from pathlib import Path as _P
+
+            embs = self._compute_ref_embeddings(refs)
+            if len(embs) < 2:
+                return refs, {}
+
+            def _sim(a, b):
+                return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+
+            # 贪心合并：相似 >= threshold 的合并到序号小的 label
+            speakers = sorted(embs.keys())
+            merged_map: dict[str, str] = {s: s for s in speakers}
+            for i in range(len(speakers)):
+                for j in range(i + 1, len(speakers)):
+                    a, b = speakers[i], speakers[j]
+                    if _sim(embs[a], embs[b]) >= similarity_threshold:
+                        merged_map[b] = merged_map[a]
+
+            groups: dict[str, list] = {}
+            for s in speakers:
+                groups.setdefault(merged_map[s], []).append(s)
+
+            out_refs: dict = {}
+            for target, members in groups.items():
+                if len(members) == 1:
+                    out_refs[target] = refs[target]
+                    continue
+                # 保留时长最长的 ref，删除其余
+                best = max(members, key=lambda m: _P(refs[m]).stat().st_size)
+                out_refs[target] = refs[best]
+                for m in members:
+                    if m != best:
+                        try:
+                            _P(refs[m]).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+            return out_refs, merged_map
+        except Exception as exc:
+            logging.warning(f"说话人 ref 合并失败，回退原始 refs: {exc}")
+            return refs, {}
+
+    def _build_stitched_voice_ref(self, intervals: list[tuple], out_path) -> bool:
+        """按候选区间逐段切出并拼接为一条声纹参考。任一主要段失败则整体失败。"""
+        try:
+            chunks = []
+            tmp_paths = []
+            for i, (start, end) in enumerate(intervals):
+                tmp = self.assets_dir / f"voice_ref_tmp_{i}.wav"
+                if not self._cut_ref_chunk(self.source_video, start, end - start, tmp):
+                    # 清理已生成临时块
+                    for t in tmp_paths:
+                        try:
+                            t.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    return False
+                chunks.append(tmp)
+                tmp_paths.append(tmp)
+            ok = self._stitch_ref_chunks(chunks, out_path)
+            for t in tmp_paths:
+                try:
+                    t.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return ok
+        except Exception as e:
+            logging.warning(f"声纹拼接失败: {e}")
+            return False
 
     @staticmethod
     def _select_voice_ref_intervals(
@@ -1503,6 +1992,32 @@ class PipelineAutomator:
                 self._cps = self._voxcpm_calibrator.get_cps()
         return self._cps
 
+    def _budget_cps(self) -> float:
+        """翻译长度预算用的保守 cps = 实测 cps × 安全因子。
+
+        cps 校准值来自长文本均值，短句合成有起步开销（句首静音/首音节拉伸），
+        真实短句 cps 明显更低。用打折后的 cps 给 LLM 算字数预算，译文更贴合原句时长。
+        """
+        return self._get_cps() * float(getattr(self, "cps_safety_factor", 0.7))
+
+    def _char_budget_for(self, duration_seconds: float) -> int:
+        """按原句时长计算翻译字数预算，短句用缩放下限。
+
+        固定 min_budget=15 会让 1-2s 短句被逼出 15 字译文，IndexTTS 合成必然远超
+        原句时长（tt-test 实测短句超长 10-70%），靠变速/溢出推挤救不回，听感像
+        "没说完被截断"。改为：长句保持实测预算（min=15），短句下限随时长缩放
+        （如 1.2s → 4 字），只保留必要回应，靠溢出推挤吸收残余。
+        短句每字时长按 3.2 字/秒估算（实测 IndexTTS 短句 cps 约 3.1-3.6，
+        远低于长文本校准均值），比 4.0 更贴近实际。
+        """
+        floor = min(
+            int(self.min_char_budget),
+            max(2, int(duration_seconds * 3.2)),
+        )
+        return measured_char_budget(
+            duration_seconds, self._budget_cps(), min_budget=floor
+        )
+
     def _calibrate_indextts_cps(self) -> float:
         """每次都用 IndexTTS2 实测中文语速（不读旧缓存，避免用过期的虚高 cps）。
 
@@ -1548,7 +2063,7 @@ class PipelineAutomator:
     # ==========================================
     def _retranslate_shorter(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
         """漂移超标时，用温和的字数预算重新翻译所有句子（保持完整语义，不做硬压缩）。"""
-        cps = self._get_cps()
+        cps = self._budget_cps()
         budget_factor = 0.98 ** self._drift_retry_count
         print(f"    🔄 温和重翻：预算系数 {budget_factor:.2f}，保持完整通顺...")
 
@@ -1577,8 +2092,9 @@ class PipelineAutomator:
                     "note": f"必须精简至{budget}字以内，比原翻译更短。"
                 })
 
+            batch_src = " ".join(it.get("text", "") for it in batch)
             prompt = (
-                f"{self.glossary.build_translation_prompt()}\n\n"
+                f"{self.glossary.build_translation_prompt(source_text=batch_src)}\n\n"
                 "## 温和重翻规则：\n"
                 "1. 翻译要完整、通顺、忠实原文，保留全部语义，不做硬压缩。\n"
                 "2. max_chinese_characters 是软性参考预算，不强制压缩；超预算时混音会自动顺延。\n"
@@ -1648,6 +2164,25 @@ class PipelineAutomator:
         return duration >= threshold
 
     @staticmethod
+    def _should_apply_global_atempo(
+        drift_seconds: float,
+        drift_budget: float = 1.5,
+        max_drift: float = 5.0,
+    ) -> bool:
+        """全局调速兜底决策（ticket 07）：漂移在预算内不触发，超预算才兜底。
+
+        - drift <= 0：无需调速
+        - drift <= drift_budget：由逐句对齐 + 溢出推挤吸收，不触发全局 atempo
+        - drift_budget < drift <= max_drift：末段兜底全局调速
+        - drift > max_drift：超出失败阈值（调用方走缩短重翻/失败路径）
+        """
+        if drift_seconds <= 0:
+            return False
+        if drift_seconds <= drift_budget:
+            return False
+        return drift_seconds <= max_drift
+
+    @staticmethod
     def _split_semantic(text: str, max_chars: int) -> list[str]:
         """按语义/从句边界拆分中文文本，每段不超过 max_chars，避免硬截断。"""
         text = text.strip()
@@ -1697,6 +2232,31 @@ class PipelineAutomator:
         if lo <= factor <= hi:
             return round(factor, 6)
         return None
+
+    @staticmethod
+    def clamp_tempo_factor(
+        factor: float,
+        tempo_budget: float = 0.05,
+        max_ratio: float | None = None,
+    ) -> Optional[float]:
+        """把超出预算的变速因子钳制到预算边界（ticket 06）。
+
+        变速不可达时，不再完全不变速，而是尽量利用预算边界内的容量
+        （默认 1.05；max_ratio 可放宽到 1.15 等更高档），剩余差距靠
+        下一段的溢出推挤吸收。返回钳制后的因子；若 factor 无效返回 None。
+        """
+        if factor is None or factor <= 0 or tempo_budget <= 0:
+            return None
+        lo = 1.0 / (1.0 + tempo_budget)
+        hi = 1.0 + tempo_budget
+        if max_ratio is not None:
+            hi = max(hi, max_ratio)
+            lo = min(lo, 1.0 / max_ratio)
+        if factor < lo:
+            return round(lo, 6)
+        if factor > hi:
+            return round(hi, 6)
+        return round(factor, 6)
 
     @staticmethod
     def is_inherently_long(duration: float, threshold: float = 1.0) -> bool:
@@ -1777,41 +2337,6 @@ class PipelineAutomator:
             except Exception:
                 genders[spk] = "female"
         return genders
-
-    def _pitch_anchor(self, path: Path, target_f0: float = 130.0) -> Path:
-        """短句男声克隆不稳时（基频偏高变女声），降调锚定到男声范围。
-
-        用 ffmpeg asetrate 降调 + aresample 还原采样率 + atempo 还原时长，
-        得到音高更低、时长不变的音频。若基频已足够低则原样返回。
-        """
-        import librosa
-        import numpy as np
-
-        try:
-            y, sr = librosa.load(str(path), sr=16000, mono=True)
-            f0, _, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
-            f0 = f0[~np.isnan(f0)]
-            med = float(np.median(f0)) if len(f0) else 0.0
-            if med <= target_f0 + 40:
-                return path  # 已接近男声范围，不动
-            factor = target_f0 / med
-            factor = max(0.6, min(0.95, factor))  # 降调 5%-40%，避免过度变形
-            out = path.with_name(path.stem + "_pitch.wav")
-            if out.exists() and out.stat().st_size > 1000:
-                return out
-            cmd = [
-                "ffmpeg", "-y", "-i", str(path),
-                "-af", f"asetrate={int(round(sr * factor))},aresample={sr},atempo={1.0 / factor:.6f}",
-                "-c:a", "pcm_s16le", str(out),
-            ]
-            res = subprocess.run(cmd, capture_output=True)
-            if res.returncode == 0 and out.exists():
-                logging.info(f"    🎙️ 男声音高锚定: {path.name} {med:.0f}Hz -> {target_f0:.0f}Hz 附近")
-                return out
-            return path
-        except Exception as e:
-            logging.warning(f"男声音高锚定失败 {path}: {e}")
-            return path
 
     @staticmethod
     def _speaker_pan_map(speakers: list) -> dict:
@@ -1904,8 +2429,21 @@ class PipelineAutomator:
             if self.is_inherently_long(block_dur, self.inherently_long_seconds):
                 status = "inherently_long"
             else:
-                status = "out_of_budget"
-        else:
+                # 变速不可达（ticket 06）：先钳制到预算边界尽量利用容量，
+                # 严重超长（原速/目标 > 1.15）再放宽到 1.15 高档（tachidubb 上限）。
+                raw_factor = total / target if total > 0 and target > 0 else 1.0
+                max_ratio = 1.15 if raw_factor > 1.15 else None
+                clamped = self.clamp_tempo_factor(raw_factor, self.tempo_budget, max_ratio=max_ratio)
+                if clamped is not None:
+                    # 先钳制变速；若 1.15 高档仍不够贴合（剩余 > 30%），
+                    # 标记 out_of_budget 让调用方做定向缩短重译（tt-test 反馈修复）。
+                    status = "overflow"
+                    factor = clamped
+                    if raw_factor > 1.15 and total / clamped / target > 1.3:
+                        status = "out_of_budget"
+                else:
+                    status = "out_of_budget"
+        if factor is not None and status in ("aligned", "overflow"):
             for c in chunk_wavs:
                 new_path = self._atempo_wav(c["path"], factor)
                 c["path"] = new_path
@@ -1945,36 +2483,64 @@ class PipelineAutomator:
             return output_file
 
     def _retranslate_utterance(self, line: dict) -> Optional[str]:
-        """对变速不可达语段做一次温和缩短重翻（ADR-003 Retranslation）。
+        """对严重超长语段做缩短重翻（ADR-003 Retranslation，tt-test 反馈修复）。
 
         只改写译文长度（目标 ≈ 当前预算 × 0.85），不改变原句/子块结构。
+        预算用短句缩放下限（_char_budget_for），确保短句译文能被压缩进原句时长。
         """
         try:
             src = line.get("text", "")
             cur = line.get("delivery_cues", {}).get("provider_text", "")
             dur = float(line.get("end_seconds", 0)) - float(line.get("start_seconds", 0))
-            cps = self._get_cps()
-            budget = max(
-                self.min_char_budget,
-                int(measured_char_budget(dur, cps, min_budget=self.min_char_budget) * 0.85),
-            )
+            cps = self._budget_cps()
+            budget = max(2, int(self._char_budget_for(dur) * 0.85))
             prompt = (
-                f"{self.glossary.build_translation_prompt()}\n\n"
+                f"{self.glossary.build_translation_prompt(source_text=src)}\n\n"
                 "## 缩短重翻规则：\n"
                 "1. 保留完整语义与术语，但必须比当前译文更短（适合逐句时长对齐）。\n"
                 f"2. 目标长度控制在 {budget} 字以内；可删减口语填充词、合并冗余从句。\n"
                 "3. 人名/专有名词（品牌、模型名、人物名等）保持全片统一：保留英文原文，不要音译或变换写法。\n"
-                "4. 只返回一条中文译文，不要解释、不要 JSON、不要 Markdown 包装。\n\n"
+                f"4. 该句原语音约 {dur:.1f} 秒，译文必须能在该时长内念完，超时会被截断。\n"
+                "5. 只返回一条中文译文，不要解释、不要 JSON、不要 Markdown 包装。\n\n"
                 f"英文原文: {src}\n当前译文: {cur}"
             )
             new_text = self.llm.generate(
                 prompt,
                 system_instruction="Shorten this Chinese translation while preserving meaning.",
             ).strip().strip('"').strip()
+            # LLM 结果仍明显超预算时，确定性截断兜底（自动化保证贴合时长窗）。
+            budget_hard = self._char_budget_for(dur)
+            if new_text and len(new_text) > budget_hard:
+                truncated = self._truncate_to_budget(new_text, budget_hard)
+                if truncated and truncated != new_text:
+                    print(f"      ↻ 重译仍超预算，确定性截断: {len(new_text)}字 -> {len(truncated)}字")
+                    return truncated
             return new_text or None
         except Exception as e:
             logging.warning(f"重翻失败 (原句 {line.get('id')}): {e}")
             return None
+
+    @staticmethod
+    def _truncate_to_budget(text: str, budget: int) -> str:
+        """确定性截断译文到预算字数（自动化兜底，不依赖 LLM 遵守度）。
+
+        优先在标点/词边界截断保留语义，末尾加省略号；仍超出则硬截。
+        """
+        text = (text or "").strip()
+        if not text:
+            return text
+        if len(text) <= budget:
+            return text
+        # 找预算范围内的最后标点
+        punct = "。！？；，、…"
+        cut = 0
+        for i in range(budget - 1, 0, -1):
+            if text[i] in punct:
+                cut = i + 1
+                break
+        if cut <= 0:
+            cut = budget
+        return text[:cut].rstrip(punct) + "……"
 
     def _persist_script_update(self, script_data: dict) -> None:
         """重翻后把最新译文写回 script.json 与 script checkpoint（去除非 schema 字段）。"""
@@ -2385,18 +2951,23 @@ class PipelineAutomator:
         atempo_applied = False
         atempo_factor = 1.0
 
-        # === 全局调速兜底（自适应安全网）：任何视频漂移在窗口内都做整体校正，
-        #     不再限"访谈"（时长启发式）。语段级对齐的残余漂移由此兜底消除。
+        # === 全局调速兜底（末段安全网，ticket 07）===
+        # 小漂移（<= drift_budget）由语段级逐句对齐 + 溢出推挤吸收，不触发全局 atempo；
+        # 仅当漂移 > drift_budget 且 <= max_drift 时才兜底整体调速，且速度因子范围收窄。
         if drift_seconds > 0:
             interview_cfg = self.config.get("interview", {}).get("atempo", {})
             atempo_enabled = bool(interview_cfg.get("enabled", True))
-            max_drift_for_atempo = float(interview_cfg.get("max_drift_seconds", 1.5))
-            min_speed = float(interview_cfg.get("min_speed_factor", 0.95))
+            drift_budget = float(interview_cfg.get("drift_budget", 1.5))
+            max_drift_for_atempo = float(interview_cfg.get("max_drift_seconds", 5.0))
+            min_speed = float(interview_cfg.get("min_speed_factor", 0.96))
             max_speed = float(interview_cfg.get("max_speed_factor", 1.05))
-            if atempo_enabled and drift_seconds <= max_drift_for_atempo:
+            if atempo_enabled and self._should_apply_global_atempo(
+                drift_seconds, drift_budget, max_drift_for_atempo
+            ):
                 required_factor = audio_duration / video_duration if video_duration > 0 else 1.0
                 if min_speed <= required_factor <= max_speed:
-                    print(f"    🎚️ 漂移 {drift_seconds:.2f}s ≤ {max_drift_for_atempo}s，应用全局 atempo={required_factor:.3f}")
+                    print(f"    🎚️ 漂移 {drift_seconds:.2f}s 超过预算 {drift_budget}s，"
+                          f"末段兜底全局 atempo={required_factor:.3f}")
                     effective_audio = self._apply_global_atempo(dub_audio_path, required_factor)
                     effective_srt = self._scale_srt_timings(srt_path, 1.0 / required_factor)
                     atempo_applied = True
@@ -2405,16 +2976,27 @@ class PipelineAutomator:
                     drift_seconds = max(0.0, audio_duration - video_duration)
                 else:
                     print(f"    ⚠️ 所需调速系数 {required_factor:.3f} 超出 [{min_speed}, {max_speed}]，不应用 atempo")
+            elif atempo_enabled and 0 < drift_seconds <= drift_budget:
+                print(f"    ✅ 漂移 {drift_seconds:.2f}s ≤ 预算 {drift_budget}s，由逐句对齐吸收，不触发全局 atempo")
 
         # === 渲染主视频（烧录字幕 + 替换音轨） ===
+        # 若配音音频长于视频，用 tpad 冻结末帧延展视频到音频时长（ticket 06），
+        # 避免 ffmpeg 以较短流为输出时长截断音频尾部。
         main_video = self.renders_dir / "main.mp4"
         print("    🎬 正在渲染主视频（烧录字幕 + 音轨合并）...")
         srt_filter_path = str(effective_srt.resolve()).replace('\\', '/').replace(':', '\\:')
+        video_stream_dur = video_duration
+        audio_after_dur = audio_duration
+        tpad_filter = ""
+        extend_by = audio_after_dur - video_stream_dur
+        if extend_by > 0.2:
+            tpad_filter = f",tpad=stop_mode=clone:stop_duration={extend_by:.2f}"
+            print(f"    ⏳ 音频比视频长 {extend_by:.2f}s，冻结末帧延展视频")
         cmd = [
             "ffmpeg", "-y",
             "-i", str(self.source_video),
             "-i", str(effective_audio),
-            "-filter_complex", f"[0:v]subtitles='{srt_filter_path}'[v];[1:a]volume=1.0[a]",
+            "-filter_complex", f"[0:v]subtitles='{srt_filter_path}'{tpad_filter}[v];[1:a]volume=1.0[a]",
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-c:a", "aac",
             str(main_video)

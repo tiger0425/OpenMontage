@@ -68,7 +68,7 @@ def _fake_transcript(n_utterances=2, speakers=None):
     }
 
 
-def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="large-v3", segmentation="sentence"):
+def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="large-v3", segmentation="sentence", speakers=None):
     from tools.base_tool import ToolResult
 
     calls = {"diarize_kwargs": None, "model_size": None}
@@ -77,7 +77,7 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="larg
         def execute(self, inputs):
             calls["diarize_kwargs"] = inputs.get("diarize")
             calls["model_size"] = inputs.get("model_size")
-            return ToolResult(success=True, data=_fake_transcript())
+            return ToolResult(success=True, data=_fake_transcript(speakers=speakers))
 
     monkeypatch.setattr("batch.pipeline_automator.Transcriber", _FakeTranscriber)
 
@@ -107,10 +107,14 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="larg
 
 class TestScriptStageIntegration:
     def test_sections_are_utterances_with_speaker(self, tmp_path, monkeypatch):
-        # 默认逐句分段：sections = 原句，起止 = 英文句时间
-        script_data, _, _ = _run_script_stage(tmp_path, monkeypatch, diarize="auto")
-        assert script_data is not None
-        sections = script_data["sections"]
+        # 多人（2 说话人）在 auto 分流下 script 阶段挂起等待人审（返回 None），
+        # 但 script.json 已完整落盘，sections 的 speaker 字段逐句保留
+        script_data, _, project_dir = _run_script_stage(
+            tmp_path, monkeypatch, diarize="auto", speakers=["SPEAKER_00", "SPEAKER_01"]
+        )
+        assert script_data is None
+        saved = json.loads((project_dir / "script.json").read_text(encoding="utf-8"))
+        sections = saved["sections"]
         assert len(sections) == 2
         assert sections[0]["id"] == "u0"
         assert sections[0]["speaker"] == "SPEAKER_00"
@@ -122,22 +126,27 @@ class TestScriptStageIntegration:
         assert sections[0]["end_seconds"] == 3.0
 
     def test_block_segmentation_optional(self, tmp_path, monkeypatch):
-        # segmentation=block 时按说话人轮次语段
+        # segmentation=block 时按说话人轮次语段（单人自动通过路径）
         script_data, _, _ = _run_script_stage(
-            tmp_path, monkeypatch, diarize="auto", segmentation="block"
+            tmp_path, monkeypatch, diarize="auto", segmentation="block",
+            speakers=["SPEAKER_00", "SPEAKER_00"]
         )
         assert script_data is not None
         assert [s["id"] for s in script_data["sections"]] == ["b0", "b1"]
 
     def test_script_checkpoint_validates_against_schema(self, tmp_path, monkeypatch):
-        script_data, _, project_dir = _run_script_stage(tmp_path, monkeypatch)
+        script_data, _, project_dir = _run_script_stage(
+            tmp_path, monkeypatch, speakers=["SPEAKER_00", "SPEAKER_00"]
+        )
         assert script_data is not None
         cp = checkpoint.read_checkpoint(project_dir.parent, "auto-dub-x", "script")
         assert cp and cp.get("status") == "completed"
         # read_checkpoint 内部已做 schema 校验，能读回即通过
 
     def test_diarize_off_skips_diarization(self, tmp_path, monkeypatch):
-        script_data, calls, _ = _run_script_stage(tmp_path, monkeypatch, diarize="off")
+        script_data, calls, _ = _run_script_stage(
+            tmp_path, monkeypatch, diarize="off", speakers=["SPEAKER_00", "SPEAKER_00"]
+        )
         assert script_data is not None
         assert calls["diarize_kwargs"] is False
 

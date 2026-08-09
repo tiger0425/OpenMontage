@@ -74,7 +74,26 @@ pipeline:
   output_format: "16:9"        # B站横屏
   render_runtime: ffmpeg        # 使用 FFmpeg 合成（替换音轨+烧字幕）
   diarize: auto                  # auto=全量跑说话人分离按结果分档（多人/单人）；off=跳过（现状）
+  human_review: auto             # 说话人审校分流：auto=说话人>=2 强制人审，单人自动通过留档；required=所有视频（含单人）强制人审
   translation_domain: tech       # tech=技术教程域（AI/云技术专业词汇，队列默认）；general=通用/对话域（口语化、保持情感）
+  translation:
+    untranslated_check: true     # 漏译/未翻译检测：译文中文占比过低时单条重译
+    untranslated_ratio: 0.5      # 漏译判定阈值：汉字 / 非空白非标点字符 < 此值视为未翻译
+    cps_safety_factor: 0.7       # 长度预算 cps 打折系数：校准值 5.8 是长文本均值，短句真实 cps 约 3.6-4.2，乘 0.7 ≈ 4.1
+  # 分段清理链（diarization 后、原句合并前）：治 pyannote 假翻转微段/Whisper 按呼吸切句/超长段
+  segments:
+    enabled: true                # 是否启用分段清理链
+    merge_max_chars: 240         # 合并续句后最大字符数（超限不并）
+    micro_duration_seconds: 1.0  # 微段时长阈值：< 此值且 < micro_chars 视为假说话人翻转产物，并入相邻段
+    micro_chars: 40              # 微段字符阈值
+    split_threshold_seconds: 15.0 # 超长段拆分阈值（> 此值在句子边界拆，默认同 max_utterance_seconds）
+  # 声纹参考：多段择优拼接（替代单段最长），更长更干净的 ref 让 IndexTTS2 克隆更稳
+  voice_ref:
+    target_seconds: 30.0         # 拼接目标时长（秒）
+    min_seconds: 6.0             # 不足此秒数的 speaker 跳过（无法稳定克隆）
+    sweet_min: 1.5               # 甜点段时长下限（1.5–12s 为最佳克隆段）
+    sweet_max: 12.0              # 甜点段时长上限
+    long_cap: 15.0               # 超甜点段单次截断上限（秒）
   alignment:
     merge_gap_seconds: 0.5       # 原句合并：相邻转录段最大时间间隙
     max_utterance_seconds: 15.0  # 原句合并：单句上限，超限不硬并
@@ -111,6 +130,34 @@ auto_review:
 # 术语表 (保证多视频翻译一致性)
 # ============================================================
 glossary:
+  # 用户可编辑术语表路径（可选文件，缺失/非法不阻断；域术语优先级 > 内置）
+  user_glossary_path: "apps/auto-dub/user_glossary.json"
+  # 内置域词表：按触发词命中当前句后注入对应词条（只注入本句实际出现的术语）
+  domains:
+    - name: "tech"
+      triggers: ["GPU", "LLM", "API", "model", "training", "neural network", "token"]
+      terms:
+        "fine-tuning": "微调"
+        "inference": "推理"
+        "token": "token"
+        "context window": "上下文窗口"
+        "quantization": "量化"
+        "weights": "权重"
+        "dataset": "数据集"
+        "benchmark": "基准测试"
+    - name: "interview"
+      triggers: ["relationship", "affair", "cheat", "sex", "romance"]
+      terms:
+        "had a sexual relationship": "发生过性关系"
+        "four times": "四次"
+        "affair": "婚外情"
+        "cheating": "出轨"
+    - name: "slang"
+      triggers: ["bird", "birds", "chick", "dude", "bro", "gonna"]
+      terms:
+        "birds": "姑娘们（俚语）"
+        "dude": "哥们"
+        "gonna": "将要"
   # 不翻译，保留英文原文
   keep_english:
     - GPU
@@ -227,7 +274,7 @@ outro:
   style: bilibili
   min_duration_seconds: 1.5
   max_duration_seconds: 5.0
-  drift_fail_threshold_seconds: 5.0
+  drift_fail_threshold_seconds: 10.0   # 漂移在此内允许出片（tpad 冻末帧延展吸收），超过才失败重翻
   text:
     thanks: "感谢观看"
     cta: "觉得有用，欢迎点赞 · 收藏 · 关注"
@@ -252,10 +299,11 @@ interview:
   classification:
     min_duration_seconds: 180        # 时长 >= 3分钟视为访谈/长视频
   atempo:
-    enabled: true
-    max_drift_seconds: 5.0           # 漂移在此范围内允许全局调速（放宽到接近失败阈值，作末段兜底）
-    min_speed_factor: 0.94           # 最慢 94%
-    max_speed_factor: 1.06           # 最快 106%
+    enabled: true                    # 全局调速兜底开关（末段安全网）
+    drift_budget: 1.5                # 漂移 <= 此值由逐句对齐+溢出推挤吸收，不触发全局 atempo
+    max_drift_seconds: 10.0          # 漂移在此范围内允许末段兜底调速（超过才失败重翻）
+    min_speed_factor: 0.96           # 兜底最慢 96%
+    max_speed_factor: 1.05           # 兜底最快 105%（听感已验证上限；tt-test 实测仅需 1.02-1.03，勿放宽）
 
 # ============================================================
 # 输出路径

@@ -57,6 +57,7 @@ OpenMontage/
 ```
 pending → downloading → transcribing → translating → tts_synthesis
        → mixing → rendering → review → published
+        （多人/强制审：transcribing 后 → awaiting_review → 人审通过后继续）
 ```
 
 | 状态 | 含义 |
@@ -70,6 +71,7 @@ pending → downloading → transcribing → translating → tts_synthesis
 | `rendering` | FFmpeg 字幕烧录 + 音画压制 |
 | `review` | 成品已生成，等待人工审核 |
 | `published` | 已标记发布 |
+| `awaiting_review` | 说话人审校闸门挂起：多人（>=2 说话人）或 `human_review: required` 时 script checkpoint 等待人工批准（不是失败） |
 
 ---
 
@@ -183,6 +185,29 @@ if rms < 100:  # 静音阈值
 2. 删除静音伪文件
 3. 重新触发 `process` 命令，系统会自动重新合成
 
+**问题：多人访谈音色错配（同一人两种音色）**
+
+pyannote 在重叠访谈上常把 3 个真实说话人分裂成 4 个 cluster，旧流程给每个 cluster 克隆一个声纹 → 主持人出现两种音色。
+
+**修复（已实现，tt-test 验证）**：
+1. **Cluster Merge**：对每个 cluster 的 voice_ref 提 speaker embedding，相似度 ≥ 0.7 合并（SPEAKER_03 并入 SPEAKER_02）
+2. **Word-Level Split**：同一句子内跨说话人按词切分（`transcriber._assign_speakers`）
+3. **合并归一化**：被合并 cluster 的句子重定向到目标声纹
+4. **一人一音轨**：`dub_{SPEAKER_N}.wav` 独立 stem
+
+**问题：短句合成超长导致漂移**
+
+IndexTTS2 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），固定 15 字下限会让 1-2s 短句译文过长。
+
+**修复**：`cps_safety_factor=0.7` 打折 + 短句预算随时长缩放 + 翻译长度硬约束 + 确定性截断兜底（`_truncate_to_budget`）。详见 `skills/pipelines/localization-dub/lessons-learned.md` 多人访谈章节。
+
+**问题：男声音高锚定破坏音色**
+
+旧 `_pitch_anchor` 用 asetrate 降调修复"短句克隆成女声"，但强制降调引入机械感/变调。**已彻底删除**（含测试）。正确做法：声纹参考多段择优拼接至 ~30s，源头稳定克隆。
+
+**多人访谈人审闸门（规划中，见 GitHub wayfinder map #7）**：
+多人（≥2 说话人）全自动完成率差，前期需人工校验：说话人审校（音色数量 + 每音色说的话）+ 翻译审校（全量中英对照）。单人默认自动通过但留档。正在通过 [wayfinder map](https://github.com/tiger0425/OpenMontage/issues/7) 规划落地。
+
 ---
 
 ## 🎨 封面生成（两种方式，按需选择）
@@ -281,6 +306,7 @@ glossary:
 ```yaml
 pipeline:
   diarize: auto                  # auto=全量跑说话人分离按结果分档（多人/单人）；off=跳过（单人为主省时间）
+  human_review: auto             # 说话人审校分流：auto=说话人>=2 强制人审，单人自动通过留档；required=所有视频（含单人）强制人审
   alignment:
     merge_gap_seconds: 0.5       # 原句合并：相邻转录段最大时间间隙
     max_utterance_seconds: 15.0  # 原句合并：单句上限，超限不硬并
@@ -293,6 +319,7 @@ pipeline:
 
 - **转录后按原句（Utterance）合并**：字幕与时长对齐锚点为原句，不再出现碎句；SRT 每条 = 一个原句。
 - **多人视频自动分音色**：`diarize: auto` 时 pyannote 分离说话人，按 speaker 从原视频切声纹，每句按说话人选音色；单人/未分离回退单声纹（零回归）。
+- **说话人审校闸门**（`human_review`）：转录后按说话人数分流——多人（>=2）或 `required` 时 script checkpoint 置 `awaiting_human`，`process` 停在闸门并把 DB 状态标为 `awaiting_review`（非失败），`run-heavy`/`render-assets` 会被前置检查拒绝；单人（auto 模式）自动通过并留档。人审批准与修正回写见说话人审校闸门实现。
 - **逐句对齐**：合成 → 实测时长 → 逐句 atempo（±5%）→ 校验；变速不可达句单次缩短重翻；`segment_timings.json`/`alignment_report.json` 输出 ±15% 达标率、碎句率、物理不可达句数。
 - 需 GPU 的端到端验收（TikTok 双人分音色、F3lL98Pj90o 漂移复跑）在无 GPU 会话中**不可执行**，须派发 Compute Worker（`render-assets` / `run-heavy`）。
 

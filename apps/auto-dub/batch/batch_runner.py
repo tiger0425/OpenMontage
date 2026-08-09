@@ -196,9 +196,17 @@ class BatchRunner:
                     print(f"   ⚡ 重算力请派发 Compute Worker 子 Agent 执行:")
                     print(f"      python bin/auto_dub.py run-heavy --video-id {video['video_id']} --json")
                 else:
-                    self.db.update_status(video['video_id'], 'failed', error_msg="轻任务执行失败")
-                    stats['failed'] += 1
-                    print(f"❌ 轻任务失败")
+                    # 说话人审校闸门：多人/强制审 → script checkpoint 挂起等待人审，非失败
+                    if self._is_awaiting_review(video['video_id']):
+                        self.db.update_status(
+                            video['video_id'], 'awaiting_review',
+                            error_msg="检测到多人说话/强制审，script 等待人工审校说话人归属")
+                        stats['awaiting_review'] = stats.get('awaiting_review', 0) + 1
+                        print(f"⏸️ {video['video_id']} 等待人工审校说话人归属（script 闸门）")
+                    else:
+                        self.db.update_status(video['video_id'], 'failed', error_msg="轻任务执行失败")
+                        stats['failed'] += 1
+                        print(f"❌ 轻任务失败")
             except Exception as e:
                 self.db.update_status(video['video_id'], 'failed', error_msg=str(e))
                 stats['failed'] += 1
@@ -227,6 +235,12 @@ class BatchRunner:
         if not video:
             raise ValueError(f"视频 {video_id} 不存在于数据库")
         return video
+
+    def _is_awaiting_review(self, video_id: str) -> bool:
+        """script checkpoint 是否处于 awaiting_human（说话人审校闸门挂起）。"""
+        from lib import checkpoint
+        cp = checkpoint.read_checkpoint(self.projects_dir, f"auto-dub-{video_id}", "script")
+        return bool(cp and cp.get("status") == "awaiting_human")
 
     def _build_automator(self, video: dict):
         """为单个视频构建 PipelineAutomator（复用 _process_single_video 的构造逻辑）。"""
@@ -278,6 +292,10 @@ class BatchRunner:
         if summary["success"]:
             self.db.update_status(video_id, 'processing')
             print("  ✅ render-assets 完成")
+        elif self._is_awaiting_review(video_id):
+            self.db.update_status(video_id, 'awaiting_review',
+                                  error_msg="script 等待人工审校说话人归属，请先完成审校")
+            print(f"  ⏸️ render-assets 未执行：{summary['error']}")
         else:
             self.db.update_status(video_id, 'failed', error_msg=summary["error"])
             print(f"  ❌ render-assets 失败: {summary['error']}")
@@ -337,8 +355,13 @@ class BatchRunner:
             "warnings": automator.get_last_warnings(),
             "error": None if success else (automator.get_last_error() or "run-heavy 管线执行失败"),
         }
-        self.db.update_status(video_id, 'done' if success else 'failed',
-                              error_msg=None if success else summary["error"])
+        if success:
+            self.db.update_status(video_id, 'done')
+        elif self._is_awaiting_review(video_id):
+            self.db.update_status(video_id, 'awaiting_review',
+                                  error_msg="script 等待人工审校说话人归属，请先完成审校")
+        else:
+            self.db.update_status(video_id, 'failed', error_msg=summary["error"])
         if success:
             print("  ✅ run-heavy 完成")
         else:
@@ -357,7 +380,7 @@ class BatchRunner:
         labels = {
             'discovered': '[新]', 'filtering': '[筛]', 'queued': '[待]',
             'processing': '[中]', 'done': '[完]', 'published': '[发]',
-            'failed': '[败]', 'skipped': '[跳]'
+            'failed': '[败]', 'skipped': '[跳]', 'awaiting_review': '[审]'
         }
         for status, count in sorted(stats.items()):
             label = labels.get(status, '[*]')
