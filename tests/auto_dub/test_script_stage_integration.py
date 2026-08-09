@@ -23,13 +23,14 @@ from batch.glossary import Glossary
 from batch.pipeline_automator import PipelineAutomator
 
 
-def _make_config(diarize="auto", whisper_model="large-v3"):
+def _make_config(diarize="auto", whisper_model="large-v3", segmentation="sentence"):
     return {
         "pipeline": {
             "tts_engine": "indextts",
             "min_char_budget": 15,
             "diarize": diarize,
             "whisper_model": whisper_model,
+            "segmentation": segmentation,
             "alignment": {
                 "merge_gap_seconds": 0.5,
                 "max_utterance_seconds": 15.0,
@@ -67,7 +68,7 @@ def _fake_transcript(n_utterances=2, speakers=None):
     }
 
 
-def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="large-v3"):
+def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="large-v3", segmentation="sentence"):
     from tools.base_tool import ToolResult
 
     calls = {"diarize_kwargs": None, "model_size": None}
@@ -91,7 +92,7 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="larg
         project_id="auto-dub-x",
         project_dir=project_dir,
         video=video,
-        config=_make_config(diarize, whisper_model),
+        config=_make_config(diarize, whisper_model, segmentation),
         db=None,
         glossary=Glossary(keep_english=[], translations={}),
         auto_reviewer=AutoReviewer({"max_fix_loops": 1, "checks": {}}, tmp_path / "projects"),
@@ -105,17 +106,28 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="larg
 
 
 class TestScriptStageIntegration:
-    def test_sections_are_blocks_with_speaker(self, tmp_path, monkeypatch):
+    def test_sections_are_utterances_with_speaker(self, tmp_path, monkeypatch):
+        # 默认逐句分段：sections = 原句，起止 = 英文句时间
         script_data, _, _ = _run_script_stage(tmp_path, monkeypatch, diarize="auto")
         assert script_data is not None
         sections = script_data["sections"]
-        # 2 个原句（间隙 1.5s）→ 2 个语段
         assert len(sections) == 2
-        assert sections[0]["id"] == "b0"
+        assert sections[0]["id"] == "u0"
         assert sections[0]["speaker"] == "SPEAKER_00"
-        assert sections[1]["id"] == "b1"
+        assert sections[1]["id"] == "u1"
         assert sections[1]["speaker"] == "SPEAKER_01"
         assert sections[0]["delivery_cues"]["provider_text"] == "这是一句中文翻译。"
+        # 时间与英文原句一致
+        assert sections[0]["start_seconds"] == 0.0
+        assert sections[0]["end_seconds"] == 3.0
+
+    def test_block_segmentation_optional(self, tmp_path, monkeypatch):
+        # segmentation=block 时按说话人轮次语段
+        script_data, _, _ = _run_script_stage(
+            tmp_path, monkeypatch, diarize="auto", segmentation="block"
+        )
+        assert script_data is not None
+        assert [s["id"] for s in script_data["sections"]] == ["b0", "b1"]
 
     def test_script_checkpoint_validates_against_schema(self, tmp_path, monkeypatch):
         script_data, _, project_dir = _run_script_stage(tmp_path, monkeypatch)

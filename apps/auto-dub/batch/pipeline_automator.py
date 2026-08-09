@@ -80,6 +80,12 @@ class PipelineAutomator:
         self.diarize_enabled = self.diarize_mode != "off"
         # 翻译域：tech=技术教程（AI/云技术专业词汇，默认）；general=通用/对话（口语化、保持情感）
         self.translation_domain = config.get("pipeline", {}).get("translation_domain", "tech")
+        # 合成情感：calm=固定平静（贴合原版平淡语气，默认）；auto=服务端从文字自动判情感
+        self.tts_emotion = config.get("pipeline", {}).get("tts_emotion", "calm")
+        # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
+        self.subtitle_driven = config.get("pipeline", {}).get("subtitle_driven", "off")
+        # 分段/翻译粒度：sentence=逐句（每句一条中文，时间与英文原句一致，默认）；block=按说话人轮次语段
+        self.segmentation = config.get("pipeline", {}).get("segmentation", "sentence")
         _align = config.get("pipeline", {}).get("alignment", {}) or {}
         self.merge_gap_seconds = float(_align.get("merge_gap_seconds", 0.5))
         self.max_utterance_seconds = float(_align.get("max_utterance_seconds", 15.0))
@@ -90,6 +96,9 @@ class PipelineAutomator:
         self.queue_gap_seconds = float(_align.get("queue_gap_seconds", 0.1))
         self.block_gap_seconds = float(_align.get("block_gap_seconds", 1.0))
         self.block_max_pause_seconds = float(_align.get("block_max_pause_seconds", 0.8))
+        # 缩短重翻：默认关闭——避免为了贴时间窗而砍句子（用户反馈"句子被截断"）。
+        # 开启时，变速不可达句会被 LLM 改写得更短以塞进时间窗。
+        self.retranslate_enabled = bool(_align.get("retranslate", False))
 
         # 漂移超标重试计数
         self._drift_retry_count = 0
@@ -376,19 +385,24 @@ class PipelineAutomator:
         except Exception as e:
             logging.warning(f"保存 transcript.json 失败: {e}")
 
-        # 2. 按语段分组 + 翻译（口语化，跳过语气词）
-        print("    ✍️ 开始按语段翻译并应用字数预算...")
-        blocks = self._group_utterance_blocks(utterances, self.block_gap_seconds)
-        blocks = self._translate_blocks(blocks)
-        if not blocks:
+        # 2. 翻译与分段：默认逐句（每句一条中文、时间与英文原句一致）；
+        #    segmentation=block 时按说话人轮次语段。
+        print("    ✍️ 开始翻译...")
+        if self.segmentation == "block":
+            blocks = self._group_utterance_blocks(utterances, self.block_gap_seconds)
+            blocks = self._translate_blocks(blocks)
+            units = blocks
+        else:
+            units = self._translate_utterances(utterances)
+        if not units:
             print("    ❌ 翻译失败")
             return None
 
-        # 3. 构造 script.json 结构（sections = 语段）
+        # 3. 构造 script.json 结构（sections = 翻译单元，起止取自单元时间）
         sections = []
         total_dur = float(raw_transcript["duration_seconds"])
-        for block in blocks:
-            start_sec = float(block["start"])
+        for unit in units:
+            start_sec = float(unit["start"])
             progress = start_sec / total_dur if total_dur > 0 else 0
             if progress < 0.1:
                 p_label = "quick_intro"
@@ -399,17 +413,17 @@ class PipelineAutomator:
             else:
                 p_label = "powerful_ending"
             section = {
-                "id": str(block["id"]),
-                "text": block["text"],
+                "id": str(unit["id"]),
+                "text": unit["text"],
                 "paragraph_label": p_label,
-                "start_seconds": float(block["start"]),
-                "end_seconds": float(block["end"]),
+                "start_seconds": float(unit["start"]),
+                "end_seconds": float(unit["end"]),
                 "delivery_cues": {
-                    "provider_text": block["translated_text"]
+                    "provider_text": unit["translated_text"]
                 }
             }
-            if block.get("speaker"):
-                section["speaker"] = block["speaker"]
+            if unit.get("speaker"):
+                section["speaker"] = unit["speaker"]
             sections.append(section)
             
         script_data = {
@@ -446,6 +460,101 @@ class PipelineAutomator:
             return None
             
         return script_data
+
+    @staticmethod
+    def _signature_to_intervals(
+        signatures: list[str], fps: float, min_duration: float = 0.6
+    ) -> list:
+        """把逐帧签名序列转成字幕条区间（内容变化 → 新条）。
+
+        相邻帧签名相同 → 同一字幕条；变化 → 新条。
+        过滤过短片段（< min_duration 视为闪动噪声）。纯函数，可单测。
+        """
+        if not signatures:
+            return []
+        intervals = []
+        start = 0.0
+        for i in range(1, len(signatures)):
+            t = i / fps
+            if signatures[i] != signatures[i - 1]:
+                intervals.append((start, t))
+                start = t
+        intervals.append((start, len(signatures) / fps))
+        cleaned = [iv for iv in intervals if iv[1] - iv[0] >= min_duration]
+        return [(round(s, 2), round(e, 2)) for s, e in cleaned]
+
+    @staticmethod
+    def _bucket_utterances_by_intervals(utterances: list[dict], intervals: list) -> list[dict]:
+        """把原句按时间归属到字幕条区间，产生字幕驱动语段。
+
+        每条字幕条 = 一个语段；段 start/end = 字幕条区间（而非原句起止），
+        使中文字幕贴合画面字幕的显示节奏。纯函数，可单测。
+        """
+        buckets: dict = {i: [] for i in range(len(intervals))}
+        for utt in utterances:
+            ustart, uend = float(utt["start"]), float(utt["end"])
+            best_i, best_ov = None, 0.0
+            for i, (s, e) in enumerate(intervals):
+                ov = max(0.0, min(uend, e) - max(ustart, s))
+                if ov > best_ov:
+                    best_i, best_ov = i, ov
+            if best_i is not None and best_ov > 0:
+                buckets[best_i].append(utt)
+        blocks = []
+        for i, (s, e) in enumerate(intervals):
+            utts = buckets[i]
+            if not utts:
+                continue
+            blocks.append(PipelineAutomator._block_from_utterances(utts, f"b{len(blocks)}"))
+            blocks[-1]["start"] = float(s)
+            blocks[-1]["end"] = float(e)
+        return blocks
+
+    def _detect_subtitle_intervals(
+        self, video_path, fps: float = 2.0, min_duration: float = 0.6
+    ) -> list:
+        """检测画面底部内嵌字幕条的显示时间（帧差分，无需 OCR 文字）。
+
+        提取底部区域低帧率帧 → 逐帧"单元格布局签名"（把字幕带按 6x3 网格
+        量化暗像素密度，对帧间抖动鲁棒）→ 内容变化即新字幕条。
+        失败/无字幕返回 []（调用方回退语段分组）。
+        """
+        import tempfile
+        from PIL import Image
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="omo_subdetect_") as td:
+                pattern = os.path.join(td, "f_%05d.png")
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(video_path),
+                    "-vf", f"fps={fps},crop=iw:ih*0.25:0:ih*0.72,scale=480:-1",
+                    "-q:v", "5", pattern,
+                ]
+                res = subprocess.run(cmd, capture_output=True)
+                if res.returncode != 0:
+                    return []
+                frames = sorted(Path(td).glob("f_*.png"))
+                if not frames:
+                    return []
+                sigs = []
+                for f in frames:
+                    im = Image.open(f).convert("L").resize((48, 12))
+                    px = im.load()
+                    cells = []
+                    for ry in range(3):
+                        for cx in range(6):
+                            dark = sum(
+                                1
+                                for yy in range(ry * 4, ry * 4 + 4)
+                                for xx in range(cx * 8, cx * 8 + 8)
+                                if px[xx, yy] < 110
+                            )
+                            cells.append("0" if dark < 2 else ("1" if dark < 8 else ("2" if dark < 20 else "3")))
+                    sigs.append("".join(cells))
+                return PipelineAutomator._signature_to_intervals(sigs, fps, min_duration)
+        except Exception as e:
+            logging.warning(f"画面字幕检测失败，回退语段分组: {e}")
+            return []
 
     @staticmethod
     def _block_from_utterances(utts: list[dict], bid: str) -> dict:
@@ -495,6 +604,52 @@ class PipelineAutomator:
         blocks.append(PipelineAutomator._block_from_utterances(current, f"b{len(blocks)}"))
         return blocks
 
+    def _translate_utterances(self, utterances: list[dict]) -> Optional[list[dict]]:
+        """逐句翻译：每个原句一条中文译文，时间与英文原句一致。
+
+        复用域规则（人名音译/口语化/跳过语气词）+ 长度目标（填满原句时长）。
+        """
+        cps = self._get_cps()
+        print(f"    📏 实测 TTS 语速: {cps:.2f} 字/秒")
+        system_prompt = self._build_translation_system_prompt()
+        total = len(utterances)
+        for idx, item in enumerate(utterances):
+            dur = item["end"] - item["start"]
+            max_chars = measured_char_budget(dur, cps, min_budget=self.min_char_budget)
+            single_data = {
+                "id": item["id"],
+                "text": item["text"],
+                "duration": round(dur, 2),
+                "max_chinese_characters": max_chars,
+                "target_chars": max_chars,
+                "cps": round(cps, 2),
+                "speaker": item.get("speaker"),
+            }
+            rules = self._build_translation_rules(item.get("speaker"))
+            rules.append(
+                f"【长度目标】译文应贴近约 {max_chars} 字（该句约 {dur:.1f} 秒、"
+                f"语速约 {cps:.1f} 字/秒）。译文要完整覆盖这段时间：在忠实原意内"
+                "可补足语气/细节以填满，不要过于简短，避免中文提前结束、与画面说话人不同步；"
+                "也不要刻意堆砌无意义填充词。"
+            )
+            prompt = (
+                f"{self.glossary.build_translation_prompt()}\n\n"
+                + "\n".join(rules)
+                + "\n\n## 输入（一句英文）:\n"
+                + json.dumps(single_data, ensure_ascii=False)
+            )
+            if (idx + 1) % 50 == 0 or idx == total - 1:
+                print(f"    - 逐句翻译 {idx+1}/{total}...")
+            trans = item["text"]
+            try:
+                resp = self.llm.generate(prompt, system_instruction=system_prompt)
+                trans = resp.strip().strip('"').strip() or trans
+            except Exception as e:
+                logging.error(f"逐句翻译失败 ({item['id']}): {e}，保留原文")
+            item["translated_text"] = trans
+            item["max_chars"] = max_chars
+        return utterances
+
     def _translate_blocks(self, blocks: list[dict]) -> Optional[list[dict]]:
         """按语段翻译：一个语段一条口语化中文译文。
 
@@ -513,9 +668,17 @@ class PipelineAutomator:
                 "text": block["text"],
                 "duration": round(dur, 2),
                 "max_chinese_characters": max_chars,
+                "target_chars": max_chars,
+                "cps": round(cps, 2),
                 "speaker": block.get("speaker"),
             }
             rules = self._build_translation_rules(block.get("speaker"))
+            rules.append(
+                f"【长度目标】译文应贴近约 {max_chars} 字（该语段约 {dur:.1f} 秒、"
+                f"语速约 {cps:.1f} 字/秒）。译文要完整覆盖这段时间：在忠实原意内"
+                "可补足语气/细节以填满，不要过于简短，避免中文提前结束、与画面说话人不同步；"
+                "也不要刻意堆砌无意义填充词。"
+            )
             prompt = (
                 f"{self.glossary.build_translation_prompt()}\n\n"
                 + "\n".join(rules)
@@ -572,8 +735,9 @@ class PipelineAutomator:
             "（如独立回答 Yes/No）。"
         )
         rules.append(
-            f"{n+1}. 人名/专有名词（品牌、模型名、人物名等）全片统一：一律保留英文原文，"
-            "不要音译或变换写法。"
+            f"{n}. 人名/专有名词（人物名等）统一音译为中文且全片一致"
+            "（如 Sylvie→西尔维、Dino→迪诺），便于中文朗读；技术术语"
+            "（GPU/API/模型名等）按术语表保留英文原文。"
         )
         return rules
 
@@ -728,8 +892,11 @@ class PipelineAutomator:
         temp_segments = []
         alignment_reports = []
         multi_speaker = len(speaker_refs) >= 2
+        # 按声纹 ref 判性别（男声短句克隆不稳，需音高锚定）
+        speaker_genders = self._classify_speaker_genders(speaker_refs)
         if multi_speaker:
-            print(f"    🎙️ 检测到 {len(speaker_refs)} 位说话人，按人分音色配音")
+            print(f"    🎙️ 检测到 {len(speaker_refs)} 位说话人，按人分音色配音"
+                  f"（性别: { {k: v for k, v in speaker_genders.items()} }）")
         else:
             print("    🎤 单说话人（或未分离），使用单声纹路径")
 
@@ -791,7 +958,7 @@ class PipelineAutomator:
                 output_file, audio_len, align_status, _cw, _gaps = self._build_block_audio(
                     block_id, text, voice_ref, tts_engine, tts, block_dur
                 )
-                if align_status == "out_of_budget":
+                if self.retranslate_enabled and align_status == "out_of_budget":
                     new_text = self._retranslate_utterance(line)
                     if new_text and new_text.strip() and new_text.strip() != text.strip():
                         retranslated_any = True
@@ -804,6 +971,12 @@ class PipelineAutomator:
                         if new_status in ("aligned", "inherently_long") or new_len < audio_len:
                             output_file, audio_len, align_status = new_file, new_len, new_status
                             text = new_text
+                # 男声短句克隆不稳：基频过高时降调锚定（保持句子完整，只调音高）
+                if align_status != "silent" and speaker_genders.get(speaker) == "male":
+                    anchored = self._pitch_anchor(output_file)
+                    if anchored != output_file:
+                        output_file = anchored
+                        audio_len = self._wav_duration(output_file) or audio_len
 
             temp_segments.append({
                 "line": line,
@@ -851,7 +1024,7 @@ class PipelineAutomator:
             ideal_start = line["start_seconds"]
             audio_len = item["audio_len"]
             
-            # 串行排队混音，若上一句顺延，下一句自动往后推延 (零重叠保护)
+            # 串行排队混音，若上一段顺延，下一段自动往后推延 (零重叠保护)
             actual_start = max(ideal_start, previous_end + min_pause)
             actual_end = actual_start + audio_len
             previous_end = actual_end
@@ -865,24 +1038,56 @@ class PipelineAutomator:
                 "path": str(item["path"].relative_to(self.project_dir)).replace('\\', '/'),
                 "start_time": actual_start,
                 "end_time": actual_end,
-                "audio_len": audio_len
+                "audio_len": audio_len,
+                "speaker": line.get("speaker"),
             })
 
-        # 建立最终时间线空白总音轨 (自然延伸，考虑最后的 previous_end 漂移)
+        # 建立最终时间线空白总音轨（立体声；自然延伸，考虑最后的 previous_end 漂移）
         duration_sec = max(script_data["total_duration_seconds"], previous_end)
-        full_track = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000)
-        
-        # 逐段施加 15ms 淡入淡出，并贴入总音轨对应位置
+
+        # 每人一个音轨：说话人声像分离（立体声左右铺开），各自 stem 独立导出
+        speaker_pans = PipelineAutomator._speaker_pan_map(
+            [ts["line"].get("speaker") for ts in temp_segments]
+        )
+        full_track = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000).set_channels(2)
+        stems = {}
+        for spk in speaker_pans.keys():
+            stems[spk] = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000).set_channels(2)
+
+        # 逐段施加 15ms 淡入淡出 + 说话人声像，贴入总音轨对应位置
         for idx, item in enumerate(temp_segments):
             seg_manifest_item = segments_manifest[idx]
             start_ms = int(seg_manifest_item["start_time"] * 1000)
-            
+            spk = seg_manifest_item.get("speaker")
+
             try:
                 audio_seg = AudioSegment.from_wav(item["path"])
                 audio_seg = audio_seg.fade_in(15).fade_out(15)  # 15ms 淡入淡出
+                pan = speaker_pans.get(spk, 0.0)
+                try:
+                    if abs(pan) > 0.001:
+                        audio_seg = audio_seg.pan(pan)
+                except Exception as e:
+                    logging.warning(f"声像 pan 失败 {item['path'].name} ({pan}): {e}")
                 full_track = full_track.overlay(audio_seg, position=start_ms)
+                if spk in stems:
+                    stems[spk] = stems[spk].overlay(audio_seg, position=start_ms)
             except Exception as e:
                 logging.error(f"Error mixing segment {idx}: {e}")
+
+        # 导出每说话人独立音轨（stem）
+        for spk, stem in stems.items():
+            spk_name = str(spk).replace(" ", "_")
+            stem_path = self.assets_dir / f"dub_{spk_name}.wav"
+            try:
+                stem.export(str(stem_path), format="wav")
+                print(f"    🎙️ 说话人音轨已导出: {stem_path.name}")
+            except Exception as e:
+                logging.error(f"导出说话人音轨失败 {stem_path}: {e}")
+                
+        dub_zh_wav = self.assets_dir / "dub_zh.wav"
+        full_track.export(dub_zh_wav, format="wav")
+        print(f"    ✅ 主音轨已生成（立体声，{len(speaker_pans)} 位说话人声像分离，总长 {duration_sec:.2f}秒）: {dub_zh_wav}")
                 
         dub_zh_wav = self.assets_dir / "dub_zh.wav"
         full_track.export(dub_zh_wav, format="wav")
@@ -1258,7 +1463,11 @@ class PipelineAutomator:
         self, text: str, output_path, voice_ref: str | None = None, seed: int = 42,
         target_duration: float | None = None,
     ) -> bool:
-        """通过常驻 IndexTTS2 服务进程合成单句音频（模型只加载一次，GPU 加速）。"""
+        """通过常驻 IndexTTS2 服务进程合成单句音频（模型只加载一次，GPU 加速）。
+
+        情感：默认固定 calm（use_emo_text=False + calm 向量），贴合原版平淡语气；
+        tts_emotion=auto 时不传情感参数，服务端从文字自动判情感。
+        """
         try:
             proc = self._get_indextts_server()
             req = {
@@ -1267,6 +1476,9 @@ class PipelineAutomator:
                 "output_path": str(output_path),
                 "seed": seed,
             }
+            if self.tts_emotion == "calm":
+                req["use_emo_text"] = False
+                req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
             if voice_ref:
                 req["voice_ref"] = voice_ref
             with self._indextts_lock:
@@ -1548,6 +1760,78 @@ class PipelineAutomator:
             logging.warning(f"atempo 失败 {path.name}: {res.stderr[:200]}，保留原速")
             return path
         return adjusted
+
+    def _classify_speaker_genders(self, refs: dict) -> dict:
+        """按声纹参考的基频(F0)中位数判断性别（男 < 165Hz，女 >= 165Hz）。"""
+        import librosa
+        import numpy as np
+
+        genders = {}
+        for spk, path in refs.items():
+            try:
+                y, sr = librosa.load(str(path), sr=16000, mono=True)
+                f0, _, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
+                f0 = f0[~np.isnan(f0)]
+                med = float(np.median(f0)) if len(f0) else 200.0
+                genders[spk] = "male" if med < 165 else "female"
+            except Exception:
+                genders[spk] = "female"
+        return genders
+
+    def _pitch_anchor(self, path: Path, target_f0: float = 130.0) -> Path:
+        """短句男声克隆不稳时（基频偏高变女声），降调锚定到男声范围。
+
+        用 ffmpeg asetrate 降调 + aresample 还原采样率 + atempo 还原时长，
+        得到音高更低、时长不变的音频。若基频已足够低则原样返回。
+        """
+        import librosa
+        import numpy as np
+
+        try:
+            y, sr = librosa.load(str(path), sr=16000, mono=True)
+            f0, _, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
+            f0 = f0[~np.isnan(f0)]
+            med = float(np.median(f0)) if len(f0) else 0.0
+            if med <= target_f0 + 40:
+                return path  # 已接近男声范围，不动
+            factor = target_f0 / med
+            factor = max(0.6, min(0.95, factor))  # 降调 5%-40%，避免过度变形
+            out = path.with_name(path.stem + "_pitch.wav")
+            if out.exists() and out.stat().st_size > 1000:
+                return out
+            cmd = [
+                "ffmpeg", "-y", "-i", str(path),
+                "-af", f"asetrate={int(round(sr * factor))},aresample={sr},atempo={1.0 / factor:.6f}",
+                "-c:a", "pcm_s16le", str(out),
+            ]
+            res = subprocess.run(cmd, capture_output=True)
+            if res.returncode == 0 and out.exists():
+                logging.info(f"    🎙️ 男声音高锚定: {path.name} {med:.0f}Hz -> {target_f0:.0f}Hz 附近")
+                return out
+            return path
+        except Exception as e:
+            logging.warning(f"男声音高锚定失败 {path}: {e}")
+            return path
+
+    @staticmethod
+    def _speaker_pan_map(speakers: list) -> dict:
+        """把若干说话人映射到立体声不同声像位置（各自在自己的音轨上说话）。
+
+        - 0 或 1 位说话人：不分离（中心）
+        - 2 位：左 -0.5 / 右 +0.5
+        - 3+ 位：在 [-0.6, +0.6] 内均匀铺开
+        """
+        uniq = sorted({s for s in speakers if s})
+        n = len(uniq)
+        if n <= 1:
+            return {}
+        pans = {}
+        for i, spk in enumerate(uniq):
+            if n == 2:
+                pans[spk] = round(-0.5 + i * 1.0, 3)
+            else:
+                pans[spk] = round(-0.6 + i * (1.2 / (n - 1)), 3)
+        return pans
 
     @staticmethod
     def _distribute_block_gaps(slack: float, n_chunks: int, max_pause: float) -> list[float]:

@@ -46,6 +46,7 @@ def _make_automator(tmp_path):
     inst.merge_gap_seconds = 0.5
     inst.max_utterance_seconds = 15.0
     inst.chunk_max_chars = 40
+    inst.retranslate_enabled = False
     inst._voxcpm_calibrator = None
     inst._cps = 5.0
     return inst
@@ -161,6 +162,7 @@ class TestAssetsAlignment:
 
     def test_out_of_budget_triggers_retranslate(self, tmp_path, monkeypatch):
         inst = _make_automator(tmp_path)
+        inst.retranslate_enabled = True  # 该测试专门验证缩短重翻路径（默认关闭）
         _write_transcript(inst)
         monkeypatch.setattr(
             inst, "_extract_speaker_voice_refs",

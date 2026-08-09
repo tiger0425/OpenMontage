@@ -105,6 +105,43 @@ class TestGroupBlocks:
         assert PipelineAutomator._group_utterance_blocks([], block_gap=1.0) == []
 
 
+class TestSubtitleDrivenBuckets:
+    def test_signature_to_intervals_detects_changes(self):
+        # 3 个签名段 → 3 条字幕条
+        sigs = ["a"] * 4 + ["b"] * 4 + ["c"] * 4  # 2fps: 0-2s, 2-4s, 4-6s
+        iv = PipelineAutomator._signature_to_intervals(sigs, fps=2.0)
+        assert iv == [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0)]
+
+    def test_signature_to_intervals_filters_short(self):
+        sigs = ["a"] * 4 + ["b"] + ["c"] * 4  # "b" 只 0.5s → 过滤
+        iv = PipelineAutomator._signature_to_intervals(sigs, fps=2.0, min_duration=0.6)
+        assert iv == [(0.0, 2.0), (2.5, 4.5)]
+
+    def test_empty_signatures(self):
+        assert PipelineAutomator._signature_to_intervals([], fps=2.0) == []
+
+    def test_bucket_utterances_by_intervals(self):
+        intervals = [(0.0, 3.0), (3.5, 6.5)]
+        utts = [
+            _utt("u0", 0.2, 2.5, "Q one", "A"),
+            _utt("u1", 4.0, 6.0, "A two", "B"),
+        ]
+        blocks = PipelineAutomator._bucket_utterances_by_intervals(utts, intervals)
+        assert len(blocks) == 2
+        # 段 start/end 取自字幕条区间，而非原句
+        assert blocks[0]["start"] == 0.0
+        assert blocks[0]["end"] == 3.0
+        assert blocks[1]["start"] == 3.5
+        assert blocks[1]["end"] == 6.5
+
+    def test_bucket_skips_empty_interval(self):
+        intervals = [(0.0, 2.0), (3.0, 5.0)]
+        utts = [_utt("u0", 3.2, 4.8, "only second", "A")]
+        blocks = PipelineAutomator._bucket_utterances_by_intervals(utts, intervals)
+        assert len(blocks) == 1
+        assert blocks[0]["id"] == "b0"
+
+
 class TestTranslateBlocks:
     def test_one_translation_per_block(self):
         inst = _make_automator()

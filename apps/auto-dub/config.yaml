@@ -66,6 +66,8 @@ pipeline:
   target_language: zh-CN
   source_language: en-US
   tts_engine: indextts
+  tts_emotion: calm              # 合成情感：calm=固定平静（贴合原版平淡语气，默认）；auto=服务端从文字自动判情感
+  subtitle_driven: off           # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
   whisper_model: large-v3         # 转录模型（准确率优先）：base(快) < small < medium < large-v3(最准，慢)
   min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分
   subtitle_style: "中文+术语英文标注"
@@ -83,6 +85,7 @@ pipeline:
     queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
     block_gap_seconds: 1.0       # 语段切分：相邻原句间隙 >= 此值 → 新语段
     block_max_pause_seconds: 0.8 # 语段内句间自然停顿上限（富余时间分摊，防拖沓）
+    retranslate: false           # 缩短重翻：默认关闭（避免砍句子导致"句子被截断"）；true=变速不可达句改写更短塞进时间窗
 
 # ============================================================
 # 自动审核 (替代 human_approval)

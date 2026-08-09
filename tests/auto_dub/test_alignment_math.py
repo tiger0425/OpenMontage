@@ -96,6 +96,26 @@ class TestDistributeBlockGaps:
         assert PipelineAutomator._distribute_block_gaps(-2.0, 3, 0.8) == [0.0, 0.0]
 
 
+class TestSpeakerPanMap:
+    def test_single_speaker_no_pan(self):
+        assert PipelineAutomator._speaker_pan_map(["A", "A"]) == {}
+        assert PipelineAutomator._speaker_pan_map([]) == {}
+
+    def test_two_speakers_left_right(self):
+        pans = PipelineAutomator._speaker_pan_map(["A", "B"])
+        assert pans == {"A": -0.5, "B": 0.5}
+
+    def test_three_speakers_spread(self):
+        pans = PipelineAutomator._speaker_pan_map(["A", "B", "C"])
+        assert pans["A"] == -0.6
+        assert pans["C"] == 0.6
+        assert abs(pans["B"]) < 0.001
+
+    def test_none_speakers_ignored(self):
+        pans = PipelineAutomator._speaker_pan_map(["A", None, "B", None])
+        assert set(pans) == {"A", "B"}
+
+
 class TestAlignmentMetrics:
     def test_pass_rate_excludes_inherently_long(self):
         reports = [

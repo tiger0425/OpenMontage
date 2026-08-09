@@ -8,6 +8,8 @@ B. `_calibrate_indextts_cps` 测速请求不带 voice_ref → 服务端报错 �
 """
 
 import sys
+import json
+import threading
 from pathlib import Path
 
 OMO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -19,6 +21,27 @@ if str(APP_ROOT) not in sys.path:
 
 from pydub import AudioSegment
 from batch.pipeline_automator import PipelineAutomator
+
+
+class _FakeIndexTTSProc:
+    """模拟 IndexTTS2 常驻服务进程：记录请求、固定返回 ok。"""
+
+    def __init__(self):
+        class _Stdio:
+            def __init__(self):
+                self.written = []
+
+            def write(self, s):
+                self.written.append(s)
+
+            def flush(self):
+                pass
+
+            def readline(self):
+                return '{"ok": true}\n'
+
+        self.stdin = _Stdio()
+        self.stdout = _Stdio()
 
 
 def _make_automator(tmp_path):
@@ -85,6 +108,70 @@ class TestForceResynthesize:
         )
         # 复用旧子块：不重合成
         assert synthesized == []
+
+
+class TestCalmEmotion:
+    def _make(self, tmp_path, emotion):
+        inst = _make_automator(tmp_path)
+        inst.tts_emotion = emotion
+        inst._indextts_lock = threading.Lock()
+        return inst
+
+    def _send(self, inst, monkeypatch):
+        fake = _FakeIndexTTSProc()
+        monkeypatch.setattr(inst, "_get_indextts_server", lambda: fake)
+        inst._synthesize_indextts("你好世界", inst.audio_dir / "x.wav")
+        return json.loads(fake.stdin.written[0])
+
+    def test_calm_emotion_forces_fixed_vector(self, tmp_path, monkeypatch):
+        inst = self._make(tmp_path, "calm")
+        req = self._send(inst, monkeypatch)
+        assert req["use_emo_text"] is False
+        assert req["emo_vector"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+    def test_auto_emotion_omits_emo_fields(self, tmp_path, monkeypatch):
+        inst = self._make(tmp_path, "auto")
+        req = self._send(inst, monkeypatch)
+        assert "emo_vector" not in req
+        assert "use_emo_text" not in req
+
+
+class TestGenderAndPitchAnchor:
+    @staticmethod
+    def _tone(path, freq_hz, sr=16000, dur_s=2.0):
+        import numpy as np
+        import soundfile as sf
+        t = np.linspace(0, dur_s, int(sr * dur_s), endpoint=False)
+        y = (0.5 * np.sin(2 * np.pi * freq_hz * t)).astype(np.float32)
+        sf.write(str(path), y, sr)
+
+    def test_classify_male_female(self, tmp_path):
+        inst = _make_automator(tmp_path)
+        male = tmp_path / "m.wav"
+        female = tmp_path / "f.wav"
+        self._tone(male, 110)
+        self._tone(female, 250)
+        g = inst._classify_speaker_genders({"A": male, "B": female})
+        assert g == {"A": "male", "B": "female"}
+
+    def test_pitch_anchor_lowers_high_f0(self, tmp_path):
+        import numpy as np
+        import librosa
+        inst = _make_automator(tmp_path)
+        p = tmp_path / "hi.wav"
+        self._tone(p, 300)
+        out = inst._pitch_anchor(p, target_f0=130)
+        assert out != p  # 触发了降调
+        y, sr = librosa.load(str(out), sr=16000, mono=True)
+        f0, _, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
+        med = float(np.nanmedian(f0))
+        assert med < 200  # 已降到男声范围
+
+    def test_pitch_anchor_leaves_low_f0_untouched(self, tmp_path):
+        inst = _make_automator(tmp_path)
+        p = tmp_path / "low.wav"
+        self._tone(p, 110)
+        assert inst._pitch_anchor(p, target_f0=130) == p
 
 
 class TestCalibrateWithVoiceRef:
