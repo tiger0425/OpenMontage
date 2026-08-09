@@ -1,4 +1,4 @@
-"""TDD 测试：assets 阶段逐句对齐 + 多音色编排（ticket 06/07）。
+﻿"""TDD 测试：assets 阶段逐句对齐 + 多音色编排（ticket 06/07）。
 
 用 mock 合成边界走真实 `_do_assets_stage`：
 1. 多 speaker 时启用 speaker_refs 并按 speaker 选声纹
@@ -116,15 +116,15 @@ class TestAssetsAlignment:
 
         chosen = []
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
+        def fake_build(block_id, text, voice_ref, tts_engine, tts, block_dur, force_resynthesize=False):
             chosen.append(voice_ref)
-            out = inst.audio_dir / f"seg_{line_id}.wav"
+            out = inst.audio_dir / f"seg_{block_id}.wav"
             # 合成时长贴合目标（目标=原句时长-100ms），状态 aligned
-            target = max(0.1, utt_dur - inst.queue_gap_seconds)
+            target = max(0.1, block_dur - inst.queue_gap_seconds)
             inst._create_silent_wav(target, out)
-            return out, target, "aligned", []
+            return out, target, "aligned", [], []
 
-        monkeypatch.setattr(inst, "_build_utterance_audio", fake_build)
+        monkeypatch.setattr(inst, "_build_block_audio", fake_build)
 
         manifest = inst._do_assets_stage(_full_script(), {})
         assert manifest is not None
@@ -147,13 +147,13 @@ class TestAssetsAlignment:
         monkeypatch.setattr(inst, "_extract_voice_ref", lambda p: True)
         monkeypatch.setattr(checkpoint, "read_checkpoint", lambda *a, **k: None)
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
-            out = inst.audio_dir / f"seg_{line_id}.wav"
-            target = max(0.1, utt_dur - inst.queue_gap_seconds)
+        def fake_build(block_id, text, voice_ref, tts_engine, tts, block_dur, force_resynthesize=False):
+            out = inst.audio_dir / f"seg_{block_id}.wav"
+            target = max(0.1, block_dur - inst.queue_gap_seconds)
             inst._create_silent_wav(target, out)
-            return out, target, "aligned", []
+            return out, target, "aligned", [], []
 
-        monkeypatch.setattr(inst, "_build_utterance_audio", fake_build)
+        monkeypatch.setattr(inst, "_build_block_audio", fake_build)
         manifest = inst._do_assets_stage(_full_script(), {})
         assert manifest is not None
         timings = json.loads((inst.project_dir / "segment_timings.json").read_text(encoding="utf-8"))
@@ -172,17 +172,17 @@ class TestAssetsAlignment:
 
         call_count = {"n": 0}
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
+        def fake_build(block_id, text, voice_ref, tts_engine, tts, block_dur, force_resynthesize=False):
             call_count["n"] += 1
-            out = inst.audio_dir / f"seg_{line_id}.wav"
+            out = inst.audio_dir / f"seg_{block_id}.wav"
             # 第一次（原译文）超长 → out_of_budget；重翻后贴合 → aligned
             if call_count["n"] == 1:
-                inst._create_silent_wav(utt_dur * 1.5, out)  # 超过 ±5% 可调范围
-                return out, utt_dur * 1.5, "out_of_budget", []
-            inst._create_silent_wav(max(0.1, utt_dur - inst.queue_gap_seconds), out)
-            return out, utt_dur - inst.queue_gap_seconds, "aligned", []
+                inst._create_silent_wav(block_dur * 1.5, out)  # 超过 ±5% 可调范围
+                return out, block_dur * 1.5, "out_of_budget", [], []
+            inst._create_silent_wav(max(0.1, block_dur - inst.queue_gap_seconds), out)
+            return out, block_dur - inst.queue_gap_seconds, "aligned", [], []
 
-        monkeypatch.setattr(inst, "_build_utterance_audio", fake_build)
+        monkeypatch.setattr(inst, "_build_block_audio", fake_build)
 
         script_data = _full_script()
         manifest = inst._do_assets_stage(script_data, {})
@@ -206,12 +206,12 @@ class TestAssetsAlignment:
         # 造一个 0.5s 物理不可达原句
         sections[0]["end_seconds"] = 0.5
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
-            out = inst.audio_dir / f"seg_{line_id}.wav"
-            inst._create_silent_wav(max(0.1, utt_dur), out)
-            return out, max(0.1, utt_dur), "inherently_long", []
+        def fake_build(block_id, text, voice_ref, tts_engine, tts, block_dur, force_resynthesize=False):
+            out = inst.audio_dir / f"seg_{block_id}.wav"
+            inst._create_silent_wav(max(0.1, block_dur), out)
+            return out, max(0.1, block_dur), "inherently_long", [], []
 
-        monkeypatch.setattr(inst, "_build_utterance_audio", fake_build)
+        monkeypatch.setattr(inst, "_build_block_audio", fake_build)
         inst._do_assets_stage(_full_script(sections), {})
         report = json.loads((inst.project_dir / "alignment_report.json").read_text(encoding="utf-8"))
         assert report["metrics"]["inherently_long_count"] >= 1

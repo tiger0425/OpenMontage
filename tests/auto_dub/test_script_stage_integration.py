@@ -23,12 +23,13 @@ from batch.glossary import Glossary
 from batch.pipeline_automator import PipelineAutomator
 
 
-def _make_config(diarize="auto"):
+def _make_config(diarize="auto", whisper_model="large-v3"):
     return {
         "pipeline": {
             "tts_engine": "indextts",
             "min_char_budget": 15,
             "diarize": diarize,
+            "whisper_model": whisper_model,
             "alignment": {
                 "merge_gap_seconds": 0.5,
                 "max_utterance_seconds": 15.0,
@@ -51,8 +52,8 @@ def _fake_transcript(n_utterances=2, speakers=None):
         "utterances": [
             {
                 "id": f"u{i}",
-                "start": i * 3.5,
-                "end": i * 3.5 + 3.0,
+                "start": i * 4.5,          # 间隙 1.5s >= block_gap 1.0 → 独立语段
+                "end": i * 4.5 + 3.0,
                 "text": f"English sentence {i}",
                 "speaker": speakers[i % len(speakers)],
                 "segment_ids": [i],
@@ -66,14 +67,15 @@ def _fake_transcript(n_utterances=2, speakers=None):
     }
 
 
-def _run_script_stage(tmp_path, monkeypatch, diarize="auto"):
+def _run_script_stage(tmp_path, monkeypatch, diarize="auto", whisper_model="large-v3"):
     from tools.base_tool import ToolResult
 
-    calls = {"diarize_kwargs": None}
+    calls = {"diarize_kwargs": None, "model_size": None}
 
     class _FakeTranscriber:
         def execute(self, inputs):
             calls["diarize_kwargs"] = inputs.get("diarize")
+            calls["model_size"] = inputs.get("model_size")
             return ToolResult(success=True, data=_fake_transcript())
 
     monkeypatch.setattr("batch.pipeline_automator.Transcriber", _FakeTranscriber)
@@ -89,7 +91,7 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto"):
         project_id="auto-dub-x",
         project_dir=project_dir,
         video=video,
-        config=_make_config(diarize),
+        config=_make_config(diarize, whisper_model),
         db=None,
         glossary=Glossary(keep_english=[], translations={}),
         auto_reviewer=AutoReviewer({"max_fix_loops": 1, "checks": {}}, tmp_path / "projects"),
@@ -103,13 +105,15 @@ def _run_script_stage(tmp_path, monkeypatch, diarize="auto"):
 
 
 class TestScriptStageIntegration:
-    def test_sections_are_utterances_with_speaker(self, tmp_path, monkeypatch):
+    def test_sections_are_blocks_with_speaker(self, tmp_path, monkeypatch):
         script_data, _, _ = _run_script_stage(tmp_path, monkeypatch, diarize="auto")
         assert script_data is not None
         sections = script_data["sections"]
+        # 2 个原句（间隙 1.5s）→ 2 个语段
         assert len(sections) == 2
-        assert sections[0]["id"] == "u0"
+        assert sections[0]["id"] == "b0"
         assert sections[0]["speaker"] == "SPEAKER_00"
+        assert sections[1]["id"] == "b1"
         assert sections[1]["speaker"] == "SPEAKER_01"
         assert sections[0]["delivery_cues"]["provider_text"] == "这是一句中文翻译。"
 
@@ -128,6 +132,11 @@ class TestScriptStageIntegration:
     def test_diarize_auto_enables_diarization(self, tmp_path, monkeypatch):
         _, calls, _ = _run_script_stage(tmp_path, monkeypatch, diarize="auto")
         assert calls["diarize_kwargs"] is True
+
+    def test_whisper_model_from_config(self, tmp_path, monkeypatch):
+        # 转录模型来自配置（准确率优先默认 large-v3）
+        _, calls, _ = _run_script_stage(tmp_path, monkeypatch, whisper_model="medium")
+        assert calls["model_size"] == "medium"
 
     def test_transcript_saved_for_assets_stage(self, tmp_path, monkeypatch):
         _, _, project_dir = _run_script_stage(tmp_path, monkeypatch)

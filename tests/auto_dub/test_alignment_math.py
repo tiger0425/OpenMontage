@@ -74,6 +74,28 @@ class TestInherentlyLong:
         assert PipelineAutomator.is_inherently_long(4.0) is False
 
 
+class TestDistributeBlockGaps:
+    def test_slack_evenly_distributed_capped(self):
+        # 4 子块，富余 3.0s → 3 个停顿，各 0.8s（上限）
+        gaps = PipelineAutomator._distribute_block_gaps(3.0, 4, 0.8)
+        assert gaps == [0.8, 0.8, 0.8]
+
+    def test_slack_within_cap_even(self):
+        # 4 子块，富余 1.5s → 3 个停顿各 0.5s
+        gaps = PipelineAutomator._distribute_block_gaps(1.5, 4, 0.8)
+        assert gaps == [0.5, 0.5, 0.5]
+
+    def test_single_chunk_no_gaps(self):
+        assert PipelineAutomator._distribute_block_gaps(5.0, 1, 0.8) == []
+
+    def test_no_slack_no_gaps(self):
+        assert PipelineAutomator._distribute_block_gaps(0.0, 3, 0.8) == [0.0, 0.0]
+
+    def test_negative_slack_no_gaps(self):
+        # 溢出（中文过长）：不加停顿
+        assert PipelineAutomator._distribute_block_gaps(-2.0, 3, 0.8) == [0.0, 0.0]
+
+
 class TestAlignmentMetrics:
     def test_pass_rate_excludes_inherently_long(self):
         reports = [

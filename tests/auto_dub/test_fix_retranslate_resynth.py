@@ -29,6 +29,7 @@ def _make_automator(tmp_path):
     inst.queue_gap_seconds = 0.1
     inst.tempo_budget = 0.05
     inst.inherently_long_seconds = 1.0
+    inst.block_max_pause_seconds = 0.8
     inst.tts_engine = "indextts"
     return inst
 
@@ -38,14 +39,11 @@ def _silent(path, ms=2000):
 
 
 class TestForceResynthesize:
-    def _noop_align(self, line_id, chunk_wavs, utt_dur):
-        return "aligned", chunk_wavs, sum(c["dur"] for c in chunk_wavs)
-
     def test_force_resynthesize_replaces_old_chunks(self, tmp_path, monkeypatch):
         inst = _make_automator(tmp_path)
         # 预置旧子块与旧变速副本
-        _silent(inst.audio_dir / "seg_u0_c0.wav", 2000)
-        tempo_stale = inst.audio_dir / "seg_u0_c0_t981.wav"
+        _silent(inst.audio_dir / "seg_b0_c0.wav", 2000)
+        tempo_stale = inst.audio_dir / "seg_b0_c0_t981.wav"
         _silent(tempo_stale, 2000)
 
         synthesized = []
@@ -56,12 +54,12 @@ class TestForceResynthesize:
             return True
 
         monkeypatch.setattr(inst, "_synthesize_indextts", fake_synth)
-        monkeypatch.setattr(inst, "_align_utterance", self._noop_align)
-        monkeypatch.setattr(inst, "_concat_utterance",
-                            lambda chunk_wavs, output_file: output_file)
+        # 避免 atempo/拼接落盘：直接返回原路径
+        monkeypatch.setattr(inst, "_atempo_wav", lambda path, factor: path)
+        monkeypatch.setattr(inst, "_concat_with_gaps", lambda chunk_wavs, gaps, output_file: output_file)
 
-        inst._build_utterance_audio(
-            "u0", "新的重翻译文。", None, "indextts", None, 5.0, force_resynthesize=True
+        inst._build_block_audio(
+            "b0", "新的重翻译文。", None, "indextts", None, 5.0, force_resynthesize=True
         )
         # 强制重合成：用新译文合成，而不是复用旧子块
         assert synthesized == ["新的重翻译文。"]
@@ -70,7 +68,7 @@ class TestForceResynthesize:
 
     def test_no_force_reuses_existing_chunk(self, tmp_path, monkeypatch):
         inst = _make_automator(tmp_path)
-        _silent(inst.audio_dir / "seg_u0_c0.wav", 2000)
+        _silent(inst.audio_dir / "seg_b0_c0.wav", 2000)
         synthesized = []
 
         def fake_synth(text, output_path, voice_ref=None, seed=42, target_duration=None):
@@ -79,12 +77,11 @@ class TestForceResynthesize:
             return True
 
         monkeypatch.setattr(inst, "_synthesize_indextts", fake_synth)
-        monkeypatch.setattr(inst, "_align_utterance", self._noop_align)
-        monkeypatch.setattr(inst, "_concat_utterance",
-                            lambda chunk_wavs, output_file: output_file)
+        monkeypatch.setattr(inst, "_atempo_wav", lambda path, factor: path)
+        monkeypatch.setattr(inst, "_concat_with_gaps", lambda chunk_wavs, gaps, output_file: output_file)
 
-        inst._build_utterance_audio(
-            "u0", "新文本", None, "indextts", None, 5.0, force_resynthesize=False
+        inst._build_block_audio(
+            "b0", "新文本", None, "indextts", None, 5.0, force_resynthesize=False
         )
         # 复用旧子块：不重合成
         assert synthesized == []

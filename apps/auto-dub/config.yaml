@@ -66,6 +66,7 @@ pipeline:
   target_language: zh-CN
   source_language: en-US
   tts_engine: indextts
+  whisper_model: large-v3         # 转录模型（准确率优先）：base(快) < small < medium < large-v3(最准，慢)
   min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分
   subtitle_style: "中文+术语英文标注"
   output_format: "16:9"        # B站横屏
@@ -75,11 +76,13 @@ pipeline:
   alignment:
     merge_gap_seconds: 0.5       # 原句合并：相邻转录段最大时间间隙
     max_utterance_seconds: 15.0  # 原句合并：单句上限，超限不硬并
-    chunk_max_chars: 40          # 原句切合成子块（Chunk）的最大字符数
-    tempo_budget: 0.05           # 逐句变速预算 ±5%（Tempo Budget）
-    tolerance: 0.15              # 对齐容差 ±15%（Alignment Tolerance）
-    inherently_long_seconds: 1.0 # 物理不可达句阈值（Inherently-Long，原句 < 1s）
+    chunk_max_chars: 40          # 语段切合成子块（Chunk）的最大字符数
+    tempo_budget: 0.05           # 逐句变速预算 ±5%（保音高）
+    tolerance: 0.15              # 对齐容差 ±15%（验收达标率）
+    inherently_long_seconds: 1.0 # 物理不可达句阈值（原句 < 1s，允许超容差且不计入达标率）
     queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
+    block_gap_seconds: 1.0       # 语段切分：相邻原句间隙 >= 此值 → 新语段
+    block_max_pause_seconds: 0.8 # 语段内句间自然停顿上限（富余时间分摊，防拖沓）
 
 # ============================================================
 # 自动审核 (替代 human_approval)

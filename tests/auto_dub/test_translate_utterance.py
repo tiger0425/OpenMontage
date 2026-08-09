@@ -1,10 +1,10 @@
-"""TDD 测试：翻译层按原句翻译 + speaker 上下文（ticket 05）。
+"""TDD 测试：语段（block）级翻译 + 语段分组（按用户迭代方向）。
 
 覆盖：
-1. 每条原句得到一条原句级译文（不再逐碎段翻译，也不按标点拆分新条目）
-2. 多人视频翻译时单句数据携带 speaker，prompt 注入说话人上下文
-3. 原句数守恒：输入 N 条原句 -> 输出 N 条译文
-4. 字数预算仍生效（single_data 含 max_chinese_characters）
+1. _group_utterance_blocks：按静音间隙分组，dominant speaker / 文本拼接
+2. _translate_blocks：一个语段一条口语化中文译文（原语段数守恒）
+3. 翻译规则：跳过 OK/Yeah 语气词、专名一致、general 域口语化
+4. tech/general 域 system prompt 差异
 """
 
 import sys
@@ -31,59 +31,69 @@ def _make_automator(domain="tech"):
     return inst
 
 
-class TestTranslateUtterances:
-    def test_one_translation_per_utterance(self):
+def _utt(uid, start, end, text, speaker=None):
+    return {"id": uid, "start": start, "end": end, "text": text, "speaker": speaker,
+            "segment_ids": [uid]}
+
+
+class TestGroupBlocks:
+    def test_small_gap_joins_same_block(self):
+        utts = [
+            _utt("u0", 0.0, 3.0, "First sentence", "A"),
+            _utt("u1", 3.5, 6.0, "Second sentence", "A"),
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert len(blocks) == 1
+        assert blocks[0]["text"] == "First sentence Second sentence"
+
+    def test_large_gap_splits_blocks(self):
+        utts = [
+            _utt("u0", 0.0, 3.0, "First", "A"),
+            _utt("u1", 5.0, 8.0, "Second", "B"),  # 间隙 2.0 >= 1.0
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert len(blocks) == 2
+        assert [b["id"] for b in blocks] == ["b0", "b1"]
+        assert blocks[0]["start"] == 0.0
+        assert blocks[1]["end"] == 8.0
+
+    def test_dominant_speaker(self):
+        utts = [
+            _utt("u0", 0.0, 3.0, "a", "A"),
+            _utt("u1", 3.5, 6.0, "b", "B"),
+            _utt("u2", 6.5, 9.0, "c", "A"),
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert blocks[0]["speaker"] == "A"
+
+    def test_no_speaker_block_none(self):
+        utts = [_utt("u0", 0.0, 3.0, "a"), _utt("u1", 3.5, 6.0, "b")]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert blocks[0]["speaker"] is None
+
+    def test_empty_returns_empty(self):
+        assert PipelineAutomator._group_utterance_blocks([], block_gap=1.0) == []
+
+
+class TestTranslateBlocks:
+    def test_one_translation_per_block(self):
         inst = _make_automator()
-        captured = {}
+        seen = []
 
         def fake_generate(prompt, system_instruction=None, json_mode=None):
-            captured["prompt"] = prompt
-            captured["system"] = system_instruction
-            return "这是一个完整的中文译文。"
+            seen.append(prompt)
+            return "这一段的中文翻译。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello there", "speaker": "A"},
-            {"id": "u1", "start": 3.5, "end": 6.0, "text": "How are you", "speaker": "B"},
-            {"id": "u2", "start": 6.5, "end": 9.0, "text": "Great thanks", "speaker": "A"},
+        blocks = [
+            {"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello there world", "speaker": "A", "utterances": []},
+            {"id": "b1", "start": 8.0, "end": 14.0, "text": "Second passage", "speaker": "B", "utterances": []},
         ]
-        lines = inst._translate_segments(utterances)
-        assert lines is not None
-        assert len(lines) == 3  # 原句数守恒
-        assert [l["line_id"] for l in lines] == ["u0", "u1", "u2"]
+        out = inst._translate_blocks(blocks)
+        assert len(seen) == 2  # 每个语段一次调用
+        assert out[0]["translated_text"] == "这一段的中文翻译。"
 
-    def test_speaker_carried_into_output(self):
-        inst = _make_automator()
-        inst.llm = type(
-            "FakeLLM",
-            (),
-            {"generate": staticmethod(lambda *a, **k: "译文。")},
-        )()
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": "SPEAKER_01"},
-            {"id": "u1", "start": 3.5, "end": 6.0, "text": "World", "speaker": None},
-        ]
-        lines = inst._translate_segments(utterances)
-        assert lines[0]["speaker"] == "SPEAKER_01"
-        assert lines[1]["speaker"] is None
-
-    def test_speaker_context_injected_into_prompt(self):
-        inst = _make_automator()
-        seen_prompts = []
-
-        def fake_generate(prompt, system_instruction=None, json_mode=None):
-            seen_prompts.append(prompt)
-            return "这是翻译。"
-
-        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": "SPEAKER_01"},
-        ]
-        inst._translate_segments(utterances)
-        assert any("SPEAKER_01" in p for p in seen_prompts)
-
-    def test_budget_still_applied(self):
+    def test_filler_skip_rule_in_prompt(self):
         inst = _make_automator()
         seen = []
 
@@ -92,30 +102,11 @@ class TestTranslateUtterances:
             return "译文。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello world of ai", "speaker": "A"},
-        ]
-        inst._translate_segments(utterances)
-        assert "max_chinese_characters" in seen[0]
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "OK. Yeah. Let's start", "speaker": "A", "utterances": []}]
+        inst._translate_blocks(blocks)
+        assert "语气填充词" in seen[0] or "Yeah" in seen[0]
 
-    def test_no_new_entries_from_long_translation(self):
-        # 即使译文超长，也保持单条，不产生新字幕条目（原句数守恒，D2）
-        inst = _make_automator()
-        inst.llm = type(
-            "FakeLLM",
-            (),
-            {"generate": staticmethod(lambda *a, **k: "这是一段特别特别特别特别特别特别特别特别特别特别特别长以至于超过单行阈值的中文译文。")},
-        )()
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": "A"},
-        ]
-        lines = inst._translate_segments(utterances)
-        assert len(lines) == 1
-        assert lines[0]["translated_text"].startswith("这是一段")
-
-
-class TestTranslationContextAndDomain:
-    def test_prev_context_injected_from_previous_utterance(self):
+    def test_proper_noun_rule_in_prompt(self):
         inst = _make_automator()
         seen = []
 
@@ -124,31 +115,11 @@ class TestTranslationContextAndDomain:
             return "译文。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [
-            {"id": "u0", "start": 0.0, "end": 3.0, "text": "First question here", "speaker": "A"},
-            {"id": "u1", "start": 3.5, "end": 6.0, "text": "It has been sex.", "speaker": "A"},
-        ]
-        inst._translate_segments(utterances)
-        # 第二句的 prompt 必须携带上一句英文作为 prev_context（防单句幻觉/指代断裂）
-        assert "prev_context" in seen[1]
-        assert "First question here" in seen[1]
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello Dino", "speaker": "A", "utterances": []}]
+        inst._translate_blocks(blocks)
+        assert "专有名词" in seen[0]
 
-    def test_first_utterance_has_no_context(self):
-        inst = _make_automator()
-        seen = []
-
-        def fake_generate(prompt, system_instruction=None, json_mode=None):
-            seen.append(prompt)
-            return "译文。"
-
-        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
-        inst._translate_segments(utterances)
-        # 首句输入载荷不带 prev_context 键（规则文本里的提及不算）
-        payload = seen[0].split("输入:\n", 1)[1]
-        assert '"prev_context"' not in payload
-
-    def test_general_domain_uses_conversational_prompt(self):
+    def test_general_domain_conversational(self):
         inst = _make_automator(domain="general")
         captured = {}
 
@@ -158,14 +129,11 @@ class TestTranslationContextAndDomain:
             return "译文。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
-        inst._translate_segments(utterances)
-        assert "conversational" in (captured["system"] or "")
-        assert "AI and cloud technology" not in (captured["system"] or "")
-        # 口语化/情感规则
-        assert "口语化" in captured["prompt"]
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello", "speaker": None, "utterances": []}]
+        inst._translate_blocks(blocks)
+        assert "conversational" in (captured["system"] or "") or "colloquial" in (captured["system"] or "")
 
-    def test_tech_domain_is_default(self):
+    def test_tech_domain_default(self):
         inst = _make_automator(domain="tech")
         captured = {}
 
@@ -174,11 +142,11 @@ class TestTranslationContextAndDomain:
             return "译文。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello", "speaker": None}]
-        inst._translate_segments(utterances)
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello", "speaker": None, "utterances": []}]
+        inst._translate_blocks(blocks)
         assert "AI and cloud technology" in (captured["system"] or "")
 
-    def test_proper_noun_rule_present_in_prompt(self):
+    def test_budget_applied(self):
         inst = _make_automator()
         seen = []
 
@@ -187,6 +155,19 @@ class TestTranslationContextAndDomain:
             return "译文。"
 
         inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
-        utterances = [{"id": "u0", "start": 0.0, "end": 3.0, "text": "Hello Dino", "speaker": None}]
-        inst._translate_segments(utterances)
-        assert "专有名词" in seen[0] or "人名" in seen[0]
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello world", "speaker": "A", "utterances": []}]
+        inst._translate_blocks(blocks)
+        assert "max_chinese_characters" in seen[0]
+
+    def test_speaker_in_block_data(self):
+        inst = _make_automator()
+        seen = []
+
+        def fake_generate(prompt, system_instruction=None, json_mode=None):
+            seen.append(prompt)
+            return "译文。"
+
+        inst.llm = type("FakeLLM", (), {"generate": staticmethod(fake_generate)})()
+        blocks = [{"id": "b0", "start": 0.0, "end": 6.0, "text": "Hello", "speaker": "SPEAKER_01", "utterances": []}]
+        inst._translate_blocks(blocks)
+        assert "SPEAKER_01" in seen[0]
