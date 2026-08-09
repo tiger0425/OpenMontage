@@ -116,7 +116,7 @@ class TestAssetsAlignment:
 
         chosen = []
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur):
+        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
             chosen.append(voice_ref)
             out = inst.audio_dir / f"seg_{line_id}.wav"
             # 合成时长贴合目标（目标=原句时长-100ms），状态 aligned
@@ -147,7 +147,7 @@ class TestAssetsAlignment:
         monkeypatch.setattr(inst, "_extract_voice_ref", lambda p: True)
         monkeypatch.setattr(checkpoint, "read_checkpoint", lambda *a, **k: None)
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur):
+        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
             out = inst.audio_dir / f"seg_{line_id}.wav"
             target = max(0.1, utt_dur - inst.queue_gap_seconds)
             inst._create_silent_wav(target, out)
@@ -172,7 +172,7 @@ class TestAssetsAlignment:
 
         call_count = {"n": 0}
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur):
+        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
             call_count["n"] += 1
             out = inst.audio_dir / f"seg_{line_id}.wav"
             # 第一次（原译文）超长 → out_of_budget；重翻后贴合 → aligned
@@ -206,7 +206,7 @@ class TestAssetsAlignment:
         # 造一个 0.5s 物理不可达原句
         sections[0]["end_seconds"] = 0.5
 
-        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur):
+        def fake_build(line_id, text, voice_ref, tts_engine, tts, utt_dur, force_resynthesize=False):
             out = inst.audio_dir / f"seg_{line_id}.wav"
             inst._create_silent_wav(max(0.1, utt_dur), out)
             return out, max(0.1, utt_dur), "inherently_long", []

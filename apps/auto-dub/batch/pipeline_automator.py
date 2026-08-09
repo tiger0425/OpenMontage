@@ -786,7 +786,8 @@ class PipelineAutomator:
                         print(f"      ↻ 原句 {line_id} 变速不可达，缩短重翻后重新合成...")
                         line["delivery_cues"]["provider_text"] = new_text
                         new_file, new_len, new_status, _ = self._build_utterance_audio(
-                            line_id, new_text, voice_ref, tts_engine, tts, utt_dur
+                            line_id, new_text, voice_ref, tts_engine, tts, utt_dur,
+                            force_resynthesize=True,
                         )
                         if new_status in ("aligned", "inherently_long") or new_len < audio_len:
                             output_file, audio_len, align_status = new_file, new_len, new_status
@@ -1281,6 +1282,9 @@ class PipelineAutomator:
     def _calibrate_indextts_cps(self) -> float:
         """每次都用 IndexTTS2 实测中文语速（不读旧缓存，避免用过期的虚高 cps）。
 
+        IndexTTS2 服务端要求每个请求必须带 voice_ref（spk_audio_prompt），否则报错。
+        若声纹尚未提取，先用源视频现提一个（_extract_voice_ref），保证测速成功，
+        得到真实 cps（重翻字数预算依赖它）。
         实测后写一份参考缓存（仅留档），但下次仍强制重新实测。
         """
         import tempfile as _tf
@@ -1292,7 +1296,12 @@ class PipelineAutomator:
         with _tf.TemporaryDirectory(prefix="indextts_cps_") as td:
             out = Path(td) / "calib.wav"
             voice_ref = self.assets_dir / "voice_ref.wav"
-            vr = str(voice_ref) if voice_ref.exists() else None
+            if not (voice_ref.exists() and voice_ref.stat().st_size > 1000):
+                try:
+                    self._extract_voice_ref(voice_ref)
+                except Exception as e:
+                    logging.warning(f"测速前提取声纹失败: {e}")
+            vr = str(voice_ref) if (voice_ref.exists() and voice_ref.stat().st_size > 1000) else None
             ok = self._synthesize_indextts(ref_text, out, voice_ref=vr)
             if ok and out.exists():
                 from pydub import AudioSegment
@@ -1560,19 +1569,29 @@ class PipelineAutomator:
         return "out_of_budget", chunk_wavs, total
 
     def _build_utterance_audio(
-        self, line_id: str, text: str, voice_ref, tts_engine: str, tts, utt_dur: float
+        self, line_id: str, text: str, voice_ref, tts_engine: str, tts, utt_dur: float,
+        force_resynthesize: bool = False,
     ) -> tuple:
         """切合成子块 → 逐子块合成 → 逐句变速 → 拼接为一条原句音频（ticket 07）。
 
         1 原句 = N 个子块（Chunk）WAV；变速按原句统一因子逐子块施加；
         子块拼接为 seg_{line_id}.wav 供混音/SRT 使用。
+
+        force_resynthesize=True（缩短重翻路径）：先清掉该句所有子块（含变速副本），
+        强制用新译文重新合成——否则复用旧子块会导致「字幕是短译文、音频还是长译文」。
         返回 (output_file, audio_len, status, chunk_wavs)。
         """
+        if force_resynthesize:
+            for stale in self.audio_dir.glob(f"seg_{line_id}_c*.wav"):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
         chunks = self._split_semantic(text or "", self.chunk_max_chars) or [""]
         chunk_wavs = []
         for ci, chunk in enumerate(chunks):
             cf = self.audio_dir / f"seg_{line_id}_c{ci}.wav"
-            if not (cf.exists() and cf.stat().st_size > 1000):
+            if force_resynthesize or not (cf.exists() and cf.stat().st_size > 1000):
                 if tts_engine == "indextts":
                     ok = self._synthesize_indextts(
                         text=chunk, output_path=cf,
