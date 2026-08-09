@@ -250,9 +250,9 @@ interview:
     min_duration_seconds: 180        # 时长 >= 3分钟视为访谈/长视频
   atempo:
     enabled: true
-    max_drift_seconds: 1.5           # 漂移在此范围内允许全局调速
-    min_speed_factor: 0.95           # 最慢 95%
-    max_speed_factor: 1.05           # 最快 105%
+    max_drift_seconds: 5.0           # 漂移在此范围内允许全局调速（放宽到接近失败阈值，作末段兜底）
+    min_speed_factor: 0.94           # 最慢 94%
+    max_speed_factor: 1.06           # 最快 106%
 
 # ============================================================
 # 输出路径

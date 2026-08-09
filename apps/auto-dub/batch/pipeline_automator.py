@@ -469,9 +469,14 @@ class PipelineAutomator:
 
     @staticmethod
     def _group_utterance_blocks(utterances: list[dict], block_gap: float = 1.0) -> list[dict]:
-        """按静音间隙把原句分组成语段（block）。
+        """把原句分组成语段（block）。
 
-        相邻原句间隙 >= block_gap → 新语段。纯函数，可单测。
+        边界条件（满足任一即新语段）：
+        - 相邻原句间隙 >= block_gap（静音停顿）
+        - 说话人切换（语段内保持同一说话人，避免把对话并成独白）
+
+        语段是翻译与对齐的单位：一段连续发言/问答 = 一个语段，
+        各自锚定自身时间起点。纯函数，可单测。
         """
         if not utterances:
             return []
@@ -479,7 +484,10 @@ class PipelineAutomator:
         current = [utterances[0]]
         for utt in utterances[1:]:
             gap = float(utt["start"]) - float(current[-1]["end"])
-            if gap < block_gap:
+            cur_spk = current[0].get("speaker")
+            utt_spk = utt.get("speaker")
+            speaker_change = bool(cur_spk and utt_spk and utt_spk != cur_spk)
+            if gap < block_gap and not speaker_change:
                 current.append(utt)
             else:
                 blocks.append(PipelineAutomator._block_from_utterances(current, f"b{len(blocks)}"))
@@ -2093,15 +2101,18 @@ class PipelineAutomator:
         atempo_applied = False
         atempo_factor = 1.0
 
-        if self.is_interview and drift_seconds > 0:
+        # === 全局调速兜底（自适应安全网）：任何视频漂移在窗口内都做整体校正，
+        #     不再限"访谈"（时长启发式）。语段级对齐的残余漂移由此兜底消除。
+        if drift_seconds > 0:
             interview_cfg = self.config.get("interview", {}).get("atempo", {})
+            atempo_enabled = bool(interview_cfg.get("enabled", True))
             max_drift_for_atempo = float(interview_cfg.get("max_drift_seconds", 1.5))
             min_speed = float(interview_cfg.get("min_speed_factor", 0.95))
             max_speed = float(interview_cfg.get("max_speed_factor", 1.05))
-            if drift_seconds <= max_drift_for_atempo:
+            if atempo_enabled and drift_seconds <= max_drift_for_atempo:
                 required_factor = audio_duration / video_duration if video_duration > 0 else 1.0
                 if min_speed <= required_factor <= max_speed:
-                    print(f"    🎚️ 访谈类漂移 {drift_seconds:.2f}s ≤ {max_drift_for_atempo}s，应用全局 atempo={required_factor:.3f}")
+                    print(f"    🎚️ 漂移 {drift_seconds:.2f}s ≤ {max_drift_for_atempo}s，应用全局 atempo={required_factor:.3f}")
                     effective_audio = self._apply_global_atempo(dub_audio_path, required_factor)
                     effective_srt = self._scale_srt_timings(srt_path, 1.0 / required_factor)
                     atempo_applied = True

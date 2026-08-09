@@ -57,6 +57,36 @@ class TestGroupBlocks:
         assert blocks[0]["start"] == 0.0
         assert blocks[1]["end"] == 8.0
 
+    def test_speaker_change_splits_even_with_small_gap(self):
+        # 对话：提问-回答，间隙 < block_gap 但说话人不同 → 必须分开（防独白化）
+        utts = [
+            _utt("u0", 0.0, 3.0, "Why did you do that?", "A"),
+            _utt("u1", 3.3, 6.0, "Because I had to", "B"),
+            _utt("u2", 6.3, 9.0, "I see", "A"),
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert len(blocks) == 3
+        assert [b["speaker"] for b in blocks] == ["A", "B", "A"]
+
+    def test_same_speaker_continuous_merges(self):
+        # 同一说话人连续发言（间隙小）→ 一个语段
+        utts = [
+            _utt("u0", 0.0, 3.0, "First point", "A"),
+            _utt("u1", 3.2, 6.0, "Second point", "A"),
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert len(blocks) == 1
+        assert blocks[0]["speaker"] == "A"
+
+    def test_none_speakers_merge_by_gap_only(self):
+        # 未分离说话人（diarize off）：按间隙合并（单人视频回归路径）
+        utts = [
+            _utt("u0", 0.0, 3.0, "a", None),
+            _utt("u1", 3.3, 6.0, "b", None),
+        ]
+        blocks = PipelineAutomator._group_utterance_blocks(utts, block_gap=1.0)
+        assert len(blocks) == 1
+
     def test_dominant_speaker(self):
         utts = [
             _utt("u0", 0.0, 3.0, "a", "A"),
