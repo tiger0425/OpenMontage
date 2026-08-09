@@ -276,6 +276,26 @@ glossary:
     "your term": "你的翻译"
 ```
 
+### 说话人分离与逐句对齐（多人视频 / 原句字幕）
+
+```yaml
+pipeline:
+  diarize: auto                  # auto=全量跑说话人分离按结果分档（多人/单人）；off=跳过（单人为主省时间）
+  alignment:
+    merge_gap_seconds: 0.5       # 原句合并：相邻转录段最大时间间隙
+    max_utterance_seconds: 15.0  # 原句合并：单句上限，超限不硬并
+    chunk_max_chars: 40          # 原句切合成子块（Chunk）的最大字符数
+    tempo_budget: 0.05           # 逐句变速预算 ±5%（保音高）
+    tolerance: 0.15              # 对齐容差 ±15%（验收达标率）
+    inherently_long_seconds: 1.0 # 物理不可达句阈值（原句 < 1s，允许超容差且不计入达标率）
+    queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
+```
+
+- **转录后按原句（Utterance）合并**：字幕与时长对齐锚点为原句，不再出现碎句；SRT 每条 = 一个原句。
+- **多人视频自动分音色**：`diarize: auto` 时 pyannote 分离说话人，按 speaker 从原视频切声纹，每句按说话人选音色；单人/未分离回退单声纹（零回归）。
+- **逐句对齐**：合成 → 实测时长 → 逐句 atempo（±5%）→ 校验；变速不可达句单次缩短重翻；`segment_timings.json`/`alignment_report.json` 输出 ±15% 达标率、碎句率、物理不可达句数。
+- 需 GPU 的端到端验收（TikTok 双人分音色、F3lL98Pj90o 漂移复跑）在无 GPU 会话中**不可执行**，须派发 Compute Worker（`render-assets` / `run-heavy`）。
+
 ---
 
 ## 🗣️ 用户自然语言指令 → 操作映射
