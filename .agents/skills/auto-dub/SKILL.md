@@ -71,7 +71,7 @@ pending → downloading → transcribing → translating → tts_synthesis
 | `rendering` | FFmpeg 字幕烧录 + 音画压制 |
 | `review` | 成品已生成，等待人工审核 |
 | `published` | 已标记发布 |
-| `awaiting_review` | 说话人审校闸门挂起：多人（>=2 说话人）或 `human_review: required` 时 script checkpoint 等待人工批准（不是失败） |
+| `awaiting_review` | 人审闸门挂起（非失败）：说话人/翻译审校（script checkpoint）或多人合成失败（assets checkpoint）等待人工批准 |
 
 ---
 
@@ -109,8 +109,9 @@ python bin/auto_dub.py render-video --video-id {video_id} [--json]
 # assets + edit + compose 打包一条龙（20~40 分钟，漂移超标自动缩短重翻）
 python bin/auto_dub.py run-heavy --video-id {video_id} [--json]
 
-# ---- 说话人审校闸门（ticket #8，轻任务，主 Agent 可执行） ----
-# 应用 speaker_review.md 人工修正 → 回写 transcript.json/script.json → script 闸门放行
+# ---- 人审闸门（ticket #8/#9/#11，轻任务，主 Agent 可执行） ----
+# 应用 speaker_review.md + translation_review.md + synthesis_review.md 人工修正
+# → 回写 transcript.json/script.json → 放行 script/assets 审校闸门
 python bin/auto_dub.py approve-review --video-id {video_id} [--json]
 ```
 
@@ -209,8 +210,8 @@ IndexTTS2 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），�
 
 旧 `_pitch_anchor` 用 asetrate 降调修复"短句克隆成女声"，但强制降调引入机械感/变调。**已彻底删除**（含测试）。正确做法：声纹参考多段择优拼接至 ~30s，源头稳定克隆。
 
-**多人访谈人审闸门（规划中，见 GitHub wayfinder map #7）**：
-多人（≥2 说话人）全自动完成率差，前期需人工校验：说话人审校（音色数量 + 每音色说的话）+ 翻译审校（全量中英对照）。单人默认自动通过但留档。正在通过 [wayfinder map](https://github.com/tiger0425/OpenMontage/issues/7) 规划落地。
+**多人访谈人审闸门（已落地，见 GitHub wayfinder map #7）**：
+多人（≥2 说话人）全自动完成率差，前期需人工校验：说话人审校（音色数量 + 每音色说的话，`speaker_review.md`）+ 翻译审校（全量中英对照，`translation_review.md`）。单人默认自动通过但留档。由 [wayfinder map](https://github.com/tiger0425/OpenMontage/issues/7) 规划落地（ticket #8/#9/#10）。
 
 ---
 
@@ -323,12 +324,16 @@ pipeline:
 
 - **转录后按原句（Utterance）合并**：字幕与时长对齐锚点为原句，不再出现碎句；SRT 每条 = 一个原句。
 - **多人视频自动分音色**：`diarize: auto` 时 pyannote 分离说话人，按 speaker 从原视频切声纹，每句按说话人选音色；单人/未分离回退单声纹（零回归）。
-- **说话人审校闸门**（`human_review`）：转录后按说话人数分流——多人（>=2）或 `required` 时生成 `speaker_review.md`（音色概览 + 每音色逐句 + 修正指令区），script checkpoint 置 `awaiting_human`，`process` 停在闸门并把 DB 状态标为 `awaiting_review`（非失败），`run-heavy`/`render-assets` 会被前置检查拒绝；单人（auto 模式）自动通过并留档。
+- **说话人审校闸门**（`human_review`，ticket #10）：转录后按说话人数分流——多人（>=2）或 `required` 时生成 `speaker_review.md`（音色概览 + 每音色逐句 + 修正指令区），script checkpoint 置 `awaiting_human`，`process` 停在闸门并把 DB 状态标为 `awaiting_review`（非失败），`run-heavy`/`render-assets` 会被前置检查拒绝；单人（auto 模式）自动通过并留档。
 - **人审修正**：编辑 `projects/auto-dub/auto-dub-{video_id}/speaker_review.md`，语法：
   - `# 合并 SPEAKER_03 -> SPEAKER_02`：把某音色所有话归给另一音色（删除 = 合并到他人）
   - `# u10 -> SPEAKER_02`：把某一句改给另一音色
   改完运行 `python bin/auto_dub.py approve-review --video-id {video_id}`：解析修正 → 回写 `transcript.json`（utterances + speaker_turns）→ 同步 `script.json` sections 的 speaker（**不重翻**，译文文本 per-utterance 独立）→ script checkpoint 置 `completed` 放行。
+- **翻译审校闸门**（ticket #9）：与说话人审校同分流（`human_review`）——多人/`required` 时同时生成 `translation_review.md`（全量逐句中英对照：每句 `### [u0] (…) [SPEAKER]` + `- EN:` 原文 + `- ZH:` 译文）。
+- **译文人审修正**：直接编辑 `translation_review.md` 中各句 `- ZH:` 行内容（其余行勿动），运行 `approve-review`：解析 `ZH:` 行 → 回写 `script.json` sections 的 `delivery_cues.provider_text`（仅应用有改动的句子，**不重翻**）→ script checkpoint 置 `completed` 放行。`approve-review` 会应用实际存在的 speaker/translation 审校文档。
 - **逐句对齐**：合成 → 实测时长 → 逐句 atempo（±5%）→ 校验；变速不可达句单次缩短重翻；`segment_timings.json`/`alignment_report.json` 输出 ±15% 达标率、碎句率、物理不可达句数。
+- **合成失败重试**（ticket #11）：TTS 子块合成失败（返回 False / 服务异常 / 产出静音伪文件 `rms < 100`）时重试，上限 `synth_retry_max`（默认 2，重试换 seed）。单人重试耗尽 → 静音兜底继续（容忍少数静音句）；**多人视频 0 次重试** → 生成 `synthesis_review.md`（失败清单：id/文本/原因/目标时长），assets checkpoint 置 `awaiting_human`，DB 状态 `awaiting_review`，`run-heavy`/`render-assets` 前置拒绝。
+- **合成失败人审**：编辑 `synthesis_review.md` 填 `# 重试 u3`（该句重新合成）或留空（接受静音兜底）。运行 `approve-review`：有重试句 → 清空其 wav、assets checkpoint 置 `in_progress`（重跑 run-heavy 重新合成）；无重试句 → 直接放行（render-video）。
 - 需 GPU 的端到端验收（TikTok 双人分音色、F3lL98Pj90o 漂移复跑）在无 GPU 会话中**不可执行**，须派发 Compute Worker（`render-assets` / `run-heavy`）。
 
 ---
@@ -384,16 +389,37 @@ pipeline:
 
 ---
 
-## 📁 成品文件位置
+## 📁 成品文件位置（按 频道/视频 分目录）
+
+成品按视频的 channel 分频道子文件夹，频道下再按视频标题分独立文件夹（每个视频的所有产物放一起）。
 
 ```
-projects/auto-dub/review/
-├── {video_id}.mp4          # 中文配音成品视频
-├── {video_id}_cover.png    # 4:3 封面图（1200×900px）
-└── {video_id}_meta.json    # 元数据（标题、时长、集数等）
+projects/auto-dub/review/<频道>/<视频标题>/      # 待人工审核的成品（生成后只进这里）
+├── {中文标题}.mp4                    # 中文配音成品视频
+├── {中文标题}_cover.png              # 4:3 封面图
+├── {中文标题}_meta.json              # 元数据（video_id、标题、简介等）
+└── {中文标题}_简介.txt                # B站简介（开头含「中文标题: ...」与「原视频: ...」）
 
-projects/auto-dub/published/
-└── (同上，已归档)
+projects/auto-dub/published/<频道>/<视频标题>/   # 已确认发布的归档（人工确认后才归档）
+└── (同上，审核通过后归档一份)
+```
+
+**review 与 published 的流转：**
+- 生成后成品**只进 review/**（待审），不再自动复制到 published/
+- 你审核确认后，运行 `python bin/auto_dub.py confirm-video {video_id}`
+  → 把 review/ 下该视频文件夹归档到 published/<频道>/<视频标题>/（按频道/视频分目录）
+  → review/ 保留已确认的副本，DB 状态标记为 published
+
+**简介（_简介.txt）内容：**
+- 开头固定两行：`中文标题: {翻译后的中文标题}` 和 `原视频: {英文原标题}`
+- 末尾固定一行：`#AI #人工智能 #中文配音`
+- 中间为翻译后的 B站简介（保留代码/URL/专有名词）
+- 原视频无简介时，仅生成标题两行 + 标签
+
+**CLI 命令：**
+```bash
+# 审核确认：review → published 归档（按频道/视频分目录，review 保留副本）
+python bin/auto_dub.py confirm-video {video_id}
 ```
 
 ---

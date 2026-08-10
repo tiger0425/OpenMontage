@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN" data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"视频标题"},
+  {"id":"channel","type":"string","label":"Channel","default":""},
+  {"id":"thumb_path","type":"string","label":"Thumbnail","default":""}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Mark Ai Guy Cover</title>
+    <style>
+      @font-face {
+        font-family: 'NotoSansSC';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/NotoSansSC-Black.ttf') format('truetype');
+        font-weight: 900;
+      }
+      @font-face {
+        font-family: 'Oswald';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/Oswald-Bold.ttf') format('truetype');
+        font-weight: 700;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'NotoSansSC', system-ui, sans-serif;
+        overflow: hidden;
+        background: #e6b800;
+      }
+
+      /* 16:9 画布 */
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: linear-gradient(135deg, #ffe600 0%, #ffb300 45%, #ff4d00 100%);
+      }
+
+      /* 中央 4:3 画面：1440x1080，居中 (x=240..1680, y=0..1080) */
+      .frame {
+        position: absolute;
+        left: 240px;
+        top: 0;
+        width: 1440px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      /* 4:3 区域柔光边缘（与左右背景融合） */
+      .frame::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25), inset 0 0 120px rgba(255,120,0,0.18);
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      /* 顶部 / 底部黑黄斜纹警示带（在 4:3 区域内） */
+      .tape {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 74px;
+        background:
+          repeating-linear-gradient(-45deg, #1a1a1a 0 30px, #ffe600 30px 60px);
+        z-index: 6;
+      }
+      .tape.top { top: 0; box-shadow: 0 5px 0 rgba(0,0,0,0.4); }
+      .tape.bottom { bottom: 0; box-shadow: 0 -5px 0 rgba(0,0,0,0.4); }
+
+      /* 超大字标题区：斜切，占据画面左上主体 */
+      .hero-title {
+        position: absolute;
+        top: 130px;
+        left: 60px;
+        width: 860px;
+        z-index: 4;
+        transform: rotate(-2deg);
+      }
+      .title-line {
+        font-size: 92px;
+        font-weight: 900;
+        line-height: 1.12;
+        color: #ffffff;
+        margin: 0 0 12px;
+        -webkit-text-stroke: 6px #170500;
+        paint-order: stroke fill;
+        text-shadow: 0 8px 0 #ff3b00, 0 16px 26px rgba(90, 10, 0, 0.5);
+        white-space: nowrap;
+      }
+      .title-line.gold {
+        color: #ffe600;
+        text-shadow: 0 8px 0 #ff3b00, 0 16px 26px rgba(90, 10, 0, 0.5);
+      }
+      .title-line.offset {
+        margin-left: 56px;
+      }
+
+      /* 100% FREE 巨型印章：压在主标题右上 */
+      .big-stamp {
+        position: absolute;
+        top: 230px;
+        right: 60px;
+        width: 210px;
+        height: 210px;
+        border-radius: 50%;
+        background: rgba(255, 45, 0, 0.92);
+        border: 8px dashed #ffffff;
+        box-shadow: 0 0 0 7px #ff2d00, 0 16px 32px rgba(120, 10, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: rotate(-12deg);
+        z-index: 5;
+      }
+      .big-stamp span {
+        color: #ffffff;
+        font-family: 'Oswald', sans-serif;
+        font-size: 46px;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.05;
+        letter-spacing: 1px;
+      }
+
+      /* 撕纸贴纸式原视频封面：更大，向中心靠拢 */
+      .paper-thumb {
+        position: absolute;
+        right: 150px;
+        bottom: 150px;
+        width: 680px;
+        height: 380px;
+        z-index: 3;
+        transform: rotate(3deg);
+        filter: drop-shadow(0 16px 22px rgba(90, 10, 0, 0.45));
+      }
+      .paper-thumb img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        clip-path: polygon(
+          0 4%, 3% 0, 8% 5%, 13% 0, 18% 6%, 23% 0, 28% 5%, 33% 0, 38% 6%,
+          43% 0, 48% 5%, 53% 0, 58% 6%, 63% 0, 68% 5%, 73% 0, 78% 6%,
+          83% 0, 88% 5%, 93% 0, 97% 5%, 100% 1%,
+          100% 96%, 97% 100%, 93% 95%, 88% 100%, 83% 95%, 78% 100%,
+          73% 95%, 68% 100%, 63% 95%, 58% 100%, 53% 95%, 48% 100%,
+          43% 95%, 38% 100%, 33% 95%, 28% 100%, 23% 95%, 18% 100%,
+          13% 95%, 8% 100%, 3% 96%, 0 100%
+        );
+        border-radius: 8px;
+      }
+      .paper-thumb::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        clip-path: polygon(
+          0 4%, 3% 0, 8% 5%, 13% 0, 18% 6%, 23% 0, 28% 5%, 33% 0, 38% 6%,
+          43% 0, 48% 5%, 53% 0, 58% 6%, 63% 0, 68% 5%, 73% 0, 78% 6%,
+          83% 0, 88% 5%, 93% 0, 97% 5%, 100% 1%,
+          100% 96%, 97% 100%, 93% 95%, 88% 100%, 83% 95%, 78% 100%,
+          73% 95%, 68% 100%, 63% 95%, 58% 100%, 53% 95%, 48% 100%,
+          43% 95%, 38% 100%, 33% 95%, 28% 100%, 23% 95%, 18% 100%,
+          13% 95%, 8% 100%, 3% 96%, 0 100%
+        );
+        background: #fff;
+        transform: translate(8px, -8px);
+        z-index: -1;
+      }
+      /* 手绘红圈圈住封面 */
+      .scribble {
+        position: absolute;
+        right: 118px;
+        bottom: 120px;
+        width: 748px;
+        height: 452px;
+        border: 11px solid #ff2d00;
+        border-radius: 55% 45% 52% 48% / 46% 55% 45% 54%;
+        transform: rotate(-4deg);
+        z-index: 2;
+      }
+
+      /* 从标题指向封面的红色大箭头 */
+      .arrow-down {
+        position: absolute;
+        right: 350px;
+        bottom: 490px;
+        font-family: 'Oswald', sans-serif;
+        font-size: 130px;
+        line-height: 1;
+        color: #ffffff;
+        -webkit-text-stroke: 7px #170500;
+        paint-order: stroke fill;
+        transform: rotate(30deg) scale(1, 1.4);
+        z-index: 5;
+        text-shadow: 0 7px 0 #ff3b00;
+      }
+
+      /* 右上角频道标 */
+      .channel-chip {
+        position: absolute;
+        top: 100px;
+        right: 60px;
+        background: #170500;
+        color: #ffe600;
+        font-family: 'Oswald', sans-serif;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        padding: 10px 22px;
+        border-radius: 10px;
+        border: 4px solid #ffffff;
+        transform: rotate(2deg);
+        z-index: 6;
+      }
+
+      /* 爆裂星形 / 货币符号点缀（4:3 区域内） */
+      .spark { position: absolute; z-index: 1; color: #fff; -webkit-text-stroke: 4px #ff3b00; paint-order: stroke fill; line-height: 1; }
+      .spark.s1 { top: 120px; left: 560px; font-size: 70px; transform: rotate(12deg); }
+      .spark.s2 { bottom: 90px; left: 130px; font-size: 64px; color: #ffe600; -webkit-text-stroke: 5px #170500; }
+      .spark.s3 { top: 520px; left: 60px; font-size: 88px; font-family: 'Oswald', sans-serif; }
+      .spark.s4 { top: 420px; right: 60px; font-size: 56px; transform: rotate(-15deg); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="cover" data-no-timeline data-width="1920" data-height="1080" data-start="0" data-duration="0.1">
+
+      <!-- 中央 4:3 画面：1440x1080，居中 -->
+      <div class="frame">
+
+        <div class="tape top"></div>
+        <div class="tape bottom"></div>
+
+        <div class="spark s1">★</div>
+        <div class="spark s2">⚡</div>
+        <div class="spark s3">$</div>
+        <div class="spark s4">✕</div>
+
+        <!-- 超大字标题 -->
+        <div class="hero-title" id="title-lines">
+          <!-- 动态标题行 -->
+        </div>
+
+        <!-- 100% FREE 巨型印章 -->
+        <div class="big-stamp"><span>100%<br/>FREE</span></div>
+
+        <!-- 手绘红圈 + 撕纸贴纸封面 -->
+        <div class="scribble"></div>
+        <div class="paper-thumb">
+          <img id="thumb-img" alt="原视频封面" />
+        </div>
+
+        <div class="arrow-down">➜</div>
+
+        <div class="channel-chip" id="channel-chip">MARK AI GUY</div>
+
+      </div>
+
+    </div>
+
+    <script>
+      const v = window.__hyperframes.getVariables();
+
+      // 原视频封面
+      const thumbImg = document.getElementById("thumb-img");
+      if (v.thumb_path) {
+        thumbImg.src = v.thumb_path;
+      }
+
+      // 频道标签
+      if (v.channel) {
+        document.getElementById("channel-chip").textContent = v.channel.toUpperCase();
+      }
+
+      // 标题：切成 ≤8 字/行，最多 3 行，第二行缩进
+      const container = document.getElementById("title-lines");
+      container.innerHTML = "";
+
+      let rawTitle = (v.title || "").replace(/\s*\|\s*/g, " ").trim();
+      const chars = Array.from(rawTitle);
+      const lines = [];
+      const maxPerLine = 8;
+      let cur = "";
+      for (const ch of chars) {
+        if (cur.length >= maxPerLine) { lines.push(cur); cur = ""; }
+        cur += ch;
+      }
+      if (cur) lines.push(cur);
+
+      const finalLines = lines.slice(0, 3);
+      if (lines.length > 3) {
+        finalLines[2] = lines.slice(2).join("").slice(0, 8);
+      }
+
+      finalLines.forEach((lineText, idx) => {
+        const h1 = document.createElement("h1");
+        h1.className = "title-line";
+        if (idx === 1) h1.classList.add("offset");
+        h1.textContent = lineText;
+        if (/免费|FREE|爆火|0元|白嫖|无限|省/i.test(lineText)) {
+          h1.classList.add("gold");
+        }
+        container.appendChild(h1);
+      });
+    </script>
+  </body>
+</html>

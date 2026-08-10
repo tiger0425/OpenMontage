@@ -49,6 +49,35 @@ from batch.llm_client import LLMClient
 _SPEAKER_REVIEW_MERGE_RE = re.compile(r"^#\s*合并\s+([A-Za-z0-9_]+)\s*->\s*([A-Za-z0-9_]+)\s*$")
 _SPEAKER_REVIEW_REROUTE_RE = re.compile(r"^#\s*(u\d+|b\d+)\s*->\s*([A-Za-z0-9_]+)\s*$")
 
+# 翻译审校（translation_review.md）的逐句对照语法（ticket #9）
+# 块标题：`### [u0] (0.0-3.0s) [SPEAKER_00]`；译文行：`ZH: 你好世界`（兼容 `- ZH: ...`）
+_TRANSLATION_REVIEW_HEADER_RE = re.compile(r"^###\s*\[([A-Za-z0-9_]+)\]")
+_TRANSLATION_REVIEW_ZH_RE = re.compile(r"^[-*]?\s*ZH[:：]\s*(.+)$")
+
+# 合成失败审校（synthesis_review.md）修正指令（ticket #11）：`# 重试 u3`
+_SYNTH_REVIEW_RETRY_RE = re.compile(r"^#\s*重试\s+([A-Za-z0-9_]+)\s*$")
+
+
+def parse_synthesis_review_md(md_text: str) -> dict:
+    """解析 synthesis_review.md 的人工修正指令（纯函数，可单测，ticket #11）。
+
+    支持：
+    - `# 重试 u3`：该句需要重新合成（approve-review 时清空其 wav，重跑 run-heavy）
+    其余行（含留空/删除）视为接受现状（静音兜底放行）。
+
+    Returns:
+        {"retry_ids": ["u3", ...]}
+    """
+    retry_ids = []
+    for raw_line in md_text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("#"):
+            continue
+        m = _SYNTH_REVIEW_RETRY_RE.match(line)
+        if m:
+            retry_ids.append(m.group(1))
+    return {"retry_ids": retry_ids}
+
 
 def parse_speaker_review_md(md_text: str) -> dict:
     """解析 speaker_review.md 的人工修正指令（纯函数，可单测）。
@@ -77,6 +106,34 @@ def parse_speaker_review_md(md_text: str) -> dict:
             uid, spk = m.group(1), m.group(2)
             reroutes[uid] = spk
     return {"merge_map": merge_map, "reroutes": reroutes}
+
+
+def parse_translation_review_md(md_text: str) -> dict:
+    """解析 translation_review.md 的人工修正译文（纯函数，可单测，ticket #9）。
+
+    文档由 `_generate_translation_review_md` 生成，逐句中英对照：
+        ### [u0] (0.0-3.0s) [SPEAKER_00]
+        EN: Hello world
+        ZH: 你好世界
+
+    人审直接改 `ZH:` 行内容。本函数按块标题把每句归属到 id，
+    收集每句的 ZH 译文，返回 {"edits": {id: 新译文}}。
+    仅解析 ZH 行；EN 行是只读参照，不解析不回写。无块标题归属的行忽略。
+    """
+    edits: dict = {}
+    current_id = None
+    for raw_line in md_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = _TRANSLATION_REVIEW_HEADER_RE.match(line)
+        if m:
+            current_id = m.group(1)
+            continue
+        m = _TRANSLATION_REVIEW_ZH_RE.match(line)
+        if m and current_id:
+            edits[current_id] = m.group(1).strip()
+    return {"edits": edits}
 
 
 def _resolve_merge_target(speaker: Optional[str], merge_map: dict) -> str:
@@ -168,6 +225,14 @@ class PipelineAutomator:
         # 说话人审校分流（ticket #10）：auto=说话人 >=2 强制人审，单人自动通过留档；
         # required=所有视频（含单人）强制人审
         self.human_review = config.get("pipeline", {}).get("human_review", "auto")
+
+        # 合成失败重试策略（ticket #11）：单人重试上限 2 次，多人 0 次（直接人审）。
+        # 合成失败 = IndexTTS 出静音伪文件 / 服务无响应 / 异常。重试上限可配置。
+        self.synth_retry_max = int(config.get("pipeline", {}).get("synth_retry_max", 2))
+        # 多人合成失败后直接人审：生成 synthesis_review.md 并挂起 assets checkpoint 等人审
+        self.multi_synth_failure_review = bool(
+            config.get("pipeline", {}).get("multi_synth_failure_review", True)
+        )
 
         # 漂移超标重试计数
         self._drift_retry_count = 0
@@ -272,7 +337,12 @@ class PipelineAutomator:
         cp_script = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "script")
         cp_scene = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "scene_plan")
         if cp_script and cp_script.get("status") == "awaiting_human":
-            self._last_error = "render-assets 前置缺失：script 正在等待人工审校说话人归属，请先完成说话人审校"
+            self._last_error = "render-assets 前置缺失：script 正在等待人工审校（说话人归属/译文），请先完成审校"
+            print(f"    ❌ {self._last_error}")
+            return None
+        cp_assets = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "assets")
+        if cp_assets and cp_assets.get("status") == "awaiting_human":
+            self._last_error = "render-assets 前置缺失：assets 正在等待人工审校（多人合成失败），请先完成审校"
             print(f"    ❌ {self._last_error}")
             return None
         if not (cp_script and cp_script.get("status") == "completed" and cp_script.get("artifacts", {}).get("script")):
@@ -418,10 +488,18 @@ class PipelineAutomator:
 
         human_review=auto（默认）：说话人 >=2 强制人审，单人（含 0/未分离）自动通过留档。
         human_review=required：所有视频（含单人）都强制人审。
+        human_review=single-auto：所有视频都生成审校文档；多人强制人审，单人自动通过。
         """
         if self.human_review == "required":
             return True
+        if self.human_review == "single-auto":
+            # 单人生成文档但自动通过，由 _run_script_stage 区分生成与挂起
+            return True
         return self.human_review == "auto" and speaker_count >= 2
+
+    def _single_auto_pass(self, speaker_count: int) -> bool:
+        """single-auto 模式下单人是否自动通过（生成文档但不必等人审）。"""
+        return self.human_review == "single-auto" and speaker_count < 2
 
     def _generate_speaker_review_md(self, raw_transcript: dict, utterances: list[dict]) -> str:
         """生成 speaker_review.md（音色概览 + 每音色的话 + 修正指令区）。纯文本生成，可单测。
@@ -481,6 +559,85 @@ class PipelineAutomator:
         lines.append(">")
         lines.append("> - `# 合并 SPEAKER_03 -> SPEAKER_02`：把某音色的所有话归给另一音色（删除 = 合并到他人）")
         lines.append("> - `# u10 -> SPEAKER_02`：把某一句改给另一音色")
+        lines.append("")
+        lines.append("（修正指令填在这里）")
+        return "\n".join(lines)
+
+    def _generate_translation_review_md(self, script_data: dict) -> str:
+        """生成 translation_review.md（全量逐句中英对照，ticket #9）。
+
+        依据 script.json 的 sections：每句一行 EN 原文 + 一行 ZH 译文，
+        人审直接修改 `ZH:` 行内容，改完运行 approve-review 回写 script.json。
+        纯文本生成，可单测。
+        """
+        title = self.video.get("title") or self.project_id
+        sections = script_data.get("sections") or []
+        lines = [
+            "# 翻译审校文档（全量中英对照）",
+            "",
+            f"- 项目: {self.project_id}",
+            f"- 视频: {title}",
+            f"- 共 {len(sections)} 句",
+            "",
+            "## 逐句对照",
+            "",
+        ]
+        for sec in sections:
+            sid = sec.get("id")
+            s = float(sec.get("start_seconds") or 0)
+            e = float(sec.get("end_seconds") or 0)
+            spk = sec.get("speaker") or "(未分配)"
+            en = (sec.get("text") or "").strip().replace("|", "\\|")
+            zh = ((sec.get("delivery_cues") or {}).get("provider_text") or "").strip().replace("|", "\\|")
+            lines.append(f"### [{sid}] ({s:.1f}-{e:.1f}s) [{spk}]")
+            lines.append(f"- EN: {en}")
+            lines.append(f"- ZH: {zh}")
+            lines.append("")
+        lines.append("## 修改说明")
+        lines.append("")
+        lines.append("> 直接修改上方各句的 `- ZH:` 行内容为修正后的中文译文，其余行（`###` 标题、`- EN:` 原文）请勿改动。")
+        lines.append("> 改完通知 Agent 运行：")
+        lines.append("> `python bin/auto_dub.py approve-review --video-id {video_id}`")
+        lines.append(">")
+        lines.append("> 支持按句子单独修改；未改动的句子保持原译文，不会重翻。")
+        lines.append("")
+        lines.append("（在此上方逐句对照处直接修改译文）")
+        return "\n".join(lines)
+
+    def _generate_synthesis_review_md(self, synth_failures: list[dict]) -> str:
+        """生成 synthesis_review.md（多人合成失败审校文档，ticket #11）。
+
+        列出每个失败子块：id、文本、原因（tts_failed/silent）、目标时长。
+        人审决定：重试（approve-review 清空对应 wav 后重跑 run-heavy）或直接放行。
+        纯文本生成，可单测。
+        """
+        title = self.video.get("title") or self.project_id
+        lines = [
+            "# 合成失败审校文档",
+            "",
+            f"- 项目: {self.project_id}",
+            f"- 视频: {title}",
+            f"- 失败子块: {len(synth_failures)} 个",
+            "",
+            "## 失败清单",
+            "",
+        ]
+        for f in synth_failures:
+            sid = f.get("id")
+            txt = (f.get("text") or "").strip().replace("|", "\\|")
+            reason = f.get("reason", "tts_failed")
+            dur = float(f.get("target_duration_seconds") or 0)
+            lines.append(f"### [{sid}] 子块 c{f.get('chunk_index')} (目标 {dur:.1f}s)")
+            lines.append(f"- 文本: {txt}")
+            lines.append(f"- 原因: {reason}")
+            lines.append("")
+        lines.append("## 修正指令")
+        lines.append("")
+        lines.append("> 在下方按行填写修正指令，不修改请留空。改完通知 Agent 运行：")
+        lines.append("> `python bin/auto_dub.py approve-review --video-id {video_id}`")
+        lines.append(">")
+        lines.append("> - `# 重试 u3`：重新合成该句（清掉其 wav，重新 run-heavy 时重试）")
+        lines.append("> - 留空/删除该句：接受现状（静音兜底），直接放行")
         lines.append("")
         lines.append("（修正指令填在这里）")
         return "\n".join(lines)
@@ -561,6 +718,124 @@ class PipelineAutomator:
         }
         print(f"    ✅ 说话人审校已应用：合并 {merge_map or '无'}，改归属 {reroutes or '无'}")
         print(f"       script 闸门已放行，可派发 Worker 执行 run-heavy")
+        return summary
+
+    def apply_translation_review(self) -> dict:
+        """应用 translation_review.md 的人工修正译文并放行 script 审校闸门（ticket #9）。
+
+        流程：
+        1. 解析 translation_review.md 中每句 `ZH:` 行的修正译文（en 行只读）
+        2. 回写 script.json 的 sections.delivery_cues.provider_text（不重翻，仅应用人工改动）
+        3. script checkpoint 置 completed（human_approved=True）放行后续阶段
+        """
+        md_file = self.project_dir / "translation_review.md"
+        if not md_file.exists():
+            self._last_error = f"找不到 {md_file}，请先运行 process 生成翻译审校文档"
+            return {"success": False, "error": self._last_error}
+        instr = parse_translation_review_md(md_file.read_text(encoding="utf-8"))
+        edits = instr["edits"]
+
+        # 1. 回写 script.json 的译文（provider_text）
+        changed_count = 0
+        changed_ids = []
+        script_data = None
+        script_file = self.project_dir / "script.json"
+        if script_file.exists():
+            with open(script_file, encoding="utf-8") as f:
+                script_data = json.load(f)
+            for sec in script_data.get("sections", []):
+                sid = sec.get("id")
+                if sid in edits:
+                    cues = sec.setdefault("delivery_cues", {})
+                    new_zh = edits[sid]
+                    if cues.get("provider_text") != new_zh:
+                        cues["provider_text"] = new_zh
+                        changed_count += 1
+                        changed_ids.append(sid)
+            with open(script_file, "w", encoding="utf-8") as f:
+                json.dump(script_data, f, indent=2, ensure_ascii=False)
+
+        # 2. script checkpoint 放行（completed + 更新后的 script artifact）
+        if script_data is None:
+            cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "script")
+            script_data = (cp or {}).get("artifacts", {}).get("script") or {}
+        checkpoint.write_checkpoint(
+            pipeline_dir=self.project_dir.parent,
+            project_id=self.project_id,
+            stage="script",
+            status="completed",
+            artifacts={"script": script_data},
+            pipeline_type="localization-dub",
+            human_approval_required=True,
+            human_approved=True,
+        )
+        self._awaiting_human_review = False
+
+        summary = {
+            "success": True,
+            "changed_count": changed_count,
+            "changed_ids": changed_ids,
+        }
+        print(f"    ✅ 翻译审校已应用：修改 {changed_count} 句译文 {changed_ids or ''}")
+        print(f"       script 闸门已放行，可派发 Worker 执行 run-heavy")
+        return summary
+
+    def apply_synthesis_review(self) -> dict:
+        """应用 synthesis_review.md 的人审决定并放行 assets 审校闸门（ticket #11）。
+
+        流程：
+        1. 解析 synthesis_review.md 的修正指令（`# 重试 <id>` 表示需要重新合成）
+        2. 清空重试句的 wav（seg_<id>*.wav），下次 run-heavy 时重新合成
+        3. assets checkpoint 置 completed 放行（unused 静音兜底句保留原样）
+        返回 summary：{"success", "retry_ids", "cleared_blocks"}
+        """
+        md_file = self.project_dir / "synthesis_review.md"
+        if not md_file.exists():
+            self._last_error = f"找不到 {md_file}，请先运行 run-heavy 生成合成失败审校文档"
+            return {"success": False, "error": self._last_error}
+        instr = parse_synthesis_review_md(md_file.read_text(encoding="utf-8"))
+        retry_ids = instr["retry_ids"]
+
+        # 1. 清空重试句的 wav（整段及其子块），下次 run-heavy 重新合成
+        cleared_blocks = []
+        for block_id in retry_ids:
+            for stale in self.audio_dir.glob(f"seg_{block_id}*.wav"):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+            cleared_blocks.append(block_id)
+
+        # 2. assets checkpoint 放行：
+        #    - 无重试句 → completed（静音兜底直接 render-video）
+        #    - 有重试句 → in_progress（下次 run-heavy 重新执行 assets 阶段，
+        #      被清空的 wav 会重新合成）
+        status = "completed" if not retry_ids else "in_progress"
+        cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "assets")
+        manifest = (cp or {}).get("artifacts", {}).get("asset_manifest") or {"version": "1.0", "assets": []}
+        checkpoint.write_checkpoint(
+            pipeline_dir=self.project_dir.parent,
+            project_id=self.project_id,
+            stage="assets",
+            status=status,
+            artifacts={"asset_manifest": manifest},
+            pipeline_type="localization-dub",
+            human_approval_required=bool(retry_ids),
+            human_approved=not retry_ids,
+            error=f"多人合成失败审校：重试 {len(retry_ids)} 句，等待重新合成" if retry_ids else None,
+        )
+        self._awaiting_human_review = False
+
+        summary = {
+            "success": True,
+            "retry_ids": retry_ids,
+            "cleared_blocks": cleared_blocks,
+        }
+        print(f"    ✅ 合成失败审校已应用：重试 {retry_ids or '无'}，其余静音兜底放行")
+        if retry_ids:
+            print(f"       已清空 {cleared_blocks} 的 wav，请派发 Worker 重跑 run-heavy 重新合成")
+        else:
+            print(f"       已放行，可派发 Worker 执行 render-video 或 run-heavy")
         return summary
 
     # ==========================================
@@ -680,13 +955,33 @@ class PipelineAutomator:
         with open(script_file, "w", encoding="utf-8") as f:
             json.dump(script_data, f, indent=2, ensure_ascii=False)
 
-        # 4. 说话人审校分流（ticket #10）：多人/required → 生成 speaker_review.md、
+        # 4. 说话人审校分流（ticket #10）+ 翻译审校分流（ticket #9）：
+        #    多人/required → 生成 speaker_review.md + translation_review.md、
         #    写 awaiting_human checkpoint 等人审，不放行后续阶段；单人/未分离 → 自动审核
         need_review = self._needs_human_review(speaker_count)
+        single_auto_pass = self._single_auto_pass(speaker_count)
         if need_review:
             review_md = self._generate_speaker_review_md(raw_transcript, utterances)
             review_file = self.project_dir / "speaker_review.md"
             review_file.write_text(review_md, encoding="utf-8")
+            trans_md = self._generate_translation_review_md(script_data)
+            trans_file = self.project_dir / "translation_review.md"
+            trans_file.write_text(trans_md, encoding="utf-8")
+            if single_auto_pass:
+                # single-auto 单人：生成审校文档留档，但自动通过，不挂人审
+                checkpoint.write_checkpoint(
+                    pipeline_dir=self.project_dir.parent,
+                    project_id=self.project_id,
+                    stage="script",
+                    status="completed",
+                    artifacts={"script": script_data},
+                    pipeline_type="localization-dub",
+                    human_approval_required=False,
+                    human_approved=True,
+                )
+                print(f"    ✅ 单人自动通过（human_review={self.human_review}）："
+                      f"审校文档 {review_file.name} 与 {trans_file.name} 已留档")
+                return script_data
             checkpoint.write_checkpoint(
                 pipeline_dir=self.project_dir.parent,
                 project_id=self.project_id,
@@ -698,9 +993,9 @@ class PipelineAutomator:
                 human_approved=False,
             )
             self._awaiting_human_review = True
-            print(f"    ⏸️ 检测到 {speaker_count} 位说话人，script 待人工审校说话人归属 "
+            print(f"    ⏸️ 检测到 {speaker_count} 位说话人，script 待人工审校说话人归属与译文 "
                   f"(human_review={self.human_review})")
-            print(f"       project: {self.project_id} | 请审校 {review_file.name}，"
+            print(f"       project: {self.project_id} | 请审校 {review_file.name} 与 {trans_file.name}，"
                   f"改完运行 python bin/auto_dub.py approve-review --video-id {self.video.get('video_id')}")
             return None
 
@@ -1250,6 +1545,9 @@ class PipelineAutomator:
 
     def _do_assets_stage(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
         print("  ⚙️ 运行 [assets] 阶段...")
+        # 合成失败收集（ticket #11）：多人合成失败转人审
+        self._synth_failures = []
+        self._awaiting_human_review = False
         
         cp = checkpoint.read_checkpoint(self.project_dir.parent, self.project_id, "assets")
         if cp and cp.get("status") == "completed":
@@ -1281,7 +1579,11 @@ class PipelineAutomator:
 
         external_voice_ref = self.assets_dir / "voice_ref.wav"
         use_external_ref = False
-        if not speaker_refs:
+        if len(speaker_refs) < 2:
+            # 单说话人/分离出不足 2 个有效声纹 → 回退单声纹路径。
+            # 注意：pyannote 可能把噪声/静音误判为第 2 位说话人（如 SPEAKER_01 仅 0.4s），
+            # 该 label 会被 candidates 过滤，最终 refs 只剩 1 个 → 这里必须回退，
+            # 否则 voice_ref=None 导致 IndexTTS2 缺 spk_audio_prompt 全量静音。
             if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
                 try:
                     chk_ref = AudioSegment.from_wav(str(external_voice_ref))
@@ -1426,6 +1728,31 @@ class PipelineAutomator:
                 self._persist_script_update(script_data)
             except Exception as e:
                 logging.warning(f"重翻后回写 script 失败: {e}")
+
+        # 2a. 多人合成失败转人审（ticket #11）：多人有任一子块合成失败 →
+        #     生成 synthesis_review.md，assets checkpoint 置 awaiting_human 等人审，
+        #     不放行后续阶段（避免把静音句混进成品）。单人重试耗尽仍失败 → 静音兜底继续。
+        if self._synth_failures and multi_speaker and getattr(self, "multi_synth_failure_review", True):
+            synth_md = self._generate_synthesis_review_md(self._synth_failures)
+            synth_file = self.project_dir / "synthesis_review.md"
+            synth_file.write_text(synth_md, encoding="utf-8")
+            checkpoint.write_checkpoint(
+                pipeline_dir=self.project_dir.parent,
+                project_id=self.project_id,
+                stage="assets",
+                status="awaiting_human",
+                artifacts={"asset_manifest": {"version": "1.0", "assets": []}},
+                pipeline_type="localization-dub",
+                human_approval_required=True,
+                human_approved=False,
+                error=f"多人合成失败 {len(self._synth_failures)} 个子块，等待人工审校"
+            )
+            self._awaiting_human_review = True
+            self._last_error = f"多人合成失败 {len(self._synth_failures)} 个子块，assets 待人工审校"
+            print(f"    ⏸️ 多人视频合成失败 {len(self._synth_failures)} 个子块，assets 待人工审校")
+            print(f"       project: {self.project_id} | 请审校 {synth_file.name}，"
+                  f"改完运行 python bin/auto_dub.py approve-review --video-id {self.video.get('video_id')}")
+            return None
 
         # 2. 串行排队混音算法 (Serial Queue Mix) 与时间戳计算
         print("    🎚️ 执行串行排队混音算法 (Serial Queue Mix, 100ms 间隔)...")
@@ -1636,6 +1963,22 @@ class PipelineAutomator:
             silence.export(output_path, format="wav")
         except Exception as e:
             logging.error(f"Failed to create silent wav: {e}")
+
+    @staticmethod
+    def _wav_is_silent(path: Path, threshold: int = 100) -> bool:
+        """判断 wav 是否为静音伪文件（ticket #11）：rms 低于阈值即视为静音。
+
+        缺失/损坏/超短文件也视为静音（无法承载语义）。纯函数，可单测。
+        """
+        try:
+            if not path.exists() or path.stat().st_size <= 1000:
+                return True
+            seg = AudioSegment.from_wav(str(path))
+            if seg.duration_seconds < 0.05:
+                return True
+            return seg.rms < threshold
+        except Exception:
+            return True
 
     def _mix_audio_segments(self, segments: list[dict], duration_sec: float, output_path: Path):
         """把各个配音片段按照时间点贴在一条长空白音轨上"""
@@ -2100,9 +2443,11 @@ class PipelineAutomator:
         self._indextts_gpu_lock = GpuLockHandle("indextts", timeout=1800, heartbeat=15)
         self._indextts_gpu_lock.acquire()
         try:
+            stderr_log = open(self.project_dir / "indextts_server.log", "w", encoding="utf-8", errors="replace")
+            self._indextts_stderr_log = stderr_log
             proc = subprocess.Popen(
                 [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log,
                 text=True, encoding="utf-8", errors="replace",
             )
         except Exception:
@@ -2163,12 +2508,36 @@ class PipelineAutomator:
                 resp_line = proc.stdout.readline()
             if not resp_line:
                 print("      ❌ IndexTTS2 服务无响应")
+                self._dump_indextts_stderr()
                 return False
             resp = json.loads(resp_line)
-            return bool(resp.get("ok"))
+            ok = bool(resp.get("ok"))
+            if not ok:
+                print(f"      ❌ IndexTTS2 服务返回失败: {resp.get('error')}")
+                self._dump_indextts_stderr()
+            return ok
         except Exception as e:
             print(f"      ❌ IndexTTS2 服务异常: {e}")
+            self._dump_indextts_stderr()
             return False
+
+    def _dump_indextts_stderr(self):
+        """打印 IndexTTS2 服务 stderr 日志尾部（诊断用，最多 30 行）。"""
+        try:
+            log = getattr(self, "_indextts_stderr_log", None)
+            if log is None:
+                return
+            log.flush()
+            path = self.project_dir / "indextts_server.log"
+            if not path.exists():
+                return
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            tail = lines[-30:] if len(lines) > 30 else lines
+            print("      ── IndexTTS2 stderr tail ──")
+            for ln in tail:
+                print("      | " + ln)
+        except Exception:
+            pass
 
     def _get_cps(self) -> float:
         """延迟校准并返回实测语速（cps）。"""
@@ -2584,25 +2953,51 @@ class PipelineAutomator:
         for ci, chunk in enumerate(chunks):
             cf = self.audio_dir / f"seg_{block_id}_c{ci}.wav"
             if force_resynthesize or not (cf.exists() and cf.stat().st_size > 1000):
-                if tts_engine == "indextts":
-                    ok = self._synthesize_indextts(
-                        text=chunk, output_path=cf,
-                        voice_ref=str(voice_ref) if voice_ref else None,
-                        seed=42, target_duration=block_dur,
-                    )
-                    if not ok:
-                        self._create_silent_wav(block_dur / max(len(chunks), 1), cf)
-                else:
-                    tts_params = {"text": chunk, "output_path": str(cf), "seed": 42}
-                    if voice_ref:
-                        tts_params["reference_wav_path"] = voice_ref
-                        tts_params["cfg_value"] = 3.0
+                synth_ok = False
+                last_reason = None
+                # 合成失败重试（ticket #11）：上限 self.synth_retry_max；
+                # 失败 = TTS 返回 False / 服务异常 / 产出静音伪文件（rms < 100）。
+                # 重试时换 seed（同 seed 大概率产出同样的失败/静音结果）。
+                max_retries = max(0, int(getattr(self, "synth_retry_max", 2)))
+                for attempt in range(max_retries + 1):
+                    if tts_engine == "indextts":
+                        ok = self._synthesize_indextts(
+                            text=chunk, output_path=cf,
+                            voice_ref=str(voice_ref) if voice_ref else None,
+                            seed=42 + attempt, target_duration=block_dur,
+                        )
                     else:
-                        tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
-                    res = tts.execute(tts_params)
-                    if not res.success:
-                        print(f"      ❌ 子块合成失败 (语段 {block_id} c{ci}): {res.error}")
-                        self._create_silent_wav(block_dur / max(len(chunks), 1), cf)
+                        tts_params = {"text": chunk, "output_path": str(cf), "seed": 42 + attempt}
+                        if voice_ref:
+                            tts_params["reference_wav_path"] = voice_ref
+                            tts_params["cfg_value"] = 3.0
+                        else:
+                            tts_params["voice_description"] = "温暖成熟的普通话男声，发音清晰平稳，科普讲解员风格"
+                        res = tts.execute(tts_params)
+                        ok = res.success
+                    if ok and self._wav_is_silent(cf):
+                        ok = False
+                        last_reason = "silent"
+                    if ok:
+                        synth_ok = True
+                        break
+                    if attempt < max_retries:
+                        self._heartbeat(
+                            f"      ↻ 子块合成失败重试 (语段 {block_id} c{ci} 第 {attempt+1}/{max_retries} 次, "
+                            f"原因={last_reason or 'tts'}): {chunk[:20]}..."
+                        )
+                if not synth_ok:
+                    # 重试耗尽：记录失败句（多人时上层转人审），静音兜底保证流程可继续
+                    reason = last_reason or "tts_failed"
+                    self._synth_failures.append({
+                        "id": block_id,
+                        "chunk_index": ci,
+                        "text": chunk,
+                        "reason": reason,
+                        "target_duration_seconds": round(block_dur, 3),
+                    })
+                    print(f"      ❌ 语段 {block_id} c{ci} 合成失败（{reason}），静音兜底")
+                    self._create_silent_wav(block_dur / max(len(chunks), 1), cf)
             dur = self._wav_duration(cf)
             chunk_wavs.append({"path": cf, "dur": dur})
 
@@ -2895,6 +3290,23 @@ class PipelineAutomator:
             pass
         return ""
 
+    def _resolve_cover_template(self, channel: str) -> Path:
+        """按频道解析专属封面模板，未配置/缺失时回退默认模板。
+
+        查找顺序：
+        1. config.cover.channel_templates[channel] → 相对 templates/ 的路径
+        2. 默认 cover.template（相对 templates/）
+        """
+        cover_cfg = self.config.get("cover", {}) or {}
+        channel_map = cover_cfg.get("channel_templates", {}) or {}
+        rel = channel_map.get(channel or "")
+        if rel:
+            cand = APPS_ROOT / "templates" / rel
+            if cand.exists():
+                return cand
+        default_rel = cover_cfg.get("template", "cover.html")
+        return APPS_ROOT / "templates" / default_rel
+
     def _generate_cover_images(self, source_video: Path, title: str, channel: str,
                                  output_dir: Path, base_name: str) -> Optional[Path]:
         """生成 B站标题党风格封面 (16:9)，使用 HyperFrames 模板。"""
@@ -2926,7 +3338,7 @@ class PipelineAutomator:
             return self._generate_cover_fallback(title, channel, output_dir, base_name)
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="omo_cover_"))
-        tmpl_src = APPS_ROOT / "templates" / "cover.html"
+        tmpl_src = self._resolve_cover_template(channel)
         if not tmpl_src.exists():
             return self._generate_cover_fallback(title, channel, output_dir, base_name)
 
@@ -3450,7 +3862,9 @@ class PipelineAutomator:
                 prompt = (
                     "Please translate the following YouTube video description to Chinese suitable for Bilibili upload. "
                     "Keep code snippets, URLs, and key technical terms in English. "
-                    "Add a line at the beginning: '原视频: [original English title]'\n"
+                    "Add these two lines at the beginning, in this exact order:\n"
+                    f"'中文标题: {translated_title}'\n"
+                    "'原视频: [original English title]'\n"
                     "Add a line at the end: '#AI #人工智能 #中文配音'\n"
                     "Output ONLY the translated description, no extra text:\n\n"
                     f"{original_desc}"
@@ -3463,23 +3877,28 @@ class PipelineAutomator:
                 print(f"      ⚠️ 翻译简介失败: {e}")
                 translated_desc = original_desc
         else:
-            translated_desc = ""
+            # 原视频无简介：仅生成标题行 + 标签
+            translated_desc = f"中文标题: {translated_title}\n原视频: {original_title}\n\n#AI #人工智能 #中文配音"
 
         # === 生成安全文件名 ===
         safe_name = self._sanitize_filename(translated_title)
         video_filename = f"{safe_name}.mp4"
 
-        # 复制视频到 review 和 publish 目录
-        review_dir = OMO_ROOT / self.config["output"]["review_dir"]
-        published_dir = OMO_ROOT / self.config["output"]["published_dir"]
+        # === 按 频道/视频 分目录归档（仅 review/：待审成品；published/ 由人工确认后归档） ===
+        # 生成阶段只写入 review/，目录结构为 <频道>/<视频标题>/，每个视频的
+        # 所有产物（mp4、封面、meta、简介）放在一个视频文件夹内，方便检索。
+        # 待用户审核确认后再通过 confirm-video 命令归档到 published/（同样结构）。
+        # 频道为空/未知时回退到根目录。
+        channel = (self.video.get("channel") or "").strip()
+        channel_dir = self._sanitize_filename(channel) if channel else ""
+        review_root = OMO_ROOT / self.config["output"]["review_dir"]
+        review_base = review_root / channel_dir if channel_dir else review_root
+        review_dir = review_base / safe_name  # 每个视频一个子文件夹
         review_dir.mkdir(parents=True, exist_ok=True)
-        published_dir.mkdir(parents=True, exist_ok=True)
 
         review_file = review_dir / video_filename
-        published_file = published_dir / video_filename
         shutil.copy2(video_path, review_file)
-        shutil.copy2(video_path, published_file)
-        print(f"    📂 视频已归档: {video_filename}")
+        print(f"    📂 视频已归档(待审): {channel_dir + '/' if channel_dir else ''}{safe_name}/{video_filename}")
 
         # === 生成封面图 ===
         print("    🎨 正在生成 B站标题党封面 (4:3)...")
@@ -3489,7 +3908,6 @@ class PipelineAutomator:
                 review_dir, safe_name
             )
             if cover_path:
-                shutil.copy2(cover_path, published_dir / cover_path.name)
                 print(f"    ✅ 封面已生成: {cover_path.name}")
         except Exception as e:
             print(f"      ⚠️ 封面生成失败: {e}")
@@ -3506,12 +3924,10 @@ class PipelineAutomator:
         meta_json = review_dir / f"{safe_name}_meta.json"
         with open(meta_json, "w", encoding="utf-8") as f:
             json.dump(metadata_payload, f, ensure_ascii=False, indent=2)
-        shutil.copy2(meta_json, published_dir / meta_json.name)
 
         if translated_desc:
             desc_txt = review_dir / f"{safe_name}_简介.txt"
             desc_txt.write_text(translated_desc, encoding="utf-8")
-            shutil.copy2(desc_txt, published_dir / desc_txt.name)
             print(f"    📂 简介已保存: {desc_txt.name}")
 
         publish_log = {
@@ -3519,10 +3935,10 @@ class PipelineAutomator:
             "entries": [
                 {
                     "platform": "bilibili",
-                    "status": "exported",
+                    "status": "awaiting_review",
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "video_id": self.video["video_id"],
-                    "export_path": str(published_file.relative_to(OMO_ROOT)).replace('\\', '/'),
+                    "export_path": str(review_file.relative_to(OMO_ROOT)).replace('\\', '/'),
                     "metadata_used": {
                         "title": translated_title,
                         "description": translated_desc

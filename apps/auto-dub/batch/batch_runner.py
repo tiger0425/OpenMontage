@@ -237,10 +237,17 @@ class BatchRunner:
         return video
 
     def _is_awaiting_review(self, video_id: str) -> bool:
-        """script checkpoint 是否处于 awaiting_human（说话人审校闸门挂起）。"""
+        """script 或 assets checkpoint 是否处于 awaiting_human（人审闸门挂起）。
+
+        覆盖：说话人审校/翻译审校（script，#8/#9）、多人合成失败审校（assets，#11）。
+        """
         from lib import checkpoint
-        cp = checkpoint.read_checkpoint(self.projects_dir, f"auto-dub-{video_id}", "script")
-        return bool(cp and cp.get("status") == "awaiting_human")
+        project_id = f"auto-dub-{video_id}"
+        for stage in ("script", "assets"):
+            cp = checkpoint.read_checkpoint(self.projects_dir, project_id, stage)
+            if cp and cp.get("status") == "awaiting_human":
+                return True
+        return False
 
     def _build_automator(self, video: dict):
         """为单个视频构建 PipelineAutomator（复用 _process_single_video 的构造逻辑）。"""
@@ -369,16 +376,33 @@ class BatchRunner:
         return summary
 
     def approve_review(self, video_id: str) -> dict:
-        """应用 speaker_review.md 人工修正并放行 script 审校闸门（人审通过）。"""
+        """应用审校文档人工修正并放行 script/assets 审校闸门（人审通过）。
+
+        支持的审校文档（存在才应用）：
+        - speaker_review.md（#8，说话人归属）
+        - translation_review.md（#9，译文修正）
+        - synthesis_review.md（#11，多人合成失败：重试或静音兜底放行）
+        """
         video = self._get_video(video_id)
         print(f"\n  ✅ [approve-review] {video_id}: {video.get('title', '')}")
         automator = self._build_automator(video)
-        result = automator.apply_speaker_review()
+        # 只应用实际存在的审校文档；全部不存在 → 报错（说明 process/run-heavy 未生成审校文档）
+        result = {}
+        if (automator.project_dir / "speaker_review.md").exists():
+            result.update(automator.apply_speaker_review())
+        if (automator.project_dir / "translation_review.md").exists():
+            result.update(automator.apply_translation_review())
+        if (automator.project_dir / "synthesis_review.md").exists():
+            result.update(automator.apply_synthesis_review())
+        if not result:
+            result = {"success": False,
+                      "error": "找不到审校文档（speaker_review.md / translation_review.md / synthesis_review.md），"
+                               "请先运行 process 或 run-heavy 生成"}
         if result.get("success"):
             self.db.update_status(video_id, 'processing')
-            print("  ✅ 说话人审校通过，可派发 Worker 执行 run-heavy")
+            print("  ✅ 审校通过，可派发 Worker 执行 run-heavy")
         else:
-            error = result.get("error") or "说话人审校应用失败"
+            error = result.get("error") or "审校应用失败"
             print(f"  ❌ approve-review 失败: {error}")
         return result
 
@@ -405,6 +429,107 @@ class BatchRunner:
         """标记视频为已发布"""
         self.db.update_status(video_id, 'published')
         print(f"✅ 已标记 {video_id} 为已发布")
+
+    def confirm_video(self, video_id: str) -> dict:
+        """审核确认：把 review/ 下的待审成品归档到 published/（按频道/视频分目录），review 保留副本。
+
+        人工审核通过后调用。归档内容包括视频、封面、元数据、简介等该视频的所有成品文件。
+        review/ 下保留已确认的成品（供留档/回溯），published/ 下存档一份。
+
+        支持两种目录结构：
+        - 新结构：review/<频道>/<视频标题>/ 子文件夹（每个视频一个文件夹）
+        - 旧结构：review/<频道>/ 下散文件（按 meta.json 前缀匹配）
+        """
+        video = self.db.get_by_id(video_id)
+        if not video:
+            raise ValueError(f"视频 {video_id} 不存在于数据库")
+
+        channel = (video.get("channel") or "").strip()
+        # sanitize 与 pipeline_automator 保持一致（频道子目录名）
+        import re as _re
+        channel_dir = _re.sub(r'[\\/:*?"<>|]', "_", channel).strip() if channel else ""
+        if channel_dir:
+            channel_dir = _re.sub(r"\s+", " ", channel_dir)[:60].rstrip(".").strip()
+
+        review_root = self.review_dir
+        published_root = self.published_dir
+        review_ch_dir = review_root / channel_dir if channel_dir else review_root
+        published_ch_dir = published_root / channel_dir if channel_dir else published_root
+
+        if not review_ch_dir.exists():
+            raise ValueError(f"review 目录不存在: {review_ch_dir}")
+
+        # 方案 A：新结构 —— review/<频道>/<视频标题>/ 子文件夹（每个视频一个文件夹）
+        # 通过子文件夹内 *_meta.json 的 video_id 匹配
+        target_dir = None
+        for sub in review_ch_dir.iterdir():
+            if not sub.is_dir():
+                continue
+            for meta in sub.glob("*_meta.json"):
+                try:
+                    m = json.loads(meta.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if m.get("video_id") == video_id:
+                    target_dir = sub
+                    break
+            if target_dir is not None:
+                break
+
+        if target_dir is not None:
+            # 整个视频文件夹复制到 published/<频道>/<视频标题>/
+            published_ch_dir.mkdir(parents=True, exist_ok=True)
+            dest_dir = published_ch_dir / target_dir.name
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+            shutil.copytree(target_dir, dest_dir)
+            moved = [str(dest_dir.relative_to(self.published_dir)).replace('\\', '/')]
+            self.db.update_status(video_id, 'published')
+            for m in moved:
+                print(f"  ✅ 已归档: {m}")
+            print(f"✅ 视频 {video_id} 已确认发布（review 保留副本，published 已归档）")
+            return {"video_id": video_id, "archived": moved, "review_kept": True}
+
+        # 方案 B：旧结构 —— review/<频道>/ 下散文件（按 meta.json 前缀匹配）
+        target_prefix = None
+        for meta in review_ch_dir.glob("*_meta.json"):
+            try:
+                m = json.loads(meta.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if m.get("video_id") == video_id:
+                target_prefix = meta.name[: -len("_meta.json")]
+                break
+        # 旧命名 _metadata.json 兼容
+        if target_prefix is None:
+            for meta in review_ch_dir.glob("*_metadata.json"):
+                try:
+                    m = json.loads(meta.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if m.get("video_id") == video_id:
+                    target_prefix = meta.name[: -len("_metadata.json")]
+                    break
+
+        if target_prefix is not None:
+            files = [f for f in review_ch_dir.iterdir() if f.is_file() and f.name.startswith(target_prefix)]
+        else:
+            files = [f for f in review_ch_dir.iterdir() if f.is_file() and video_id in f.name]
+        if not files:
+            raise ValueError(f"review/{channel_dir or '.'} 下找不到 video_id={video_id} 的成品文件")
+
+        published_ch_dir.mkdir(parents=True, exist_ok=True)
+        moved = []
+        for f in files:
+            dest = published_ch_dir / f.name
+            shutil.copy2(f, dest)
+            moved.append(str(dest.relative_to(self.published_dir)).replace('\\', '/'))
+
+        self.db.update_status(video_id, 'published')
+        for m in moved:
+            print(f"  ✅ 已归档: {m}")
+        print(f"✅ 视频 {video_id} 已确认发布（review 保留副本，published 已归档）")
+        return {"video_id": video_id, "archived": moved, "review_kept": True}
     
     def _merge_videos(self, *video_lists) -> list[dict]:
         """合并多个视频列表，按 video_id 去重"""

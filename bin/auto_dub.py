@@ -95,6 +95,11 @@ def main():
     # 子命令: mark-done
     parser_mark_done = subparsers.add_parser('mark-done', help='标记视频为已发布')
     parser_mark_done.add_argument('video_id', type=str, help='需要标记为已发布的视频 ID')
+
+    # 子命令: confirm-video（人工审核确认后归档 review → published）
+    parser_confirm = subparsers.add_parser(
+        'confirm-video', help='审核确认：把 review/ 下成品归档到 published/（按频道分目录，review 保留副本）')
+    parser_confirm.add_argument('video_id', type=str, help='需要确认发布的视频 ID')
     
     # ---- 重算力子命令（Compute Worker 执行，带 --json 回报） ----
     parser_render_assets = subparsers.add_parser(
@@ -109,9 +114,9 @@ def main():
         'run-heavy', help='assets + edit + compose 打包一条龙（重算力，建议派发子 Agent）')
     parser_run_heavy.add_argument('--video-id', required=True, help='目标视频 ID')
 
-    # ---- 说话人审校闸门（ticket #8）----
+    # ---- 人审闸门（ticket #8/#9/#11）----
     parser_approve_review = subparsers.add_parser(
-        'approve-review', help='应用 speaker_review.md 人工修正并放行 script 审校闸门')
+        'approve-review', help='应用 speaker/translation/synthesis 审校文档修正并放行 script/assets 审校闸门')
     parser_approve_review.add_argument('--video-id', required=True, help='目标视频 ID')
 
     # 让 --json / --quiet 在子命令前后都能使用。
@@ -157,6 +162,10 @@ def main():
             runner.mark_published(args.video_id)
             print(f"成功: 视频 {args.video_id} 已被标记为已发布状态。")
             result = {"command": "mark-done", "video_id": args.video_id, "success": True}
+        elif args.command == 'confirm-video':
+            result = runner.confirm_video(args.video_id)
+            print(f"成功: 视频 {args.video_id} 已确认发布并归档到 published/。")
+            result = {"command": "confirm-video", "video_id": args.video_id, "success": True, **result}
         elif args.command == 'render-assets':
             result = runner.render_assets(args.video_id)
         elif args.command == 'render-video':
