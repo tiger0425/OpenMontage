@@ -581,6 +581,65 @@ class BatchRunner:
                 return False
         print(f"  ✅ 视频已下载: {source_video}")
         
+        # 顺便下载视频的最原始封面缩略图，防止后期生成封面时因网络失败降级为视频截图
+        source_thumb = project_dir / "source_thumb.jpg"
+        if not source_thumb.exists():
+            print(f"  📥 下载原始视频封面...")
+            download_ok = False
+            video_id = video.get('video_id', '')
+            video_url = video.get('url', '')
+            if not video_id and "watch?v=" in video_url:
+                video_id = video_url.split("watch?v=")[-1].split("&")[0]
+            elif not video_id and "youtu.be/" in video_url:
+                video_id = video_url.split("youtu.be/")[-1].split("?")[0]
+                
+            if video_id:
+                import urllib.request
+                urls_to_try = [
+                    f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+                    f"https://img.youtube.com/vi/{video_id}/sddefault.jpg",
+                    f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                ]
+                for url in urls_to_try:
+                    try:
+                        req = urllib.request.Request(
+                            url, 
+                            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                        )
+                        with urllib.request.urlopen(req, timeout=10) as response:
+                            if response.status == 200:
+                                with open(source_thumb, "wb") as f:
+                                    f.write(response.read())
+                                download_ok = True
+                                break
+                    except Exception:
+                        pass
+            
+            # 如果直连失败，用 yt-dlp 下载
+            if not download_ok and video_url:
+                try:
+                    subprocess.run([
+                        "yt-dlp", "--no-playlist",
+                        "-o", str(source_thumb.with_suffix("")),
+                        "--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg",
+                        video_url
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+                except Exception:
+                    pass
+                for ext in [".webp", ".png", ".jpg", ".webp.jpg", ".jpg.jpg"]:
+                    cand = source_thumb.with_suffix(ext)
+                    if cand.exists():
+                        if cand != source_thumb:
+                            if source_thumb.exists():
+                                source_thumb.unlink()
+                            cand.rename(source_thumb)
+                        download_ok = True
+                        break
+            if source_thumb.exists():
+                print(f"  ✅ 原始封面已下载: {source_thumb}")
+            else:
+                print(f"  ⚠️ 原始封面下载失败，后期可能降级为视频截图")
+        
         # === Step 2: 构建 brief ===
         print(f"  📝 构建 brief...")
         brief_data = {

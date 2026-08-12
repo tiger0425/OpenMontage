@@ -26,6 +26,14 @@ from datetime import datetime, timezone
 from typing import Optional
 from pydub import AudioSegment
 
+# 在 Windows 下强制 stdout/stderr 使用 UTF-8 编码，避免 emoji 打印崩溃（GBK 控制台）
+if sys.platform == 'win32':
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
 # 单调时钟（跨平台），用于心跳耗时/ETA 计算
 from time import monotonic as _monotonic
 
@@ -43,6 +51,19 @@ from tools.analysis.transcriber import (
 )
 from tools.audio.voxcpm_speed_calibrator import VoxCPMSpeedCalibrator, measured_char_budget
 from batch.llm_client import LLMClient
+
+
+def _map_lang(target_language: str) -> str:
+    """把 OpenMontage target_language（如 zh-CN）映射为 IndexTTS 2.5 的 lang 标签。
+
+    2.5 支持 ZH / EN / JA / ES 等（五语种）。未知语言回退 ZH。
+    """
+    base = target_language.split("-")[0].strip().lower()
+    mapping = {
+        "zh": "ZH", "en": "EN", "ja": "JA", "jp": "JA",
+        "es": "ES", "ko": "KO", "fr": "FR", "de": "DE",
+    }
+    return mapping.get(base, "ZH")
 
 
 # 说话人审校修正指令（speaker_review.md）的标注语法（ticket #8）
@@ -182,8 +203,22 @@ class PipelineAutomator:
         self.translation_domain = config.get("pipeline", {}).get("translation_domain", "tech")
         # 合成情感：calm=固定平静（贴合原版平淡语气，默认）；auto=服务端从文字自动判情感
         self.tts_emotion = config.get("pipeline", {}).get("tts_emotion", "calm")
+        # IndexTTS 模型版本：2.5（默认）/ 2（回退）；2.5 启用 lang 与 duration_factor
+        self.tts_model_version = str(config.get("pipeline", {}).get("tts_model_version", "2.5"))
+        # 2.5 的语种标签：缺省从 target_language 映射（zh-CN→ZH, en-US→EN, 其余大写首字母段）
+        _tgt = str(config.get("pipeline", {}).get("target_language", "zh-CN"))
+        self.tts_lang = str(config.get("pipeline", {}).get("tts_lang", "") or _map_lang(_tgt))
+        # 2.5 是否加载 QwenEmotion（use_emo_text 自动判情感需要）；默认关（固定 calm 向量无需）
+        self.tts_use_qwen_emo = bool(config.get("pipeline", {}).get("tts_use_qwen_emo", False))
         # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
         self.subtitle_driven = config.get("pipeline", {}).get("subtitle_driven", "off")
+        # 音轨混合模式：replace=整轨替换（默认）；game_audio=demucs 分离后保留游戏声/BGM 做底音轨
+        self.mix_mode = config.get("pipeline", {}).get("mix_mode", "replace")
+        # 游戏声/BGM 底音轨音量倍率（game_audio 模式有效；1.0=原音量，1.05=提高 5%）
+        self.game_audio_volume = float(config.get("pipeline", {}).get("game_audio_volume", 1.0))
+        # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
+        #           none=不烧字幕（只生成 SRT 字幕文件留档）
+        self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
         # 分段/翻译粒度：sentence=逐句（每句一条中文，时间与英文原句一致，默认）；block=按说话人轮次语段
         self.segmentation = config.get("pipeline", {}).get("segmentation", "sentence")
         _align = config.get("pipeline", {}).get("alignment", {}) or {}
@@ -850,11 +885,25 @@ class PipelineAutomator:
             print("  ⏭️ script 阶段已完成，跳过。")
             return cp["artifacts"]["script"]
 
+        # game_audio 模式：先分离解说 vocals 与游戏伴奏 no_vocals，
+        # 转录/声纹都从干净的 vocals 提取（避免游戏声/BGM 干扰）。
+        # 分离失败不阻断（回退整轨替换路径）。
+        transcribe_input = str(self.source_video)
+        self._game_audio_separated = False
+        if self.mix_mode == "game_audio":
+            if self._ensure_source_separation():
+                vocals_path = self.assets_dir / "vocals.wav"
+                if vocals_path.exists() and vocals_path.stat().st_size > 1000:
+                    transcribe_input = str(vocals_path)
+                    self._game_audio_separated = True
+                else:
+                    logging.warning("vocals.wav 无效，转录回退到源视频")
+
         # 1. 运行转录
         print("    🎙️ 开始语音转录 (faster-whisper)...")
         transcriber = Transcriber()
         res = transcriber.execute({
-            "input_path": str(self.source_video),
+            "input_path": transcribe_input,
             "model_size": self.whisper_model,
             "language": "en",
             "diarize": self.diarize_enabled,
@@ -1059,6 +1108,322 @@ class PipelineAutomator:
             blocks[-1]["start"] = float(s)
             blocks[-1]["end"] = float(e)
         return blocks
+
+    def _ensure_source_separation(self) -> bool:
+        """game_audio 模式：用 demucs 把源视频音轨分离为解说（vocals）与游戏伴奏（no_vocals）。
+
+        产出（assets/ 下）：
+        - vocals.wav      解说人声（供转录/声纹/配音对齐参考）
+        - no_vocals.wav   游戏引擎声 + BGM（作为混音底音轨保留）
+
+        幂等：若两个产物都已存在且非空则跳过。失败返回 False（调用方回退整轨替换，
+        不阻断标准流程）。demucs 需要本地 GPU/CPU，分离较慢但对短视频可接受。
+        """
+        try:
+            vocals_path = self.assets_dir / "vocals.wav"
+            no_vocals_path = self.assets_dir / "no_vocals.wav"
+            if (
+                vocals_path.exists() and vocals_path.stat().st_size > 1000
+                and no_vocals_path.exists() and no_vocals_path.stat().st_size > 1000
+            ):
+                print(f"    🎚️ 声源分离产物已存在，跳过（{vocals_path.name} / {no_vocals_path.name}）")
+                return True
+
+            if not self.source_video.exists():
+                logging.warning(f"声源分离：源视频不存在 {self.source_video}")
+                return False
+
+            print("    🎚️ game_audio 模式：demucs 分离解说人声与游戏伴奏...")
+            import tempfile as _tf
+            with _tf.TemporaryDirectory(prefix="omo_demucs_") as td:
+                td_path = Path(td)
+                cmd = [
+                    sys.executable, "-c",
+                    (
+                        "import sys, demucs.separate; "
+                        f"sys.argv = ['demucs', '--two-stems', 'vocals', '-o', {str(td_path)!r}, {str(self.source_video)!r}]; "
+                        "demucs.separate.main()"
+                    ),
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+                if res.returncode != 0:
+                    logging.error(f"demucs 分离失败: {res.stderr[:500]}")
+                    return False
+                # 找分离产物（demucs 输出到 <out>/htdemucs/<stem>/<name>/...）
+                found = {}
+                for p in td_path.rglob("*.wav"):
+                    if p.name == "vocals.wav":
+                        found["vocals"] = p
+                    elif p.name == "no_vocals.wav":
+                        found["no_vocals"] = p
+                if "vocals" not in found or "no_vocals" not in found:
+                    logging.error(f"demucs 产物缺失: {list(found.keys())}")
+                    return False
+                shutil.move(str(found["vocals"]), str(vocals_path))
+                shutil.move(str(found["no_vocals"]), str(no_vocals_path))
+            print(f"    ✅ 声源分离完成: {vocals_path.name} + {no_vocals_path.name}")
+            return True
+        except Exception as e:
+            logging.warning(f"声源分离失败（回退整轨替换）: {e}")
+            return False
+
+    def _detect_caption_overlays(
+        self, video_path, fps: float = 1.0, min_duration: float = 0.8,
+    ) -> list:
+        """检测画面内硬字幕条（caption overlay）：时间区间 + 位置 + 英文文本。
+
+        用 easyocr 对视频抽帧识别文字，聚合出每条硬字幕的：
+        {
+          "id": "c0",
+          "start": 秒,
+          "end": 秒,
+          "x0"/"y0"/"x1"/"y1": 归一化位置（0~1，相对画面），
+          "text": 英文原文本,
+          "zh": 中文翻译（由调用方填充）
+        }
+
+        策略：抽帧 → easyocr 识别 → 按时间合并相同文本的帧为一条 → 位置取并集。
+        只保留中下部（y 中心 0.40~0.62H）与底部（0.88~0.99H）条带内的文字，
+        避开顶部标题卡与游戏内 HUD 赞助商标识（POLOR/QVOLO 等）。
+        失败/无 easyocr → 返回 []（调用方回退标准字幕）。
+        """
+        import tempfile
+        try:
+            import easyocr
+        except ImportError:
+            logging.warning("easyocr 未安装，caption_overlay 回退标准字幕")
+            return []
+        try:
+            reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+            frame_records = []
+            with tempfile.TemporaryDirectory(prefix="omo_capdetect_") as td:
+                pattern = os.path.join(td, "f_%05d.png")
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(video_path),
+                    "-vf", f"fps={fps}",
+                    "-q:v", "3", pattern,
+                ]
+                res = subprocess.run(cmd, capture_output=True)
+                if res.returncode != 0:
+                    return []
+                frames = sorted(Path(td).glob("f_*.png"))
+                if not frames:
+                    return []
+                from PIL import Image as _Image
+                with _Image.open(frames[0]) as im0:
+                    W, H = im0.size
+
+                for i, f in enumerate(frames):
+                    t = i / fps
+                    res_ocr = reader.readtext(str(f), detail=1)
+                    for (bb, txt, conf) in res_ocr:
+                        if float(conf) < 0.5:
+                            continue
+                        xs = [int(p[0]) for p in bb]; ys = [int(p[1]) for p in bb]
+                        x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+                        cy = (y0 + y1) / 2.0
+                        mid_low = 0.40 * H <= cy <= 0.62 * H
+                        bottom = 0.88 * H <= cy <= 0.99 * H
+                        if not (mid_low or bottom):
+                            continue
+                        frame_records.append({
+                            "t": round(t, 2),
+                            "text": txt.strip(),
+                            "x0": x0 / W, "y0": y0 / H,
+                            "x1": x1 / W, "y1": y1 / H,
+                        })
+
+            # 聚合：基于位置 + 时间连续性。OCR 文本有错别字噪声（BRAKiG/BRAKING），
+            # 同一位置标注内容会随时间变化（如 BRAKING → BRAKING + GENTLY TURNING LEFT），
+            # 因此按"垂直位置重叠 + 时间连续"归并，文本记录时段内最常见的。
+            # 连续帧（间隙 <= 1.5/fps）且 y 中心接近（差异 < 8% 画面高）视为同一条。
+            frame_records.sort(key=lambda r: r["t"])
+            merged = []
+            for rec in frame_records:
+                cy_new = (rec["y0"] + rec["y1"]) / 2.0
+                if merged and (
+                    rec["t"] - merged[-1]["end"] <= 1.5 / fps
+                    and abs(cy_new - merged[-1]["_cy"]) <= 0.08 * 1.0
+                ):
+                    m = merged[-1]
+                    m["end"] = rec["t"]
+                    m["x0"] = min(m["x0"], rec["x0"])
+                    m["y0"] = min(m["y0"], rec["y0"])
+                    m["x1"] = max(m["x1"], rec["x1"])
+                    m["y1"] = max(m["y1"], rec["y1"])
+                    m["_cy"] = (m["_cy"] + cy_new) / 2.0
+                    m["frames"] += 1
+                    m["_texts"].append(rec["text"])
+                    # 记录 y 重叠面积最大（即该时段最常出现）的文本
+                    if rec["text"] and rec["text"] != m["_top_text"]:
+                        m["_top_count"][rec["text"]] = m["_top_count"].get(rec["text"], 0) + 1
+                        if m["_top_count"][rec["text"]] > m["_top_count"].get(m["_top_text"], 0):
+                            m["_top_text"] = rec["text"]
+                else:
+                    merged.append({
+                        "id": f"c{len(merged)}",
+                        "start": rec["t"],
+                        "end": rec["t"],
+                        "x0": rec["x0"], "y0": rec["y0"],
+                        "x1": rec["x1"], "y1": rec["y1"],
+                        "text": rec["text"],
+                        "zh": "",
+                        "frames": 1,
+                        "_cy": cy_new,
+                        "_texts": [rec["text"]],
+                        "_top_text": rec["text"],
+                        "_top_count": {rec["text"]: 1},
+                    })
+
+            # 收尾：把每条标注的 end 至少延长 1/fps（单帧出现也算 1 帧时长），
+            # 选时段最常出现的文本，移除内部字段，过滤过短（时长 < min_duration）。
+            overlays = []
+            for m in merged:
+                m["end"] = max(m["end"], m["start"] + 1.0 / fps)
+                if m["_top_text"] and m["_top_text"].strip():
+                    m["text"] = m["_top_text"]
+                m.pop("_cy", None)
+                m.pop("_texts", None)
+                m.pop("_top_text", None)
+                m.pop("_top_count", None)
+                m.pop("frames", None)
+                if (m["end"] - m["start"]) >= min_duration:
+                    overlays.append(m)
+            overlays.sort(key=lambda o: o["start"])
+            if overlays:
+                print(f"    🏷️ 画面标注检测完成：{len(overlays)} 条硬字幕条")
+            return overlays
+        except Exception as e:
+            logging.warning(f"画面标注检测失败，回退标准字幕: {e}")
+            return []
+
+    def _translate_caption_overlays(self, overlays: list[dict]) -> list[dict]:
+        """把画面标注（caption overlay）英文文本批量翻译成中文。
+
+        去重翻译（相同文本只翻一次，复用结果），保持短促字幕风格。
+        LLM 不可用或翻译失败时回退原文（不阻断）。
+        """
+        if not overlays:
+            return overlays
+        unique_texts = []
+        seen = set()
+        for o in overlays:
+            t = (o.get("text") or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                unique_texts.append(t)
+        if not unique_texts:
+            return overlays
+
+        translated = {}
+        try:
+            system = (
+                "你是游戏教学视频的字幕翻译。把英文画面标注（教学步骤提示）翻译成"
+                "简洁的中文。要求：\n"
+                "1. 只翻译，不要解释、不要加标点之外的额外内容；\n"
+                "2. 保持简短（教学标注风格，每条约 4-12 个汉字）；\n"
+                "3. 保留车辆/操作专有名词原文（如档位、刹车、方向）；\n"
+                "4. 逐条输出 JSON 数组：[{\"en\": \"...\", \"zh\": \"...\"}]"
+            )
+            prompt = json.dumps(
+                [{"id": i, "en": t} for i, t in enumerate(unique_texts)],
+                ensure_ascii=False,
+            )
+            resp = self.llm.generate(
+                prompt,
+                system_instruction=system,
+                json_mode=True,
+            )
+            import re as _re
+            m = _re.search(r"\[.*\]", resp, _re.S)
+            if m:
+                data = json.loads(m.group(0))
+                for item in data:
+                    en = item.get("en") or ""
+                    zh = item.get("zh") or ""
+                    if en and zh:
+                        translated[en.strip()] = zh.strip()
+        except Exception as e:
+            logging.warning(f"画面标注翻译失败，回退原文: {e}")
+
+        for o in overlays:
+            t = (o.get("text") or "").strip()
+            o["zh"] = translated.get(t, t)
+        return overlays
+
+    def _write_caption_ass(self, overlays: list[dict], output_path: Path, W: int, H: int):
+        """把画面标注写成 ASS 字幕文件（带位置与半透明底框）。
+
+        ASS 便于逐条定位到标注原位置；drawbox 由 compose 阶段负责画底框。
+        """
+        def fmt(t: float) -> str:
+            cs = int(round(t * 100))
+            return f"{cs // 360000}:{(cs // 6000) % 60:02d}:{(cs // 100) % 60:02d}.{cs % 100:02d}"
+
+        lines = [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "PlayResX: 1080",
+            "PlayResY: 1920",
+            "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            "Style: Cap,Microsoft YaHei,56,&H00FFFFFF,&H000000FF,&H00202020,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,5,20,20,10,1",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        ]
+        for o in overlays:
+            # 位置：ASS 以 PlayRes 坐标，Alignment=5 表示居中
+            cx = int((o["x0"] + o["x1"]) / 2.0 * 1080)
+            cy = int((o["y0"] + o["y1"]) / 2.0 * 1920)
+            # 用 \an5（居中） + \pos 精确定位
+            txt = (o.get("zh") or o.get("text") or "").replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+            lines.append(
+                f"Dialogue: 0,{fmt(o['start'])},{fmt(o['end'])},Cap,,0,0,0,,{{\\an5\\pos({cx},{cy})}}{txt}"
+            )
+        output_path.write_text("\n".join(lines), encoding="utf-8-sig")
+        return True
+
+    def _load_caption_overlays(self) -> list:
+        """从 caption_overlays.json 读取检测出的画面标注（含中文翻译）。"""
+        meta_file = self.project_dir / "caption_overlays.json"
+        if not meta_file.exists():
+            return []
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            return meta.get("overlays", []) or []
+        except Exception as e:
+            logging.warning(f"读取 caption_overlays.json 失败: {e}")
+            return []
+
+    def _build_caption_drawbox(self, overlays: list) -> str:
+        """为画面标注生成 FFmpeg drawbox 滤镜链：在标注原位置画半透明黑底框。
+
+        时间轴：drawbox 的 enable 表达式支持 between(t, s, e)。返回
+        拼接后的 drawbox 链（追加到 [v] 输出链）。没有标注返回空字符串。
+        """
+        if not overlays:
+            return ""
+        filters = []
+        for o in overlays:
+            try:
+                s = float(o["start"]); e = float(o["end"])
+                if e - s < 0.2:
+                    continue
+                x0 = int(o["x0"] * 1080); y0 = int(o["y0"] * 1920)
+                x1 = int(o["x1"] * 1080); y1 = int(o["y1"] * 1920)
+                w = max(1, x1 - x0); h = max(1, y1 - y0)
+                # 半透明黑底（alpha=0.55），留一点边距（上下各 6% 高度）
+                pad = max(2, int(h * 0.12))
+                y0p = max(0, y0 - pad); hh = min(1920 - y0p, h + 2 * pad)
+                filters.append(
+                    f"drawbox=x={x0}:y={y0p}:w={w}:h={hh}:color=black@0.55:t=fill"
+                    f":enable='between(t,{s:.2f},{e:.2f})'"
+                )
+            except Exception as ex:
+                logging.warning(f"drawbox 生成失败（跳过该标注）: {ex}")
+        return ",".join(filters)
 
     def _detect_subtitle_intervals(
         self, video_path, fps: float = 2.0, min_duration: float = 0.6
@@ -1786,11 +2151,34 @@ class PipelineAutomator:
         # 建立最终时间线空白总音轨（立体声；自然延伸，考虑最后的 previous_end 漂移）
         duration_sec = max(script_data["total_duration_seconds"], previous_end)
 
+        # game_audio 模式：混音基底 = 分离后的游戏伴奏（引擎声+BGM），中文配音叠加其上。
+        # 这样解说时段 = 游戏声 + 中文配音；非解说时段 = 纯游戏声。
+        # 可通过 game_audio_volume 调节游戏声音量（1.0=原样，1.05=提高 5%）。
+        base_track = None
+        if self.mix_mode == "game_audio":
+            no_vocals_path = self.assets_dir / "no_vocals.wav"
+            if no_vocals_path.exists() and no_vocals_path.stat().st_size > 1000:
+                try:
+                    base_track = AudioSegment.from_wav(str(no_vocals_path)).set_channels(2)
+                    vol = float(getattr(self, "game_audio_volume", 1.0) or 1.0)
+                    if abs(vol - 1.0) > 0.001:
+                        base_track = base_track.apply_gain(20 * math.log10(vol))
+                        print(f"    🎚️ game_audio：游戏声底音轨音量 {vol:.2f}x "
+                              f"({20*math.log10(vol):+.1f}dB)")
+                    print(f"    🎚️ game_audio：混音基底 = 游戏伴奏 {no_vocals_path.name} "
+                          f"({base_track.duration_seconds:.2f}s)")
+                except Exception as e:
+                    logging.warning(f"加载 no_vocals 失败，回退静音基底: {e}")
+                    base_track = None
+
         # 每人一个音轨：说话人声像分离（立体声左右铺开），各自 stem 独立导出
         speaker_pans = PipelineAutomator._speaker_pan_map(
             [ts["line"].get("speaker") for ts in temp_segments]
         )
-        full_track = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000).set_channels(2)
+        if base_track is not None:
+            full_track = base_track
+        else:
+            full_track = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000).set_channels(2)
         stems = {}
         for spk in speaker_pans.keys():
             stems[spk] = AudioSegment.silent(duration=int(duration_sec * 1000), frame_rate=48000).set_channels(2)
@@ -1840,6 +2228,31 @@ class PipelineAutomator:
         self._write_srt(lines, subtitles_srt)
         print(f"    ✅ 字幕已同步保存: {subtitles_srt}")
 
+        # caption_overlay 模式：检测画面硬字幕条 → 翻译 → 生成 ASS（带位置）
+        caption_ass = None
+        if self.subtitle_mode == "caption_overlay":
+            print("    🏷️ caption_overlay 模式：检测画面硬字幕条...")
+            overlays = self._detect_caption_overlays(self.source_video)
+            if overlays:
+                overlays = self._translate_caption_overlays(overlays)
+                caption_ass = self.assets_dir / "caption_overlays.ass"
+                self._write_caption_ass(overlays, caption_ass, W=1080, H=1920)
+                # 保存检测元数据（含原始英文 + 中文，便于人审）
+                try:
+                    meta = {"version": "1.0", "overlays": [
+                        {k: v for k, v in o.items() if k in (
+                            "id", "start", "end", "x0", "y0", "x1", "y1", "text", "zh")}
+                        for o in overlays
+                    ]}
+                    (self.project_dir / "caption_overlays.json").write_text(
+                        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                except Exception as e:
+                    logging.warning(f"保存 caption_overlays.json 失败: {e}")
+                print(f"    ✅ 画面标注 ASS 已生成: {caption_ass.name}（{len(overlays)} 条）")
+            else:
+                logging.warning("caption_overlay：未检测到画面标注，回退标准 SRT 字幕")
+
         # 4. 构造 asset_manifest
         # provenance：按实际使用的 TTS 引擎登记 source_tool（indextts / voxcpm）
         source_tool = "indextts_tts" if self.tts_engine == "indextts" else "voxcpm_tts"
@@ -1853,6 +2266,15 @@ class PipelineAutomator:
             "source_tool": "subtitle_gen",
             "scene_id": "global"
         })
+        # 1b. caption_overlay ASS（仅 caption_overlay 模式）
+        if caption_ass is not None and caption_ass.exists():
+            assets_list.append({
+                "id": "caption_overlay_zh",
+                "type": "subtitle",
+                "path": str(caption_ass.relative_to(self.project_dir)).replace('\\', '/'),
+                "source_tool": "caption_overlay_detect",
+                "scene_id": "global"
+            })
         
         # 2. Dub audio track asset (以最终漂移后的总时长为准)
         assets_list.append({
@@ -1861,7 +2283,8 @@ class PipelineAutomator:
             "path": str(dub_zh_wav.relative_to(self.project_dir)).replace('\\', '/'),
             "source_tool": source_tool,
             "scene_id": "global",
-            "duration_seconds": float(duration_sec)
+            "duration_seconds": float(duration_sec),
+            **({"model": f"indextts-{self.tts_model_version}"} if self.tts_engine == "indextts" else {}),
         })
         
         # 3. Individual narration segments (不含 metadata，以防违反 asset_manifest 的 schema 强校验)
@@ -2016,12 +2439,21 @@ class PipelineAutomator:
         1. 用 silencedetect 找到视频中最长的一段连续人声
         2. 截取 15-20 秒干净片段
         3. 归一化音量到合理范围（RMS ~3000-5000）
+
+        game_audio 模式下优先从分离后的 vocals.wav 提取（无游戏声干扰）。
         """
+        # game_audio 模式：用分离后的干净解说音轨做声纹源
+        source_audio = self.source_video
+        if getattr(self, "_game_audio_separated", False):
+            vocals_path = self.assets_dir / "vocals.wav"
+            if vocals_path.exists() and vocals_path.stat().st_size > 1000:
+                source_audio = vocals_path
+        self._voice_source = source_audio
         try:
             import tempfile as _tf
-            # 1. 先探测视频中的语音区间
+            # 1. 先探测语音区间
             detect_cmd = [
-                "ffmpeg", "-i", str(self.source_video),
+                "ffmpeg", "-i", str(source_audio),
                 "-af", "silencedetect=noise=-30dB:d=0.8",
                 "-f", "null", "-",
             ]
@@ -2037,7 +2469,7 @@ class PipelineAutomator:
             if cur_start is not None:
                 # 视频末尾也算一段结束
                 probe = subprocess.run(
-                    ["ffmpeg", "-i", str(self.source_video), "-f", "null", "-"],
+                    ["ffmpeg", "-i", str(self._voice_source), "-f", "null", "-"],
                     capture_output=True, text=True, encoding="utf-8")
                 m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
                 if m:
@@ -2052,7 +2484,7 @@ class PipelineAutomator:
                 prev_end = max(prev_end, end)
             # 视频末尾的语音段
             probe = subprocess.run(
-                ["ffmpeg", "-i", str(self.source_video), "-f", "null", "-"],
+                ["ffmpeg", "-i", str(self._voice_source), "-f", "null", "-"],
                 capture_output=True, text=True, encoding="utf-8")
             m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
             if m:
@@ -2089,8 +2521,9 @@ class PipelineAutomator:
         """
         try:
             import numpy as _np
+            source_audio = getattr(self, "_voice_source", self.source_video)
             cmd = [
-                "ffmpeg", "-y", "-i", str(self.source_video),
+                "ffmpeg", "-y", "-i", str(source_audio),
                 "-ss", str(start), "-t", str(dur),
                 "-vn", "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1",
                 str(out_path)
@@ -2366,9 +2799,10 @@ class PipelineAutomator:
         try:
             chunks = []
             tmp_paths = []
+            source_audio = getattr(self, "_voice_source", self.source_video)
             for i, (start, end) in enumerate(intervals):
                 tmp = self.assets_dir / f"voice_ref_tmp_{i}.wav"
-                if not self._cut_ref_chunk(self.source_video, start, end - start, tmp):
+                if not self._cut_ref_chunk(source_audio, start, end - start, tmp):
                     # 清理已生成临时块
                     for t in tmp_paths:
                         try:
@@ -2445,8 +2879,16 @@ class PipelineAutomator:
         try:
             stderr_log = open(self.project_dir / "indextts_server.log", "w", encoding="utf-8", errors="replace")
             self._indextts_stderr_log = stderr_log
+            cmd = [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER]
+            # 模型版本分支：2.5（默认）/ 2（回退），权重目录由桥内 --checkpoints 解析
+            tts_version = getattr(self, "tts_model_version", "2.5")
+            cmd += ["--version", tts_version]
+            if getattr(self, "tts_use_qwen_emo", False):
+                cmd += ["--use-qwen-emo"]
+            if getattr(self, "indextts_checkpoints", None):
+                cmd += ["--checkpoints", str(self.indextts_checkpoints)]
             proc = subprocess.Popen(
-                [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER],
+                cmd,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log,
                 text=True, encoding="utf-8", errors="replace",
             )
@@ -2497,9 +2939,23 @@ class PipelineAutomator:
                 "output_path": str(output_path),
                 "seed": seed,
             }
-            if self.tts_emotion == "calm":
-                req["use_emo_text"] = False
-                req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
+            # 2.5 版本：透传 lang 与 duration_factor（原生语速控制）；2 版本桥忽略未知字段
+            if getattr(self, "tts_model_version", "2.5") == "2.5":
+                req["lang"] = getattr(self, "tts_lang", "ZH")
+                if target_duration:
+                    req["duration_factor"] = float(target_duration)
+            # 情感：2.5 固定 calm 时【不传 emo_vector】（官方纯净路径，保声纹保真；
+            # 传 emo_vector 会触发情感-音色混合导致音色漂移/女声化）。auto 才用 use_emo_text。
+            if self.tts_model_version == "2.5":
+                if self.tts_emotion == "auto":
+                    req["use_emo_text"] = True
+                    req["emo_alpha"] = 0.6
+                # calm：不传任何情感参数 → 官方纯净克隆
+            else:
+                # 2 版本：沿用旧行为（calm 固定向量 / auto 自动判情感）
+                if self.tts_emotion == "calm":
+                    req["use_emo_text"] = False
+                    req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
             if voice_ref:
                 req["voice_ref"] = voice_ref
             with self._indextts_lock:
@@ -2606,8 +3062,10 @@ class PipelineAutomator:
                     cps = len(ref_text) / dur
                     print(f"    📏 IndexTTS2 实测 cps={cps:.2f}（参考文本 {len(ref_text)} 字 / {dur:.2f}s）")
                     try:
-                        cache = self.project_dir.parent / "indextts_cps_cache.json"
-                        cache.write_text(json.dumps({"cps": round(cps, 2), "text_len": len(ref_text)}, ensure_ascii=False), encoding="utf-8")
+                        # cps 缓存按模型版本隔离（2.5 与 2 语速不同）
+                        _ver = getattr(self, "tts_model_version", "2.5")
+                        cache = self.project_dir.parent / f"indextts_cps_cache_{_ver}.json"
+                        cache.write_text(json.dumps({"cps": round(cps, 2), "text_len": len(ref_text), "model_version": _ver}, ensure_ascii=False), encoding="utf-8")
                     except Exception:
                         pass
                     return cps
@@ -3203,6 +3661,39 @@ class PipelineAutomator:
         adjusted.write_text(scaled, encoding="utf-8")
         return adjusted
 
+    def _scale_ass_timings(self, ass_path: Path, scale: float) -> Path:
+        """按比例缩放 ASS 文件的 Dialogue 时间戳（H:MM:SS.cc 格式），返回新路径。"""
+        adjusted = self.renders_dir / f"caption_scaled_{scale:.3f}.ass"
+        if adjusted.exists():
+            return adjusted
+        # ASS 时间格式：H:MM:SS.cc（centiseconds）；Dialogue 行前两个字段是 Start/End
+        ASS_TIME_RE = re.compile(r'^Dialogue:\s*\d+,(\d+):(\d+):(\d+)\.(\d+),(\d+):(\d+):(\d+)\.(\d+),')
+
+        def _fmt(h, m, s, cs):
+            return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+        out_lines = []
+        for line in ass_path.read_text(encoding="utf-8-sig").splitlines():
+            m = ASS_TIME_RE.match(line)
+            if not m:
+                out_lines.append(line)
+                continue
+            s1 = ((int(m.group(1))*3600 + int(m.group(2))*60 + int(m.group(3))) * 100
+                  + int(m.group(4))) * scale
+            s2 = ((int(m.group(5))*3600 + int(m.group(6))*60 + int(m.group(7))) * 100
+                  + int(m.group(8))) * scale
+            def _split(cs):
+                cs = int(round(cs))
+                return cs // 360000, (cs // 6000) % 60, (cs // 100) % 60, cs % 100
+            h1, m1, s1c, c1 = _split(s1)
+            h2, m2, s2c, c2 = _split(s2)
+            rest = line[m.end():]
+            out_lines.append(
+                f"Dialogue: 0,{_fmt(h1,m1,s1c,c1)},{_fmt(h2,m2,s2c,c2)},{rest}"
+            )
+        adjusted.write_text("\n".join(out_lines), encoding="utf-8-sig")
+        return adjusted
+
     def _render_hyperframes_outro(self, duration: float, channel_name: str, output_path: Path) -> bool:
         """渲染 B站一键三连片尾。"""
         template_dir = APPS_ROOT / "templates"
@@ -3307,25 +3798,137 @@ class PipelineAutomator:
         default_rel = cover_cfg.get("template", "cover.html")
         return APPS_ROOT / "templates" / default_rel
 
+    def _extract_cover_title(self, long_title: str) -> str:
+        """调用 LLM 从长标题中提炼出适合作为封面大字的短标题（≤8个字，可用 \n 分行）"""
+        try:
+            print("    📝 正在使用 LLM 提炼封面大字短标题...")
+            prompt = (
+                "你是一个 B站 标题党封面文案专家。请根据以下视频长标题，提炼出最具有视觉冲击力、"
+                "高对比度、能激发点击欲的『封面大字标题』。\n"
+                "规则：\n"
+                "1. 必须由中文字符或极简英文组成，总字数严格控制在 4 到 8 个汉字之间。\n"
+                "2. 必须精炼成 1 行或 2 行。如果是 2 行，用换行符 \\n 分隔（例如：『完全免费\\n本地部署』）。\n"
+                "3. 字词要有提炼性、煽动性或好奇钩子（例如：『直接省下$20』、『开源黑科技』、『AI变天了』）。\n"
+                "4. 绝对不要包含书名号、括号、标点符号（换行符除外）。\n"
+                "5. 严禁虚构内容。\n\n"
+                f"视频长标题：{long_title}\n\n"
+                "请仅输出这 4-8 个字（如果分行请带上 \\n ），不要有任何其他解释或引号。"
+            )
+            cover_title = self.llm.generate(
+                prompt, system_instruction="You are a professional Chinese copywriter for Bilibili."
+            ).strip().strip('"\'').strip()
+            # 简单清洗，防 LLM 多加了冒号或废话
+            cover_title = cover_title.replace("“", "").replace("”", "").replace("\"", "")
+            if len(cover_title) > 20:
+                cover_title = cover_title[:4] + "\n" + cover_title[4:8]
+            return cover_title
+        except Exception as e:
+            print(f"      ⚠️ 提取封面大字标题失败，将使用默认截断: {e}")
+            cleaned_title = long_title.replace("【", "").replace("】", "")
+            if len(cleaned_title) >= 8:
+                return cleaned_title[:4] + "\n" + cleaned_title[4:8]
+            return cleaned_title
+
+    def _render_single_cover_image(self, template_file: Path, thumb_file: Path,
+                                   variables: dict, output_png: Path, npx_exe: str) -> bool:
+        """渲染单张封面图片，底层调用 HyperFrames 渲染一帧并用 FFmpeg 提取 PNG。"""
+        if not template_file.exists():
+            return False
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="omo_cover_single_"))
+        try:
+            shutil.copy2(template_file, tmp_dir / "index.html")
+            thumb_var = ""
+            if thumb_file.exists():
+                shutil.copy2(thumb_file, tmp_dir / "thumb.jpg")
+                thumb_var = "thumb.jpg"
+
+            variables["thumb_path"] = thumb_var
+            var_json = json.dumps(variables, ensure_ascii=False)
+
+            tmp_mp4 = tmp_dir / "out.mp4"
+            cmd = [
+                npx_exe, "hyperframes", "render", str(tmp_dir),
+                "--output", str(tmp_mp4),
+                "--quality", "high",
+                "--variables", var_json,
+            ]
+
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding="utf-8", errors="replace")
+            if res.returncode == 0 and tmp_mp4.exists():
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", str(tmp_mp4), "-vframes", "1",
+                    "-q:v", "1", str(output_png)
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return output_png.exists()
+        except Exception as e:
+            print(f"      ⚠️ 渲染封面比例失败 ({output_png.name}): {e}")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return False
+
     def _generate_cover_images(self, source_video: Path, title: str, channel: str,
                                  output_dir: Path, base_name: str) -> Optional[Path]:
-        """生成 B站标题党风格封面 (16:9)，使用 HyperFrames 模板。"""
+        """生成三种尺寸的原生 B站封面：16:9, 4:3, 9:16，并做多主题视觉自适应。"""
         # 1. 下载 YouTube 缩略图
         thumb_file = output_dir / f"{base_name}_thumb.jpg"
         if not thumb_file.exists():
-            try:
-                subprocess.run([
-                    "yt-dlp", "--no-playlist", "-o", str(thumb_file.with_suffix("")),
-                    "--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg",
-                    self.video["url"]
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-            for ext in [".webp", ".jpg"]:
-                candidate = thumb_file.with_suffix(ext)
-                if candidate.exists():
-                    candidate.rename(thumb_file)
-                    break
+            # 优先使用在 batch_runner 中已经下载好的本地 source_thumb.jpg
+            project_source_thumb = source_video.parent / "source_thumb.jpg"
+            if project_source_thumb.exists():
+                try:
+                    shutil.copy2(project_source_thumb, thumb_file)
+                except Exception:
+                    pass
+
+        if not thumb_file.exists():
+            # 优先使用 img.youtube.com 静态直连下载真实的 YouTube 封面大图
+            video_url = self.video.get("url", "")
+            video_id = ""
+            if "watch?v=" in video_url:
+                video_id = video_url.split("watch?v=")[-1].split("&")[0]
+            elif "youtu.be/" in video_url:
+                video_id = video_url.split("youtu.be/")[-1].split("?")[0]
+            
+            if video_id:
+                import urllib.request
+                urls_to_try = [
+                    f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+                    f"https://img.youtube.com/vi/{video_id}/sddefault.jpg",
+                    f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                ]
+                for url in urls_to_try:
+                    try:
+                        req = urllib.request.Request(
+                            url, 
+                            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                        )
+                        with urllib.request.urlopen(req, timeout=10) as response:
+                            if response.status == 200:
+                                with open(thumb_file, "wb") as f:
+                                    f.write(response.read())
+                                break
+                    except Exception:
+                        pass
+
+            # 如果直连失败，再尝试用 yt-dlp 下载
+            if not thumb_file.exists():
+                try:
+                    subprocess.run([
+                        "yt-dlp", "--no-playlist", "-o", str(thumb_file.with_suffix("")),
+                        "--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg",
+                        self.video["url"]
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+                for ext in [".webp", ".jpg"]:
+                    candidate = thumb_file.with_suffix(ext)
+                    if candidate.exists():
+                        candidate.rename(thumb_file)
+                        break
+            
+            # 最后的退路：FFmpeg 截图
             if not thumb_file.exists():
                 subprocess.run([
                     "ffmpeg", "-y", "-ss", "10", "-i", str(source_video),
@@ -3335,49 +3938,63 @@ class PipelineAutomator:
         # 2. 渲染 HyperFrames 封面
         npx_exe = shutil.which("npx") or shutil.which("npx.cmd")
         if not npx_exe:
+            print("    ⚠️ 未找到 npx，降级使用 Pillow 生成封面")
             return self._generate_cover_fallback(title, channel, output_dir, base_name)
 
-        tmp_dir = Path(tempfile.mkdtemp(prefix="omo_cover_"))
-        tmpl_src = self._resolve_cover_template(channel)
-        if not tmpl_src.exists():
-            return self._generate_cover_fallback(title, channel, output_dir, base_name)
+        # 3. 智能提炼封面短标题
+        cover_title = self._extract_cover_title(title)
+        print(f"    🎯 提炼封面标题: {repr(cover_title)}")
 
-        shutil.copy2(tmpl_src, tmp_dir / "index.html")
-        if thumb_file.exists():
-            shutil.copy2(thumb_file, tmp_dir / "thumb.jpg")
-            thumb_var = "thumb.jpg"
-        else:
-            thumb_var = ""
+        # 4. 判断封面视觉风格
+        cover_style = "vlogger"  # 默认 C号
+        title_lower = title.lower()
+        channel_lower = (channel or "").lower()
 
-        variables = json.dumps({
-            "title": title,
+        # A号 省钱实战风 (根据标题或频道关键词判断)
+        if any(kw in title_lower or kw in channel_lower for kw in ["free", "免费", "省$", "搞钱", "副业", "0元", "不用花钱"]):
+            cover_style = "frugal_red"
+        # B号 开源极客风 (根据标题或频道关键词判断)
+        elif any(kw in title_lower or kw in channel_lower for kw in ["code", "github", "docker", "deploy", "local", "locally", "local llm", "部署", "开源", "黑科技", "终端"]):
+            cover_style = "hardcore_dark"
+
+        print(f"    🎨 匹配封面风格主题: {cover_style}")
+
+        # 基础变量
+        variables = {
+            "title": cover_title,
             "channel": channel or "",
-            "thumb_path": thumb_var,
-        }, ensure_ascii=False)
+            "cover_style": cover_style,
+        }
 
-        out_path = output_dir / f"{base_name}_cover.png"
-        tmp_mp4 = tmp_dir / "out.mp4"
-        cmd = [
-            npx_exe, "hyperframes", "render", str(tmp_dir),
-            "--output", str(tmp_mp4),
-            "--quality", "high",
-            "--variables", variables,
-        ]
-        try:
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 text=True, encoding="utf-8", errors="replace")
-            if res.returncode == 0 and tmp_mp4.exists():
-                subprocess.run([
-                    "ffmpeg", "-y", "-i", str(tmp_mp4), "-vframes", "1",
-                    "-q:v", "1", str(out_path)
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # 5. 分别渲染 16:9, 4:3, 9:16 三种封面
+        out_16_9 = output_dir / f"{base_name}_cover_16_9.png"
+        out_4_3 = output_dir / f"{base_name}_cover_4_3.png"
+        out_9_16 = output_dir / f"{base_name}_cover_9_16.png"
 
-        if out_path.exists():
-            return out_path
+        # 16:9 横屏封面模板解析
+        tmpl_16_9 = self._resolve_cover_template(channel)
+
+        # 4:3 与 9:16 的通用模板路径
+        tmpl_4_3 = APPS_ROOT / "templates" / "cover_4_3.html"
+        tmpl_9_16 = APPS_ROOT / "templates" / "cover_vertical.html"
+
+        # 执行渲染
+        success_16_9 = self._render_single_cover_image(tmpl_16_9, thumb_file, variables.copy(), out_16_9, npx_exe)
+        success_4_3 = self._render_single_cover_image(tmpl_4_3, thumb_file, variables.copy(), out_4_3, npx_exe)
+        success_9_16 = self._render_single_cover_image(tmpl_9_16, thumb_file, variables.copy(), out_9_16, npx_exe)
+
+        # 6. 处理返回值与旧有兼容性
+        if success_4_3:
+            shutil.copy2(out_4_3, output_dir / f"{base_name}_cover.png")
+            print(f"    ✅ 4:3 封面已生成并兼容归档: {base_name}_cover_4_3.png")
+        if success_16_9:
+            print(f"    ✅ 16:9 封面已生成: {base_name}_cover_16_9.png")
+        if success_9_16:
+            print(f"    ✅ 9:16 封面已生成: {base_name}_cover_9_16.png")
+
+        if success_4_3 or success_16_9 or success_9_16:
+            return output_dir / f"{base_name}_cover.png"
+
         return self._generate_cover_fallback(title, channel, output_dir, base_name)
 
     def _generate_cover_fallback(self, title: str, channel: str,
@@ -3501,14 +4118,29 @@ class PipelineAutomator:
         # === 定位资产 ===
         srt_path = None
         dub_audio_path = None
+        caption_ass_path = None
         for asset in asset_manifest_data["assets"]:
             if asset["type"] == "subtitle" and asset["id"] == "subtitle_zh":
                 srt_path = self.project_dir / asset["path"]
             elif asset["type"] == "audio" and asset["id"] == "dub_audio_zh":
                 dub_audio_path = self.project_dir / asset["path"]
+            elif asset["type"] == "subtitle" and asset["id"] == "caption_overlay_zh":
+                caption_ass_path = self.project_dir / asset["path"]
         if not srt_path or not dub_audio_path:
             print("    ❌ compose: 无法定位 SRT 或配音文件")
             return None
+
+        # caption_overlay 模式：若有检测出的画面标注 ASS，则用它替代 SRT 烧录，
+        # 并为每条标注画半透明底框（drawbox）遮盖英文原文。
+        caption_drawbox = ""
+        if self.subtitle_mode == "caption_overlay" and caption_ass_path and caption_ass_path.exists():
+            try:
+                overlays = self._load_caption_overlays()
+                caption_drawbox = self._build_caption_drawbox(overlays)
+                srt_path = caption_ass_path  # 用 ASS 替代 SRT（带位置）
+                print(f"    🏷️ caption_overlay：使用画面标注 ASS（{caption_ass_path.name}）")
+            except Exception as e:
+                logging.warning(f"caption_overlay 应用失败，回退标准 SRT: {e}")
 
         # === 读取漂移信息 ===
         timings_file = self.project_dir / "segment_timings.json"
@@ -3568,7 +4200,11 @@ class PipelineAutomator:
                     print(f"    🎚️ 漂移 {drift_seconds:.2f}s 超过预算 {drift_budget}s，"
                           f"末段兜底全局 atempo={required_factor:.3f}")
                     effective_audio = self._apply_global_atempo(dub_audio_path, required_factor)
-                    effective_srt = self._scale_srt_timings(srt_path, 1.0 / required_factor)
+                    if self.subtitle_mode == "caption_overlay":
+                        # 画面标注绑定画面时间轴（不随配音 atempo 缩放），保持原 ASS
+                        print(f"    🏷️ caption_overlay：画面标注时间轴保持原样（跟随画面）")
+                    else:
+                        effective_srt = self._scale_srt_timings(srt_path, 1.0 / required_factor)
                     atempo_applied = True
                     atempo_factor = required_factor
                     audio_duration = audio_duration / required_factor
@@ -3589,14 +4225,37 @@ class PipelineAutomator:
         tpad_filter = ""
         extend_by = audio_after_dur - video_stream_dur
         if extend_by > 0.2:
-            tpad_filter = f",tpad=stop_mode=clone:stop_duration={extend_by:.2f}"
+            tpad_filter = f"tpad=stop_mode=clone:stop_duration={extend_by:.2f}"
             print(f"    ⏳ 音频比视频长 {extend_by:.2f}s，冻结末帧延展视频")
+
+        # 字幕烧录策略：
+        # - bottom（默认）：烧 SRT 到画面底部
+        # - caption_overlay：先 drawbox 盖英文标注再烧 ASS
+        # - none：不烧字幕（SRT 文件仍随 assets 产物保留，供外部字幕挂载/上传）
+        video_filter = ""
+        if self.subtitle_mode == "none":
+            print("    🚫 subtitle_mode=none：不烧录字幕到画面（SRT 字幕文件已保留在 assets/）")
+        else:
+            video_filter = f"subtitles='{srt_filter_path}'"
+            if caption_drawbox:
+                video_filter += f",{caption_drawbox}"
+
+        # 构造 [0:v] -> [v] 链：有滤镜时走滤镜链；none 模式且无 tpad 时直接透传。
+        # 注意：tpad 是可选尾缀，无前导逗号，与 video_filter 拼接时按需补逗号。
+        if video_filter or tpad_filter:
+            chain = [f for f in (video_filter, tpad_filter) if f]
+            filter_complex = f"[0:v]{','.join(chain)}[v];[1:a]volume=1.0[a]"
+            map_v, map_a = "[v]", "[a]"
+        else:
+            filter_complex = "[1:a]volume=1.0[a]"
+            map_v, map_a = "0:v", "[a]"
+
         cmd = [
             "ffmpeg", "-y",
             "-i", str(self.source_video),
             "-i", str(effective_audio),
-            "-filter_complex", f"[0:v]subtitles='{srt_filter_path}'{tpad_filter}[v];[1:a]volume=1.0[a]",
-            "-map", "[v]", "-map", "[a]",
+            "-filter_complex", filter_complex,
+            "-map", map_v, "-map", map_a,
             "-c:v", "libx264", "-c:a", "aac",
             str(main_video)
         ]
@@ -3615,7 +4274,9 @@ class PipelineAutomator:
             float(outro_cfg.get("min_duration_seconds", 1.5)),
             min(float(outro_cfg.get("max_duration_seconds", 5.0)), drift_seconds)
         )
-        channel_name = self.video.get("channel", "")
+        # 片尾频道名：仅当显式配置 outro.channel_name 非空时才显示。
+        # 未配置（空字符串）表示不显示任何频道名（避免泄漏原 YouTube 频道名）。
+        channel_name = str(outro_cfg.get("channel_name", "") or "").strip()
         outro_video = self.renders_dir / "outro.mp4"
         print(f"    🎬 渲染 B站三连片尾（时长 {outro_duration:.2f}s，漂移 {drift_seconds:.2f}s）...")
         if not self._render_hyperframes_outro(outro_duration, channel_name, outro_video):
@@ -3935,7 +4596,7 @@ class PipelineAutomator:
             "entries": [
                 {
                     "platform": "bilibili",
-                    "status": "awaiting_review",
+                    "status": "pending_review",
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "video_id": self.video["video_id"],
                     "export_path": str(review_file.relative_to(OMO_ROOT)).replace('\\', '/'),

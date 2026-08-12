@@ -73,7 +73,7 @@ def cmd_start_stage(args):
     skill_path = stage_config.get("skill")
     human_approval = stage_config.get("human_approval_default", False)
     
-    canonical_artifact = checkpoint.CANONICAL_STAGE_ARTIFACTS.get(next_stage)
+    canonical_artifact = checkpoint.canonical_artifact_for_stage(next_stage, pipeline_type)
     
     print("="*60)
     print(f"HARNESS DISPATCH: Stage '{next_stage}'")
@@ -109,7 +109,7 @@ def cmd_submit_artifact(args):
             print(f"Error: File is not valid JSON. {e}")
             sys.exit(1)
             
-    canonical_artifact = checkpoint.CANONICAL_STAGE_ARTIFACTS.get(stage)
+    canonical_artifact = checkpoint.canonical_artifact_for_stage(stage, pipeline_type)
     if not canonical_artifact:
         print(f"Error: Unknown canonical artifact for stage '{stage}'")
         sys.exit(1)

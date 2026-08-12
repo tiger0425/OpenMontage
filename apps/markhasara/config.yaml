@@ -1,0 +1,104 @@
+# MarkHasara 二创解说流水线配置
+# 中文二创解说 + 数字人替换头像框 + 抖音/小红书一源双发（人工上传）
+
+# ============================================================
+# 频道源
+# ============================================================
+channel:
+  name: "MarkHasara"
+  url: "https://www.youtube.com/@MarkHasara"
+  playlist_id: ""            # 频道全量 playlist（扫描时填充）
+  all_are_shorts: true       # 已确认：931 条全部为 YouTube Shorts
+
+# ============================================================
+# 二创解说模式（核心区别：非翻译，是二次创作）
+# ============================================================
+commentary:
+  enabled: true
+  style: "military_excited"  # 军事解说风：热血激昂、大词
+  language: "zh-CN"
+  # 原视频大多无解说（纯画面+引擎声），无可模仿语气 → 按自有风格生成
+  imitate_source_tone: false
+  # 时长约束：解说严格匹配原视频时长
+  strict_duration_match: true
+  max_chars: 80              # 单条二创文案最大字符（<60s 视频通常 2-3 句）
+  min_chars: 20              # 最少字符
+  prompt_extra: |
+    以夸张、激昂的军事解说风格，用中文重新创作这段视频的解说词。
+    不要逐句翻译，而是抓住视频的亮点、震撼点、看点，用抓人眼球的方式重新讲述。
+    用词夸张、有冲击力，突出画面里的战机/武器/行动的震撼感。
+    开头要有钩子（一句能让人停下来的话），结尾要有回味。
+
+# ============================================================
+# 音色（用户自己的声音克隆）
+# ============================================================
+voice:
+  # 用户声音样本（用户已提供录音，IndexTTS2 克隆用）
+  user_voice_ref: "projects/markhasara/voice/user_voice_ref.wav"
+  tts_engine: "indextts"     # IndexTTS2（常驻服务桥，与 auto-dub 一致）
+  tts_emotion: "excited"     # excited=激昂（二创解说）；calm=平静；auto=文字自动判情感
+  emotion_text: true
+  tts_model_version: "2.5"   # IndexTTS 模型版本：2.5（默认）/ 2（回退）
+  tts_lang: "ZH"             # 2.5 语种标签（ZH/EN/JA/ES 等）
+  tts_use_qwen_emo: true     # excited/auto 需要 use_emo_text → 必须加载 QwenEmotion
+
+# ============================================================
+# 转录
+# ============================================================
+transcription:
+  whisper_model: "base"      # shorts <60s，base 足够快；质量优先可改 large-v3
+  language: "en"
+  diarize: false             # 二创模式不需要说话人分离
+
+# ============================================================
+# 数字人 / 头像框替换
+# ============================================================
+avatar:
+  mode: "static"             # static=本期静态替换；talking=后续 TalkingHead 增强
+  # 用户 PS 处理的数字人头像（300x600 竖长，匹配原头像框比例）
+  image_path: "projects/markhasara/voice/final_avatar.png"
+  box_hint: "lower_left"     # 检测到人脸框时自动用检测区域；无检测时回退此 hint
+  replace_enabled: true      # 默认全部替换，可配置按视频关闭
+
+# ============================================================
+# 画面处理
+# ============================================================
+video:
+  keep_letterbox: true       # 保留上下黑色遮幅（用户决策 Q1）
+  watermark_action: "cover"  # MilitaryNews 水印覆盖（用户决策 Q2）
+  subtitle_style: "military_big"  # 军事解说大字风：顶部标题 + 中下字幕，白字黑边
+  aspect_ratio: "9:16"
+  # 画幅转换：横屏 Shorts 中心裁切到 9:16 竖屏（实测：部分 Shorts 是 640x360 横屏）
+  portrait_conversion: true
+  max_seconds: 60            # 只处理真正 Shorts（<60s），长视频跳过
+
+# ============================================================
+# 封面与文案（一源双发）
+# ============================================================
+publish:
+  cover:
+    ratio: "3:4"             # 双发同一张 3:4 封面（用户决策 Q4）
+    template: "cover.html"
+  titles:
+    douyin: { style: "shock", hashtags: ["军事", "战机", "现场"] }
+    xiaohongshu: { style: "knowledge", hashtags: ["军事科普", "现场直击"] }
+  attribution: "视频素材来自 @MarkHasara"  # 来源标注（合规 Q5）
+
+# ============================================================
+# 输出路径与数据库
+# ============================================================
+output:
+  base_dir: "projects/markhasara"
+  review_dir: "projects/markhasara/review"
+  published_dir: "projects/markhasara/published"
+
+database:
+  path: "projects/markhasara/tracking.db"
+
+# ============================================================
+# 合规分类清单
+# ============================================================
+compliance:
+  list_path: "apps/markhasara/compliance.json"  # BLOCK/REMAKE/SAFE 分类清单
+  safe_only: true            # 只进 SAFE
+  block_never_queue: true    # BLOCK 永不进队列

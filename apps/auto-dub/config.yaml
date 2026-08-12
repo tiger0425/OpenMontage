@@ -67,6 +67,20 @@ pipeline:
   source_language: en-US
   tts_engine: indextts
   tts_emotion: calm              # 合成情感：calm=固定平静（贴合原版平淡语气，默认）；auto=服务端从文字自动判情感
+  tts_model_version: "2.5"       # IndexTTS 模型版本：2.5（默认，原生语速 duration_factor + 五语种）；2=回退 IndexTTS-2
+  tts_lang: ""                   # 2.5 语种标签，留空则从 target_language 自动映射（zh-CN→ZH）
+  tts_use_qwen_emo: false        # 2.5 是否加载 QwenEmotion（use_emo_text 自动判情感需要）；固定 calm 向量时无需
+  # 音轨混合模式：replace=整轨替换（默认，标准流程：只保留中文配音）；
+  #               game_audio=保留游戏声/BGM（先 demucs 分离解说 vocals 与游戏伴奏 no_vocals，
+  #               用 no_vocals 做底音轨，中文配音叠加在解说时段）
+  mix_mode: game_audio
+  # 游戏声/BGM 底音轨音量倍率（game_audio 模式有效）：1.0=原音量，1.05=提高 5%
+  game_audio_volume: 1.05
+  # 字幕模式：bottom=烧在画面底部（默认，标准流程）；
+  #           caption_overlay=画面标注遮盖+原位替换（检测画面内教学标注条，半透明黑条遮盖英文，
+  #           在原位置烧录中文标注翻译）；
+  #           none=不烧字幕到画面（只生成 SRT 字幕文件留档，供外部挂载/上传）
+  subtitle_mode: bottom
   subtitle_driven: off           # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
   whisper_model: large-v3         # 转录模型（准确率优先）：base(快) < small < medium < large-v3(最准，慢)
   min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分
@@ -277,6 +291,8 @@ outro:
   min_duration_seconds: 1.5
   max_duration_seconds: 5.0
   drift_fail_threshold_seconds: 10.0   # 漂移在此内允许出片（tpad 冻末帧延展吸收），超过才失败重翻
+  # 片尾显示的频道名（@ 账号引导）；留空则不显示任何频道名
+  channel_name: ""
   text:
     thanks: "感谢观看"
     cta: "觉得有用，欢迎点赞 · 收藏 · 关注"
@@ -294,10 +310,11 @@ cover:
   template: cover.html            # 默认模板（回退用）
   width: 1200
   height: 900
-  channel_templates:
-    "Chris Moran": "covers/chris-moran/cover.html"
-    "Mark Ai Guy": "covers/mark-ai-guy/cover.html"
-    "Matthew Berman": "covers/matthew-berman/cover.html"
+  # 注释掉专属模板，统一走自适应通用 3D 景深封面模板
+  channel_templates: {}
+    # "Chris Moran": "covers/chris-moran/cover.html"
+    # "Mark Ai Guy": "covers/mark-ai-guy/cover.html"
+    # "Matthew Berman": "covers/matthew-berman/cover.html"
 
 # ============================================================
 # 访谈类视频分类与调速配置

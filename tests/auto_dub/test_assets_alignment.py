@@ -47,6 +47,12 @@ def _make_automator(tmp_path):
     inst.max_utterance_seconds = 15.0
     inst.chunk_max_chars = 40
     inst.retranslate_enabled = False
+    inst.mix_mode = "replace"
+    inst.subtitle_mode = "bottom"
+    inst.game_audio_volume = 1.0
+    inst._game_audio_separated = False
+    inst.tts_model_version = "2.5"
+    inst.tts_engine = "indextts"
     inst._voxcpm_calibrator = None
     inst._cps = 5.0
     return inst

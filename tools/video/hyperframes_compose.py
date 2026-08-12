@@ -1520,6 +1520,12 @@ class HyperFramesCompose(BaseTool):
                 except Exception:
                     if "payoff" in str(src_path).lower():
                         style_override = ' style="object-fit: contain !important; background: #0c0e14 !important;"'
+
+                if in_s > 0:
+                    if style_override:
+                        style_override = style_override[:-2] + ' opacity: 0;"'
+                    else:
+                        style_override = ' style="opacity: 0;"'
                         
                 media_html = (
                     f'<img id="{cut_id}" class="clip image-clip {pos_val}" '
@@ -1528,8 +1534,9 @@ class HyperFramesCompose(BaseTool):
                     f'data-track-index="{track_index}" alt="">'
                 )
                 media_tween = (
-                    f'tl.from("#{cut_id}", {{ scale: 1.05, opacity: 0, duration: 0.5, '
-                    f'ease: "power2.out" }}, {self._f(in_s)});'
+                    f'tl.fromTo("#{cut_id}", {{ scale: 1.05, opacity: 0 }}, '
+                    f'{{ scale: 1, opacity: 1, duration: 0.5, ease: "power2.out" }}, '
+                    f'{self._f(in_s)});'
                 )
 
             elif ext in _VIDEO_EXTENSIONS:

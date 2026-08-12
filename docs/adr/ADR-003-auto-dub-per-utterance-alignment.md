@@ -1,7 +1,8 @@
 # ADR-003: Auto-Dub 逐句时长对齐与分句合并决策
 
-- **状态**: Accepted
+- **状态**: Accepted（D3 对齐闭环被 ADR-004 部分取代；D1/D2/D4/D5/D7 保留）
 - **日期**: 2026-08-09
+- **修订**: 2026-08-12 — 前提「IndexTTS2/VoxCPM 均无语速参数」因 IndexTTS-2.5 引入 `duration_factor` 而失效。D3 的「事后测量+逐句 atempo」对齐方式升级为「Duration Factor 粗调 + Atempo 微调」（双次合成），见 ADR-004。
 - **决策者**: 用户 + AI Agent (grill-with-docs session)
 - **影响范围**: Auto-Dub 流水线（`apps/auto-dub/` 与专属校准工具）
 

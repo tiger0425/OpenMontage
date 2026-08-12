@@ -59,6 +59,26 @@ CANONICAL_STAGE_ARTIFACTS = {
     "edu_publish": "publish_copy",
 }
 
+
+def canonical_artifact_for_stage(
+    stage: str, pipeline_type: Optional[str] = None
+) -> str | None:
+    """Resolve the canonical artifact from a pipeline manifest when available."""
+    if pipeline_type:
+        try:
+            from lib.pipeline_loader import load_pipeline
+
+            manifest = load_pipeline(pipeline_type)
+            for stage_config in manifest.get("stages", []):
+                if stage_config.get("name") == stage:
+                    produces = stage_config.get("produces") or []
+                    if produces:
+                        return produces[0]
+                    break
+        except Exception:
+            pass
+    return CANONICAL_STAGE_ARTIFACTS.get(stage)
+
 # Additional artifacts that may be produced alongside canonical ones.
 # These are not stage-defining but are required by governance contracts.
 SUPPLEMENTARY_ARTIFACTS = {
@@ -116,8 +136,13 @@ def _validate_artifacts_for_stage(
     stage: str,
     status: str,
     artifacts: dict[str, Any],
+    pipeline_type: Optional[str] = None,
 ) -> None:
-    required_artifact = CANONICAL_STAGE_ARTIFACTS[stage]
+    required_artifact = canonical_artifact_for_stage(stage, pipeline_type)
+    if required_artifact is None:
+        raise CheckpointValidationError(
+            f"No canonical artifact configured for stage {stage!r}"
+        )
     if status in {"completed", "awaiting_human"} and required_artifact not in artifacts:
         raise CheckpointValidationError(
             f"Stage {stage!r} with status {status!r} must include "
@@ -165,7 +190,7 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
     if not isinstance(artifacts, dict):
         raise CheckpointValidationError("Checkpoint artifacts must be a dictionary")
 
-    _validate_artifacts_for_stage(stage, status, artifacts)
+    _validate_artifacts_for_stage(stage, status, artifacts, pipeline_type)
 
     try:
         jsonschema.validate(instance=checkpoint, schema=_load_checkpoint_schema())

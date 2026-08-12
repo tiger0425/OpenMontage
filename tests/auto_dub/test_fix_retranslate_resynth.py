@@ -54,11 +54,25 @@ def _make_automator(tmp_path):
     inst.inherently_long_seconds = 1.0
     inst.block_max_pause_seconds = 0.8
     inst.tts_engine = "indextts"
+    inst.tts_model_version = "2.5"
+    inst.quiet = True
+    inst.synth_retry_max = 2
+    inst._synth_failures = []
     return inst
 
 
 def _silent(path, ms=2000):
     AudioSegment.silent(duration=ms).export(str(path), format="wav")
+
+
+def _audible(path, ms=1500):
+    """产出有声音频（非静音），避免被 ticket #11 静音失败判定触发重试。"""
+    import numpy as np
+    sr = 48000
+    t = np.linspace(0, ms / 1000, int(sr * ms / 1000), endpoint=False)
+    data = (np.sin(2 * np.pi * 880 * t) * 12000).astype(np.int16)
+    seg = AudioSegment(data.tobytes(), frame_rate=sr, sample_width=2, channels=1)
+    seg.export(str(path), format="wav")
 
 
 class TestForceResynthesize:
@@ -73,7 +87,7 @@ class TestForceResynthesize:
 
         def fake_synth(text, output_path, voice_ref=None, seed=42, target_duration=None):
             synthesized.append(text)
-            _silent(output_path, 1500)
+            _audible(output_path, 1500)
             return True
 
         monkeypatch.setattr(inst, "_synthesize_indextts", fake_synth)
@@ -126,14 +140,16 @@ class TestCalmEmotion:
     def test_calm_emotion_forces_fixed_vector(self, tmp_path, monkeypatch):
         inst = self._make(tmp_path, "calm")
         req = self._send(inst, monkeypatch)
-        assert req["use_emo_text"] is False
-        assert req["emo_vector"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        # 2.5 下 calm = 纯净克隆（不传 emo_vector，官方路径保声纹保真）
+        assert "emo_vector" not in req
+        assert req.get("use_emo_text") in (None, False)
 
     def test_auto_emotion_omits_emo_fields(self, tmp_path, monkeypatch):
         inst = self._make(tmp_path, "auto")
         req = self._send(inst, monkeypatch)
+        # 2.5 下 auto = use_emo_text（自动判情感）
+        assert req["use_emo_text"] is True
         assert "emo_vector" not in req
-        assert "use_emo_text" not in req
 
 
 class TestGenderAndPitchAnchor:

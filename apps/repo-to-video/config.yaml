@@ -29,10 +29,13 @@ tts:
   voice_reference: "D:/index-tts/my_voice.wav"   # 用户音色参考（已转换）
   emotion: "calm"                                 # 纪录片风格：平静
   emo_vector: [0, 0, 0, 0, 0, 0, 0, 1.0]          # [喜怒哀惧厌恶低落惊喜平静]
-  fp16: true                                       # 3090 推荐 FP16
+  fp16: true                                       # 3090 推荐 FP16（2.5 桥自动用 bf16，此字段仅 2 版本生效）
   model_dir: "D:/index-tts/checkpoints"
   cfg_path: "D:/index-tts/checkpoints/config.yaml"
   repo_root: "D:/index-tts"
+  model_version: "2.5"                             # IndexTTS 模型版本：2.5（默认）/ 2（回退）
+  lang: "ZH"                                       # 2.5 语种标签
+  use_qwen_emo: false                              # 固定 calm 向量时无需 QwenEmotion
   min_segment_chars: 15            # 中文最短句子（避免过度拆分）
   max_single_line_chars: 60        # 超过预算但在此阈值内不拆分
 

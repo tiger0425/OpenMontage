@@ -308,7 +308,124 @@ pyannote 说话人分离输出的标签（SPEAKER_00/01/…）。在重叠访谈
 逐句 atempo 允许的变速上限，默认 ±5%。**听感已验证的上限**；代码中 `clamp_tempo_factor` 支持 `max_ratio=1.15`（来自 tachidubb），但 **15% 变速的中文听感未真机验证，默认不应触发**——变速必须保听感，变怪宁可溢出推挤或缩短译文。
 
 **Budget CPS（预算语速）**：
-翻译字数预算用的 cps = 实测 cps × `cps_safety_factor`(0.7)。因为 IndexTTS2 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），固定下限 15 字会让短句译文过长。
+翻译字数预算用的 cps = 实测 cps × `cps_safety_factor`(0.7)。因为 IndexTTS 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），固定下限 15 字会让短句译文过长。2.5 后 cps 仅服务字数预算，不再承担对齐职责（见 Duration Factor）。
 
 **Global Tempo（全局调速）**：
 末段兜底手段。漂移 > drift_budget(1.5s) 且 ≤ max_drift 才触发整段 atempo；漂移在预算内由逐句对齐 + 溢出推挤吸收。
+
+## TTS 引擎与模型版本（2026-08-12 修订）
+
+**IndexTTS**：
+OpenMontage 默认本地 GPU 零样本克隆 TTS 引擎族（external 克隆仓库 `D:/index-tts`，自建 JSON 常驻桥调用）。模型版本为独立维度，见 IndexTTS-2.5 / IndexTTS-2。
+_Avoid_: 直接用「IndexTTS」指代具体模型版本
+
+**IndexTTS-2.5**：
+IndexTTS 当前默认模型版本（2026-08-10 发布）。支持中英日西阿五语，原生语速控制 `duration_factor`（0.5–2.0×），RTF 约 0.206（比 2 快 ~37%），构造用 `use_bf16`，入口 `indextts/infer_v2_5.py`。
+_Avoid_: 无版本限定地说「IndexTTS2 支持语速」
+
+**IndexTTS-2**：
+上一代模型版本，保留用于 A/B 对照与故障回退。权重在 `checkpoints_2`，构造 `use_fp16`，入口 `indextts/infer_v2.py`。2 与 2.5 **均无语速参数**是 ADR-003 的历史前提，仅适用于 2。
+
+**tts_model_version**：
+TTS 引擎的模型版本维度配置键。`tts_engine` 表示引擎族（indextts/voxcpm），`tts_model_version` 表示族内具体版本（"2.5" 默认 / "2"）。工具注册表 `model` 字段与 provenance 的 `model_version` 同步。
+
+**Duration Factor（原生语速）**：
+IndexTTS-2.5 生成时的原生语速控制参数（`duration_factor`，0.5–2.0×，>1 放慢、<1 加快）。与 Atempo 不同：它发生在生成期、音质自然，用于对齐路径的**粗调**。
+_Avoid_: 与 Atempo 混称「变速」
+
+**Atempo（重采样变速）**：
+生成后的 FFmpeg 重采样变速，±5% 保音高（Tempo Budget）。2.5 后降级为对齐**微调兜底**：Duration Factor 越界（<0.5 / >2.0）或双次合成仍失准时才触发。
+
+**Alignment Factor（对齐系数）**：
+双次合成机制：先自然合成测量真实时长，`factor = 目标时长 / 自然时长`，用 `duration_factor` 重合成。factor 越界时桥拒绝请求（OpenMontage 侧降级 Atempo）。确定性优先，代价是每 Chunk 两次推理（2.5 速度收益可抵消）。
+
+**tts_lang**：
+2.5 必传的语言参数（ZH/EN/JA/ES/AR）。逐流水线显式配置，缺省从 `target_language` 映射推断。禁逐句自动探测（破坏确定性）。
+
+**use_qwen_emo**：
+2.5 中 `use_emo_text=True` 的前提构造开关（额外加载 Qwen 模型做文本情感）。按流水线配置默认关闭；服务进程未启用 qwen 时收到 `use_emo_text=True` 必须显式报错。
+
+**cps 缓存版本隔离**：
+`indextts_cps_cache_<version>.json`，按模型版本隔离校准值。2 与 2.5 语速特性不同，首次跑 2.5 必须重测，不能复用 2 的缓存。
+
+---
+
+# MarkHasara 二创解说领域上下文
+
+本上下文记录 MarkHasara Shorts 流水线（YouTube Shorts → 中文二创解说 + 数字人 → 抖音/小红书）的领域术语。此流水线与 Auto-Dub 共享转录/TTS/FFmpeg 内核，但**不共享**逐句对齐、声纹克隆等技术（见下方「与 Auto-Dub 的边界」）。
+
+## 核心概念
+
+**MarkHasara 二创解说流水线**：
+一条批量搬运 MarkHasara 频道（931 条全部为 YouTube Shorts，题材军事/航空新闻）竖屏短内容的流水线：拉取 Shorts → 转录（供 LLM 理解原内容）→ 中文二创解说文案 → TTS 解说语音 → 数字人替换画中解说头像 → FFmpeg 合成竖屏 9:16 成品 → 抖音/小红书一源双发成品包 → 人工上传。
+
+**二创解说（Re-Created Commentary）**：
+中文语音是**对原视频内容的二次创作**（夸张军事解说风），**不是逐句翻译**。原画面保留，中文文案描述/渲染画面内容，语气夸张、带节奏。
+
+**二创文案生成器**：
+LLM 根据原视频转录内容 + 画面信息，编写夸张解说词的组件。这是本流水线的新增需求，区别于 Auto-Dub 的「翻译」。
+
+**数字人（Digital Human）**：
+替换 MarkHasara 原视频「画中固定位置解说头像框」的合成形象。用 TalkingHead 工具（sadtalker/musetalk，本地 GPU）以「形象图 + 中文解说音频」驱动开口。用户确认：所有视频默认替换，流水线可配置按视频关闭。
+
+**解说头像框（Talking Head Box）**：
+MarkHasara 视频左下角固定位置的解说者头像（矩形裁切，戴帽人物）。经样片验证为频道常态（2/2 条一致）。它**不触发 BLOCK**，走数字人替换。
+
+**头像框替换（Box Replacement）**：
+检测头像框位置（AutoReframe/MediaPipe 人脸检测）后用数字人画面覆盖的过程。检测头像位置后替换（Q3=B）。
+
+## 合规分类
+
+**合规清单（Compliance List）**：
+一次性重建的分类清单文件（JSON，一条视频一行），人工 review 后锁定为可审计基线。BLOCK 永不进队列，REMAKE 暂缓，SAFE 进本期流水线。
+
+**BLOCK（禁搬）**：
+主题涉医疗/金融投资/法律/政治/宗教（敏感领域）、明显低质（<720p/模糊/无内容）、标题或内容涉暴力/成人/误导性夸大。军事/航空新闻题材本身不 BLOCK，但涉真实冲突血腥画面需人工复核。
+
+**REMAKE（需重制）**：
+内容可搬但需处理：水印/UI 元素需去除、画面有需重排的字幕叠加。
+
+**SAFE（可直接搬运）**：
+BLOCK/REMAKE 均不命中，画面干净可用。
+
+**来源标注（Source Attribution）**：
+搬运合规要求，文案统一标注「视频素材来自 @MarkHasara」。
+
+## 与 Auto-Dub 的边界（2026-08-10 二创模式修正）
+
+**复用内核**：
+转录（whisper）、TTS 解说语音、FFmpeg 合成、GPU 锁（lib/gpu_lock.py）、轻/重任务拆分多智能体编排。
+
+**不再需要**：
+voice_ref 克隆原声、逐句对齐算法、100ms 串行队列混音、atempo 兜底、翻译审校闸门——这些全是「模仿原说话人 + 贴合原声」技术，二创解说不跟原声口型/时长。
+
+**新增需求**：
+二创文案生成器、数字人驱动（TalkingHead）、头像框位置检测（AutoReframe/MediaPipe）。
+
+**样片验证事实（2026-08-10）**：
+GfbbB1CHclY（装甲车残骸航拍，18.2s，1200 万播放）、q8vhxfm7pWk（DC-10 消防机，21s，1100 万播放）均确认：9:16 竖屏 + 上下黑色 letterbox 遮幅 + 左下角固定解说头像框 + 主画面（右上角 MilitaryNews 水印）。
+
+## 落地形态（2026-08-10 决策）
+
+**MarkHasara 二创 CLI**：
+新建独立 CLI（`bin/markhasara.py`），复用 auto-dub 内核组件（转录/TTS/FFmpeg/GPU锁/轻重拆分），新增二创文案生成、头像框替换模块。不与 auto_dub.py 合并，避免污染 B 站队列。
+
+**分阶段数字人（Phased Avatar）**：
+本期头像框**静态替换**（贴用户形象图）先跑通流水线；后续安装 sadtalker/musetalk（RTX 3090 24GB 够用，免费）用 TalkingHead 驱动开口，作为增强。HeyGen 为 fallback（需配 HEYGEN_API_KEY），搬运内容默认不推云端。
+
+**MarkHasara 队列（独立 DB）**：
+独立数据库 `projects/markhasara/tracking.db`，与 auto-dub tracking.db 完全隔离。产出目录 `projects/markhasara/`（源视频/转录/二创文案/音频/合成/成品包），gitignored。
+
+**Box Replacer 工具**：
+头像框替换注册为 OpenMontage 工具（`tools/avatar/box_replacer.py`，capability=avatar），作为可复用能力，后续其他频道可复用。
+
+## 成品规格（2026-08-10 决策）
+
+**画面处理**：
+9:16 竖屏保留 letterbox 遮幅（原样）；MilitaryNews 水印/右下角标签用覆盖（贴用户标识/封面文字）；字幕军事解说大字风（白字黑边或黄字黑边，顶部标题区 + 中下部对话，避开左下数字人框）。
+
+**封面与文案**：
+双发同一张 **3:4 封面**（小红书信息流最优，抖音支持 3:4 封面）。同视频不同标题：抖音震惊体 + 话题标签（#军事 #战机），小红书知识感 + 关键词（#军事科普 #现场）。
+
+**数字人形象与音色（Q6 用户调整）**：
+数字人形象 **AI 生成**固定军事解说员形象（后续同形象复用）；**音色 = 用户自己的声音**（用户提供录音，IndexTTS2/VoxCPM 本地克隆）；**语气按原视频语气**（二创文案生成 prompt 含"模仿原视频解说语气"指令）。此决策**修正 #22**：恢复 voice_ref 克隆，但对象是用户自己的声音（无需 pyannote 分离），用户声音样本收集为实现阶段 Task。

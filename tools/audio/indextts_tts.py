@@ -97,6 +97,10 @@ def _venv_python(repo: Path) -> Path | None:
 
 
 def _server_script(repo: Path) -> Path:
+    """优先用收编进 OpenMontage 的桥（apps/indextts-bridge/），回退 repo 根。"""
+    omo_server = Path(__file__).resolve().parents[1] / "apps" / "indextts-bridge" / "indextts_server.py"
+    if omo_server.is_file():
+        return omo_server
     return repo / "indextts_server.py"
 
 
@@ -119,8 +123,13 @@ def _start_server() -> subprocess.Popen:
     handle = GpuLockHandle("indextts", timeout=1800, heartbeat=15)
     handle.acquire()
     try:
+        # 模型版本：2.5（默认）/ 2（回退），env INDEXTTS_MODEL_VERSION 可覆盖
+        version = os.environ.get("INDEXTTS_MODEL_VERSION", "2.5")
+        cmd = [str(venv_py), str(server), "--version", version]
+        if os.environ.get("INDEXTTS_USE_QWEN_EMO") == "1":
+            cmd.append("--use-qwen-emo")
         proc = subprocess.Popen(
-            [str(venv_py), str(server)],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -201,6 +210,8 @@ def _synthesize_via_server(
     emo_vector: list[float] | None,
     use_emo_text: bool | None,
     emo_alpha: float,
+    duration_factor: float | None = None,
+    lang: str | None = None,
 ) -> dict[str, Any]:
     global _SERVER_PROC, _SERVER_LAST_ERROR
     with _SERVER_LOCK:
@@ -221,6 +232,11 @@ def _synthesize_via_server(
         "use_emo_text": use_emo_text,
         "emo_alpha": emo_alpha,
     }
+    # 2.5 版本透传 lang / duration_factor（桥端 2 版本忽略未知字段）
+    if os.environ.get("INDEXTTS_MODEL_VERSION", "2.5") == "2.5":
+        req["lang"] = lang or os.environ.get("INDEXTTS_LANG", "ZH")
+        if duration_factor:
+            req["duration_factor"] = float(duration_factor)
     try:
         proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
         proc.stdin.flush()
@@ -545,6 +561,8 @@ class IndexTTS2TTS(BaseTool):
                 emo_vector=emo_vector,
                 use_emo_text=use_emo_text,
                 emo_alpha=emo_alpha,
+                duration_factor=inputs.get("duration_factor"),
+                lang=inputs.get("lang"),
             )
         except Exception as exc:
             raise RuntimeError(
@@ -568,11 +586,13 @@ class IndexTTS2TTS(BaseTool):
             except Exception:
                 pass
 
+        version = os.environ.get("INDEXTTS_MODEL_VERSION", "2.5")
+        model_label = f"indextts-{version}"
         return ToolResult(
             success=True,
             data={
                 "provider": self.provider,
-                "model": "indextts-2",
+                "model": model_label,
                 "text_length": len(text),
                 "output": str(output_path),
                 "format": "wav",
@@ -590,8 +610,9 @@ class IndexTTS2TTS(BaseTool):
                 "seed": seed,
                 "effective_spk_prompt": voice_ref,
                 "bridge": "indextts_server.py",
+                "model_version": version,
                 "rms_normalized": True,
             },
             artifacts=[str(output_path)],
-            model="indextts-2",
+            model=model_label,
         )

@@ -10,8 +10,8 @@
 ]'>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=1920, height=1080" />
-    <title>Bilibili 3D 悬浮旋转横屏封面模板 (16:9)</title>
+    <meta name="viewport" content="width=1200, height=900" />
+    <title>Bilibili 3D 悬浮旋转标准封面模板 (4:3)</title>
     <style>
       /* 引入项目内共享资料库的顶级字体 */
       @font-face {
@@ -34,20 +34,20 @@
 
       #root {
         position: relative;
-        width: 1920px;
-        height: 1080px;
+        width: 1200px;
+        height: 900px;
         overflow: hidden;
       }
 
       /* ==================== 氛围底色模糊 ==================== */
       .bg-blur {
         position: absolute;
-        top: -80px;
-        left: -80px;
-        width: 2080px;
-        height: 1240px;
+        top: -60px;
+        left: -60px;
+        width: 1320px;
+        height: 1020px;
         object-fit: cover;
-        filter: blur(55px) brightness(0.28);
+        filter: blur(45px) brightness(0.28);
         z-index: 1;
       }
 
@@ -76,7 +76,7 @@
         top: 0; left: 0; right: 0; bottom: 0;
         background-image: linear-gradient(rgba(0, 255, 204, 0.015) 1px, transparent 1px),
                           linear-gradient(90deg, rgba(0, 255, 204, 0.015) 1px, transparent 1px);
-        background-size: 60px 60px;
+        background-size: 40px 40px;
         z-index: 3;
         pointer-events: none;
       }
@@ -84,31 +84,30 @@
       /* ==================== 3D 偏转原封面独立卡片 (中心为轴，产生倾斜梯形) ==================== */
       .poster-3d-wrapper {
         position: absolute;
-        right: 80px;
-        top: 130px;
-        width: 1100px;
-        height: 820px;
-        border-radius: 24px;
+        right: 60px;
+        top: 110px;
+        width: 680px;
+        height: 680px;
+        border-radius: 18px;
         overflow: hidden;
-        /* 中心轴偏转，带轻微 X 轴倾斜，使上下边线产生强烈 3D 透视斜角 */
         transform-origin: center center;
-        transform: perspective(1400px) rotateY(-10deg) rotateX(2deg);
+        transform: perspective(1200px) rotateY(-10deg) rotateX(2deg);
         transform-style: preserve-3d;
         box-shadow: 
-          -15px 25px 50px rgba(0, 0, 0, 0.75),
-          0px 0px 40px rgba(255, 255, 255, 0.05);
+          -12px 20px 40px rgba(0, 0, 0, 0.75),
+          0px 0px 30px rgba(255, 255, 255, 0.05);
         z-index: 5;
       }
 
       /* 霓虹流光边框 */
       #root.theme-vlogger .poster-3d-wrapper {
-        border: 4px solid rgba(168, 85, 247, 0.35);
+        border: 3px solid rgba(168, 85, 247, 0.35);
       }
       #root.theme-frugal_red .poster-3d-wrapper {
-        border: 4px solid rgba(239, 68, 68, 0.35);
+        border: 3px solid rgba(239, 68, 68, 0.35);
       }
       #root.theme-hardcore_dark .poster-3d-wrapper {
-        border: 4px solid rgba(6, 182, 212, 0.35);
+        border: 3px solid rgba(6, 182, 212, 0.35);
       }
 
       .poster-img {
@@ -119,18 +118,18 @@
 
       .poster-3d-wrapper .panel-label {
         position: absolute;
-        right: 40px;
-        bottom: 40px;
-        padding: 10px 22px;
+        right: 30px;
+        bottom: 30px;
+        padding: 8px 18px;
         background: rgba(0, 0, 0, 0.82);
         border: 2px solid rgba(255, 255, 255, 0.2);
-        border-radius: 10px;
+        border-radius: 8px;
         color: #ffffff;
         font-family: 'NotoSansSC', sans-serif;
-        font-size: 20px;
+        font-size: 16px;
         font-weight: 900;
         letter-spacing: 1px;
-        transform: translateZ(30px);
+        transform: translateZ(25px);
       }
 
 
@@ -140,38 +139,38 @@
         position: absolute;
         top: 0;
         left: 0;
-        width: 1920px;
-        height: 1080px;
+        width: 1200px;
+        height: 900px;
         display: flex;
         align-items: center;
-        padding-left: 100px;
+        padding-left: 80px;
         box-sizing: border-box;
         z-index: 10;
       }
 
       .left-section {
-        width: 680px;
+        width: 460px;
         display: flex;
         flex-direction: column;
         justify-content: center;
-        height: 850px;
+        height: 700px;
       }
 
       /* 标签行 */
       .header-row {
         display: flex;
         align-items: center;
-        gap: 20px;
-        margin-bottom: 20px;
+        gap: 15px;
+        margin-bottom: 16px;
       }
 
       .author-card {
         background: rgba(7, 5, 20, 0.88);
         border: 2px solid rgba(102, 139, 255, 0.45);
-        border-radius: 12px;
-        padding: 6px 24px;
+        border-radius: 10px;
+        padding: 4px 18px;
         color: #ffffff;
-        font-size: 22px;
+        font-size: 18px;
         font-weight: 900;
         letter-spacing: 1px;
       }
@@ -180,38 +179,38 @@
       .badges-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 30px;
+        gap: 10px;
+        margin-bottom: 20px;
       }
       .badge-pill {
         background: rgba(8, 6, 26, 0.9);
         border: 1px solid rgba(40, 30, 105, 0.5);
-        border-radius: 10px;
-        padding: 6px 18px;
+        border-radius: 8px;
+        padding: 4px 14px;
         color: #9cb8ff;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 900;
       }
 
       /* 高亮胶囊 */
       .promo-pill {
-        font-size: 20px;
+        font-size: 16px;
         font-weight: 900;
-        padding: 8px 22px;
-        border-radius: 12px;
+        padding: 6px 18px;
+        border-radius: 10px;
         width: fit-content;
-        margin-bottom: 28px;
+        margin-bottom: 22px;
       }
 
       /* 3D 标题大字核心排版与 text-shadow 3D 质感堆叠 */
       .title-container {
         display: flex;
         flex-direction: column;
-        gap: 22px;
+        gap: 16px;
       }
 
       .title-line {
-        font-size: 88px;
+        font-size: 64px;
         font-weight: 900;
         line-height: 1.15;
         margin: 0;
@@ -227,8 +226,7 @@
           2px 2px 0px #cca300, 
           3px 3px 0px #b38f00, 
           4px 4px 0px #997a00, 
-          5px 5px 0px #806600,
-          6px 6px 15px rgba(0, 0, 0, 0.95);
+          5px 5px 10px rgba(0, 0, 0, 0.95);
       }
       #root.theme-vlogger .gold-text {
         background: linear-gradient(to bottom, #ffe600 20%, #ff8800 100%);
@@ -250,8 +248,7 @@
           2px 2px 0px #e62e2e, 
           3px 3px 0px #cc2929, 
           4px 4px 0px #b32424, 
-          5px 5px 0px #991f1f,
-          6px 6px 15px rgba(0, 0, 0, 0.95);
+          5px 5px 10px rgba(0, 0, 0, 0.95);
       }
       #root.theme-frugal_red .gold-text {
         background: linear-gradient(to bottom, #ffea00 20%, #ff9500 100%);
@@ -259,7 +256,7 @@
         -webkit-text-fill-color: transparent;
       }
       #root.theme-frugal_red .title-line:not(.gold-text) {
-        background: linear-gradient(to bottom, #ff3b30 20%, #c70000 100%);
+        background: linear-gradient(to bottom, #ff3333 20%, #bd0000 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
       }
@@ -267,7 +264,7 @@
         background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
         color: #ffffff;
         border: 1px solid #fca5a5;
-        box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+        box-shadow: 0 4px 15px rgba(220, 38, 38, 0.45);
       }
 
       /* hardcore_dark 极客青绿发光立体 */
@@ -279,8 +276,7 @@
           2px 2px 0px #00e6b8, 
           3px 3px 0px #00cc9f, 
           4px 4px 0px #00b38b, 
-          5px 5px 0px #009977,
-          6px 6px 15px rgba(0, 255, 204, 0.35);
+          5px 5px 10px rgba(0, 255, 204, 0.35);
       }
       #root.theme-hardcore_dark .gold-text {
         background: linear-gradient(to bottom, #00f0ff 20%, #0077ff 100%);
@@ -298,11 +294,11 @@
       .footer-quote {
         margin-top: auto;
         color: #facc15;
-        font-size: 22px;
+        font-size: 18px;
         font-weight: 900;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
       }
       .footer-quote::before {
         content: "💬";
@@ -314,14 +310,14 @@
         bottom: 0;
         left: 0;
         right: 0;
-        height: 8px;
+        height: 6px;
         background-color: #ffd700;
         z-index: 100;
       }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="cover" data-no-timeline data-width="1920" data-height="1080" data-start="0" data-duration="0.1">
+    <div id="root" data-composition-id="cover_4_3" data-no-timeline data-width="1200" data-height="900" data-start="0" data-duration="0.1">
       
       <!-- 氛围模糊底图 -->
       <img id="bg-blur" class="bg-blur" alt="背景模糊" />

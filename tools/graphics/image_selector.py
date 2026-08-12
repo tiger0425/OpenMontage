@@ -79,6 +79,26 @@ class ImageSelector(BaseTool):
                 "items": {"type": "string"},
                 "description": "Multiple local source image paths for compositing edits.",
             },
+            "reference_image_path": {
+                "type": "string",
+                "description": "Local reference image path for custom ComfyUI I2I workflows.",
+            },
+            "reference_image_path_2": {
+                "type": "string",
+                "description": "Second local reference image path for dual-reference workflows.",
+            },
+            "reference_image_url": {
+                "type": "string",
+                "description": "Reference image URL for custom ComfyUI I2I workflows.",
+            },
+            "reference_image_url_2": {
+                "type": "string",
+                "description": "Second reference image URL for dual-reference workflows.",
+            },
+            "workflow_overrides": {
+                "type": "object",
+                "description": "Node overrides for custom workflows, including uploaded-image placeholders.",
+            },
             "preferred_provider": {
                 "type": "string",
                 "description": "Provider name or 'auto'. Valid values are discovered at runtime from the registry.",
@@ -216,6 +236,11 @@ class ImageSelector(BaseTool):
                 "image_path",
                 "image_urls",
                 "image_paths",
+                "reference_image_path",
+                "reference_image_path_2",
+                "reference_image_url",
+                "reference_image_url_2",
+                "workflow_overrides",
                 "workflow_json",
                 "workflow_path",
                 "output_node",

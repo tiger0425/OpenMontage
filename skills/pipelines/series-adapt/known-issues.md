@@ -22,6 +22,7 @@
 | K-11 | 画面判定"空白"误报/漏报 | [K-11 用错验证指标](#k-11-画面内容验证用错指标) |
 | K-12 | scene_plan 重做后时长回到旧值 | [K-12 重做 scene_plan 丢音频校正](#k-12-重做-scene_plan-丢失音频时长校正) |
 | K-13 | 视频画质低/模糊（图片分辨率不足） | [K-13 生图分辨率不足](#k-13-生图分辨率不足) |
+| K-14 | 逐帧定格跨帧错位（门洞/透视/爆炸区漂移） | [K-14 全画面重绘导致跨帧错位](#k-14-全画面重绘导致跨帧错位) |
 
 ---
 
@@ -189,6 +190,21 @@
 2. HyperFrames `object-fit: cover` 会放大 768→1080（约 1.4x）导致模糊——优先保证出图分辨率
 **关联**：asset-director `Consistency rules`
 **验证**：全部图片 ≥1920×1080
+
+---
+
+## K-14 全画面重绘导致跨帧错位
+
+**症状**：AI 逐帧定格序列中，同一锚点的城门/门洞/透视地面跨帧偏移；爆破区域位移；画布漂移。
+**根因**：用全画面 I2I（`Klein-img2image-dual-reference.json` 等）让模型对整幅图重新采样，
+即使带参考锚点，模型仍会重新解释布局，prompt 无法提供像素级约束。
+**修复流程**：
+1. 弃用全画面双参考递推，改用局部 mask/inpaint：`Klein-img2image-inpaint.json`（`SetLatentNoiseMask` 锁 mask 外像素）或 `Klein-img2image-mask-redraw.json`
+2. mask 为黑白通道图，**黑 = 重绘区**，尺寸与锚点一致，只圈变化发生的物理位置
+3. 每帧只允许一个 mask + 一个 delta + 一个固定 seed；prompt 只写"mask 内变成什么"，并带量级约束词（below the roofline / right third / no debris above wall）
+4. 失败即 BLOCKED，记录原因，不随机换 seed 重试
+**关联**：`references/vox-stopmotion-prompt-spec.md`（完整规范与模板）· asset-director
+**验证**：遮罩外像素与锚点 diff ≈ 0；mask 内变化符合 delta 描述
 
 ---
 

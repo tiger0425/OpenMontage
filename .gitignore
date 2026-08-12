@@ -11,6 +11,10 @@ venv/
 # Local model downloads (e.g. Piper TTS voices, fetched at runtime — not source)
 *.onnx
 *.onnx.json
+apps/models/
+
+# Runtime logs
+*.log
 
 # Test/IDE
 .pytest_cache/
