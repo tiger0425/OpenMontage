@@ -210,6 +210,12 @@ class PipelineAutomator:
         self.tts_lang = str(config.get("pipeline", {}).get("tts_lang", "") or _map_lang(_tgt))
         # 2.5 是否加载 QwenEmotion（use_emo_text 自动判情感需要）；默认关（固定 calm 向量无需）
         self.tts_use_qwen_emo = bool(config.get("pipeline", {}).get("tts_use_qwen_emo", False))
+        # IndexTTS 权重目录（桥 --checkpoints）：env / config pipeline.indextts.checkpoints / D:/index-tts 默认
+        self.indextts_checkpoints = (
+            os.environ.get("INDEXTTS_CHECKPOINTS")
+            or (config.get("pipeline", {}).get("indextts") or {}).get("checkpoints")
+            or r"D:/index-tts/checkpoints"
+        )
         # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
         self.subtitle_driven = config.get("pipeline", {}).get("subtitle_driven", "off")
         # 音轨混合模式：replace=整轨替换（默认）；game_audio=demucs 分离后保留游戏声/BGM 做底音轨
@@ -2428,10 +2434,14 @@ class PipelineAutomator:
     # 辅助方法
     # ==========================================
 
-    # IndexTTS2 venv Python 路径
-    INDEXTTS_VENV_PYTHON = r"D:/index-tts/.venv/Scripts/python.exe"
+    # IndexTTS2 venv Python 路径（机器相关，可用 env 覆盖）
+    INDEXTTS_VENV_PYTHON = os.environ.get("INDEXTTS_VENV_PYTHON", r"D:/index-tts/.venv/Scripts/python.exe")
     INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"
-    INDEXTTS_SERVER = r"D:/index-tts/indextts_server.py"
+    # 桥收编进 OpenMontage apps/indextts-bridge/（支持 --version 2.5|2）
+    INDEXTTS_SERVER = os.environ.get(
+        "INDEXTTS_SERVER",
+        str(Path(__file__).resolve().parents[3] / "apps" / "indextts-bridge" / "indextts_server.py"),
+    )
 
     def _extract_voice_ref(self, external_voice_ref) -> bool:
         """提取更长的干净声纹片段并归一化音量。

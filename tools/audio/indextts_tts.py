@@ -126,6 +126,11 @@ def _start_server() -> subprocess.Popen:
         # 模型版本：2.5（默认）/ 2（回退），env INDEXTTS_MODEL_VERSION 可覆盖
         version = os.environ.get("INDEXTTS_MODEL_VERSION", "2.5")
         cmd = [str(venv_py), str(server), "--version", version]
+        # 权重目录：env / config / D:/index-tts 默认（桥在 apps/indextts-bridge/ 下，不能靠脚本同级推断）
+        ckpts = os.environ.get("INDEXTTS_CHECKPOINTS", r"D:/index-tts/checkpoints")
+        if version == "2":
+            ckpts = os.environ.get("INDEXTTS_CHECKPOINTS_2", r"D:/index-tts/checkpoints_2")
+        cmd += ["--checkpoints", ckpts]
         if os.environ.get("INDEXTTS_USE_QWEN_EMO") == "1":
             cmd.append("--use-qwen-emo")
         proc = subprocess.Popen(
