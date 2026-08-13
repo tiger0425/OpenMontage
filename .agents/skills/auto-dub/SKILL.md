@@ -164,12 +164,29 @@ python bin/auto_dub.py approve-review --video-id {video_id} [--json]
 ## 🎙️ TTS 引擎：IndexTTS2 本地 GPU（默认）
 
 - **引擎**：IndexTTS2（本地 GPU，无需 API Key），`config.yaml → pipeline.tts_engine: indextts`
-- **调用方式**：auto-dub 通过 `pipeline_automator` 的 subprocess 常驻服务桥接调用（`D:/index-tts/indextts_server.py`），不要直接 import 底层模块
+- **调用方式**：auto-dub 通过 `pipeline_automator` 的 subprocess 常驻服务桥接调用；桥在 `apps/indextts-bridge/indextts_server.py`（支持 `--version 2.5|2`），不要直接 import 底层模块
+- **⚠️ 任何 Agent 手动调用 IndexTTS 前，必须先读**：`apps/indextts-bridge/CALLING.md`（正确启动命令、UTF-8 编码、情感参数、排障——违反会产杂音/乱码/女声化）
 - **特性**：中文/多语言语音、零样本音色克隆（自动从原视频提取声纹）、字符级时间戳
 - **GPU 互斥**：IndexTTS2 常驻服务占 8-16GB VRAM；服务启动时自动获取跨智能体 GPU 锁（`lib/gpu_lock.py`），合成结束/异常时自动释放
 - **备选引擎**：`tts_engine: voxcpm` 时走 `voxcpm_tts` 工具（见 `.agents/skills/voxcpm-tts/SKILL.md`）
 
 ### 已知问题与修复方案
+
+**问题：生成内容为杂音**
+
+升级 IndexTTS 2.5 后（2026-08-13），若生成音频是杂音（whisper 转录出 `Maze Maze Selling` 等无意义音节）：
+- **根因**：用了旧桥 `D:/index-tts/indextts_server.py`（加载 2.0 `infer_v2` 模型）+ 2.5 权重 → 权重错位（日志 `missing keys (212)` / `skipping spk_emb_proj`）
+- **修复**：改用 `apps/indextts-bridge/indextts_server.py`，启动带 `--version 2.5 --checkpoints D:/index-tts/checkpoints`。详见 CALLING.md。
+
+**问题：中文变 `?` 乱码**
+
+PowerShell `Write-Output ... | python` 管道按 GBK 传中文，桥按 UTF-8 读 → 乱码。
+**必须用 Python `subprocess` + `encoding="utf-8"` 传 stdin**。详见 CALLING.md。
+
+**问题：男声被克隆成女声**
+
+2.5 下传了 `emo_vector`（触发情感-音色混合 `emovec_mat + (1-sum)*emovec`）会削弱声纹。
+**固定 calm 只传 `use_emo_text: false`，不传 `emo_vector`**（官方纯净克隆）。详见 CALLING.md。
 
 **问题：静音伪文件**
 
