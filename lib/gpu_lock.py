@@ -261,7 +261,7 @@ def gpu_lock(
         heartbeat: 等待提示间隔秒数。
         lock_path: 覆盖锁文件路径（默认用户级共享锁）。
     """
-    path = lock_path or _default_lock_path()
+    path = Path(lock_path) if lock_path is not None else _default_lock_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path_str = str(path)
 
@@ -301,7 +301,7 @@ class GpuLockHandle:
         self.label = label
         self.timeout = timeout
         self.heartbeat = heartbeat
-        self.path = lock_path or _default_lock_path()
+        self.path = Path(lock_path) if lock_path is not None else _default_lock_path()
         self._release_fn: Optional[Callable[[], None]] = None
         self._nested: bool = False
 
