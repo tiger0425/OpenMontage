@@ -53,6 +53,7 @@ def _make_automator(tmp_path):
     inst._game_audio_separated = False
     inst.tts_model_version = "2.5"
     inst.tts_engine = "indextts"
+    inst.force_resynth = False
     inst._voxcpm_calibrator = None
     inst._cps = 5.0
     return inst
