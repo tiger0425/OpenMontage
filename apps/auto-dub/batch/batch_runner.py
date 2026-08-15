@@ -32,6 +32,140 @@ from batch.pipeline_automator import PipelineAutomator
 from batch.llm_client import LLMClient
 
 
+def build_config_decision_entries(config: dict) -> list[dict]:
+    """从 auto-dub config 生成「项目级配置决策」条目（ADR-006 D8）。
+
+    轻量原则：批量流水线不逐句记，只在「项目级配置决策点」记少数几条，
+    每条带 >= 2 个 options_considered + 真实 reason，供决策审计与 reviewer 检查。
+
+    纯函数，可单测。返回符合 decision_log.schema.json 的 decisions 列表。
+    覆盖 4 个关键配置点：TTS 引擎、音轨混合模式、字幕模式、封面引擎。
+    """
+    pl = config.get("pipeline", {}) or {}
+    entries = []
+
+    # 1. TTS 引擎选择（provider_selection）
+    tts = pl.get("tts_engine", "indextts")
+    tts_options = [
+        {
+            "option_id": "indextts",
+            "label": "IndexTTS2 本地 GPU（零样本音色克隆）",
+            "score": 1.0,
+            "reason": "本地 GPU、无需 API Key、支持多语种与声纹克隆，批量配音首选",
+        },
+        {
+            "option_id": "voxcpm",
+            "label": "VoxCPM 本地 GPU TTS",
+            "score": 0.6,
+            "reason": "本地备选引擎，音色可控但克隆能力弱于 IndexTTS2",
+            "rejected_because": "默认走 IndexTTS2，仅作回退" if tts != "voxcpm" else None,
+        },
+    ]
+    entries.append({
+        "decision_id": "d-cfg-tts-engine",
+        "stage": "idea",
+        "category": "provider_selection",
+        "subject": "Auto-dub TTS engine",
+        "options_considered": tts_options,
+        "selected": tts if tts in ("indextts", "voxcpm") else "indextts",
+        "reason": f"config pipeline.tts_engine={tts}（本地 GPU，无需 API Key，支持声纹克隆）",
+        "user_visible": True,
+        "confidence": 0.9,
+    })
+
+    # 2. 音轨混合模式（fallback_decision：replace vs game_audio）
+    mix = pl.get("mix_mode", "replace")
+    mix_options = [
+        {
+            "option_id": "replace",
+            "label": "整轨替换（只保留中文配音）",
+            "score": 1.0,
+            "reason": "标准流程，干净简单",
+        },
+        {
+            "option_id": "game_audio",
+            "label": "保留游戏声/BGM（demucs 分离后做底音轨）",
+            "score": 0.7,
+            "reason": "游戏教学视频需保留引擎声与 BGM 时启用",
+        },
+    ]
+    entries.append({
+        "decision_id": "d-cfg-mix-mode",
+        "stage": "idea",
+        "category": "fallback_decision",
+        "subject": "Auto-dub mix mode",
+        "options_considered": mix_options,
+        "selected": mix if mix in ("replace", "game_audio") else "replace",
+        "reason": f"config pipeline.mix_mode={mix}（{'保留游戏声/BGM' if mix == 'game_audio' else '整轨替换'}）",
+        "user_visible": True,
+        "confidence": 0.85,
+    })
+
+    # 3. 字幕模式（fallback_decision：bottom vs caption_overlay vs none）
+    sub = pl.get("subtitle_mode", "bottom")
+    sub_options = [
+        {
+            "option_id": "bottom",
+            "label": "烧在画面底部",
+            "score": 1.0,
+            "reason": "标准流程，通用可读",
+        },
+        {
+            "option_id": "caption_overlay",
+            "label": "画面标注遮盖 + 原位替换",
+            "score": 0.5,
+            "reason": "仅当画面有需翻译的硬字幕条时启用（easyocr+drawbox）",
+        },
+        {
+            "option_id": "none",
+            "label": "不烧字幕（仅留 SRT）",
+            "score": 0.3,
+            "reason": "成品供外部挂载/上传字幕时启用",
+        },
+    ]
+    entries.append({
+        "decision_id": "d-cfg-subtitle-mode",
+        "stage": "idea",
+        "category": "fallback_decision",
+        "subject": "Auto-dub subtitle mode",
+        "options_considered": sub_options,
+        "selected": sub if sub in ("bottom", "caption_overlay", "none") else "bottom",
+        "reason": f"config pipeline.subtitle_mode={sub}",
+        "user_visible": True,
+        "confidence": 0.85,
+    })
+
+    # 4. 封面引擎（composition_mode）：hyperframes 模板 vs ai 生图
+    cover = (config.get("cover") or {}).get("engine", "hyperframes")
+    cover_options = [
+        {
+            "option_id": "hyperframes",
+            "label": "HyperFrames 模板渲染（系列一致性）",
+            "score": 1.0,
+            "reason": "全系列共用母版，中文标题由 HTML 文本渲染，杜绝错别字与版式漂移",
+        },
+        {
+            "option_id": "ai_image",
+            "label": "AI 生图（标题党封面，需人工确认中文）",
+            "score": 0.4,
+            "reason": "高流量选题可用，但中文大字易错，须人工确认",
+        },
+    ]
+    entries.append({
+        "decision_id": "d-cfg-cover-engine",
+        "stage": "idea",
+        "category": "composition_mode",
+        "subject": "Auto-dub cover engine",
+        "options_considered": cover_options,
+        "selected": cover if cover in ("hyperframes", "ai_image") else "hyperframes",
+        "reason": f"config cover.engine={cover}（系列一致性优先）",
+        "user_visible": True,
+        "confidence": 0.9,
+    })
+
+    return entries
+
+
 class BatchRunner:
     """批量调度器：扫描 -> 筛选 -> 逐个处理
     
@@ -249,7 +383,7 @@ class BatchRunner:
                 return True
         return False
 
-    def _build_automator(self, video: dict):
+    def _build_automator(self, video: dict, force_resynth: bool = False):
         """为单个视频构建 PipelineAutomator（复用 _process_single_video 的构造逻辑）。"""
         from batch.pipeline_automator import PipelineAutomator
         video_id = video['video_id']
@@ -264,14 +398,18 @@ class BatchRunner:
             db=self.db,
             glossary=self.glossary,
             auto_reviewer=self.auto_reviewer,
-            quiet=self.quiet
+            quiet=self.quiet,
+            force_resynth=force_resynth
         )
 
-    def render_assets(self, video_id: str) -> dict:
-        """仅 TTS 合成 + 混音 + SRT（重算力 GPU）。前置依赖 script/scene_plan checkpoint。"""
+    def render_assets(self, video_id: str, force_resynth: bool = False) -> dict:
+        """仅 TTS 合成 + 混音 + SRT（重算力 GPU）。前置依赖 script/scene_plan checkpoint。
+
+        force_resynth=True 时清空 audio 目录全量重合成；默认 False 断点续跑（只补缺失/无效 seg）。
+        """
         video = self._get_video(video_id)
         print(f"\n  🔊 [render-assets] {video_id}: {video.get('title', '')}")
-        automator = self._build_automator(video)
+        automator = self._build_automator(video, force_resynth=force_resynth)
         report = automator.render_assets_only()
         if report is not None:
             summary = {
@@ -345,11 +483,14 @@ class BatchRunner:
             print(f"  ❌ render-video 失败: {summary['error']}")
         return summary
 
-    def run_heavy(self, video_id: str) -> dict:
-        """assets + edit + compose 打包一条龙（重算力，漂移超标自动缩短重翻）。"""
+    def run_heavy(self, video_id: str, force_resynth: bool = False) -> dict:
+        """assets + edit + compose 打包一条龙（重算力，漂移超标自动缩短重翻）。
+
+        force_resynth=True 时清空 audio 目录全量重合成；默认 False 断点续跑（只补缺失/无效 seg）。
+        """
         video = self._get_video(video_id)
         print(f"\n  🏗️ [run-heavy] {video_id}: {video.get('title', '')}")
-        automator = self._build_automator(video)
+        automator = self._build_automator(video, force_resynth=force_resynth)
         success = automator.run_heavy()
         summary = {
             "project_id": f"auto-dub-{video_id}",
@@ -581,6 +722,21 @@ class BatchRunner:
                 return False
         print(f"  ✅ 视频已下载: {source_video}")
         
+        # flat 扫描模式视频元数据缺 duration（=0），下载后用 ffprobe 补齐真实时长，
+        # 否则 brief 的 target_duration_seconds 因 0 < 最小值 1 而 schema 校验失败。
+        try:
+            _probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(source_video)],
+                capture_output=True, text=True, encoding="utf-8"
+            )
+            _dur = float(_probe.stdout.strip() or 0)
+            if _dur > 0:
+                video['duration_seconds'] = _dur
+                print(f"  ⏱️ 已补齐真实时长: {_dur:.1f}s")
+        except Exception:
+            pass
+        
         # 顺便下载视频的最原始封面缩略图，防止后期生成封面时因网络失败降级为视频截图
         source_thumb = project_dir / "source_thumb.jpg"
         if not source_thumb.exists():
@@ -698,6 +854,8 @@ class BatchRunner:
         }
         
         # === Step 3: 用自动审核器通过 idea 阶段 ===
+        # ADR-006 D8：decision_log 除片尾 render_runtime_selection 外，注入配置级决策
+        # （TTS 引擎 / mix_mode / subtitle_mode / cover engine），实现轻量决策审计。
         decision_log = {
             "version": "1.0",
             "project_id": project_id,
@@ -735,7 +893,7 @@ class BatchRunner:
                     "user_approved": True,
                     "confidence": 0.95
                 }
-            ]
+            ] + build_config_decision_entries(self.config)
         }
         success, issues = self.auto_reviewer.review_and_approve(
             project_id=project_id,

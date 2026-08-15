@@ -353,3 +353,65 @@ class TestExtractQaContext:
         assert qa["atempo_applied"] is None
         assert qa["has_synthesis_fallback"] is False
 
+
+class TestBuildConfigDecisionEntries:
+    """ADR-006 D8：项目级配置决策条目（轻量 decision_log 审计）。"""
+
+    def _config(self, **overrides):
+        cfg = {
+            "pipeline": {
+                "tts_engine": "indextts",
+                "mix_mode": "replace",
+                "subtitle_mode": "bottom",
+            },
+            "cover": {"engine": "hyperframes"},
+        }
+        if overrides:
+            cfg["pipeline"].update({k: v for k, v in overrides.items() if k in ("tts_engine", "mix_mode", "subtitle_mode")})
+            if "cover_engine" in overrides:
+                cfg["cover"]["engine"] = overrides["cover_engine"]
+        return cfg
+
+    def test_produces_four_entries(self):
+        from batch.batch_runner import build_config_decision_entries
+        entries = build_config_decision_entries(self._config())
+        assert len(entries) == 4
+        ids = {e["decision_id"] for e in entries}
+        assert ids == {"d-cfg-tts-engine", "d-cfg-mix-mode", "d-cfg-subtitle-mode", "d-cfg-cover-engine"}
+
+    def test_every_entry_has_two_plus_options_and_valid_selected(self):
+        from batch.batch_runner import build_config_decision_entries
+        entries = build_config_decision_entries(self._config())
+        for e in entries:
+            assert len(e["options_considered"]) >= 2, e["decision_id"]
+            option_ids = {o["option_id"] for o in e["options_considered"]}
+            assert e["selected"] in option_ids, e["decision_id"]
+            assert e["reason"], e["decision_id"]
+
+    def test_selected_reflects_config(self):
+        from batch.batch_runner import build_config_decision_entries
+        cfg = self._config(tts_engine="voxcpm", mix_mode="game_audio", subtitle_mode="none", cover_engine="ai_image")
+        entries = build_config_decision_entries(cfg)
+        by_id = {e["decision_id"]: e for e in entries}
+        assert by_id["d-cfg-tts-engine"]["selected"] == "voxcpm"
+        assert by_id["d-cfg-mix-mode"]["selected"] == "game_audio"
+        assert by_id["d-cfg-subtitle-mode"]["selected"] == "none"
+        assert by_id["d-cfg-cover-engine"]["selected"] == "ai_image"
+
+    def test_invalid_engine_falls_back_to_default(self):
+        from batch.batch_runner import build_config_decision_entries
+        entries = build_config_decision_entries(self._config(tts_engine="unknown_engine"))
+        by_id = {e["decision_id"]: e for e in entries}
+        assert by_id["d-cfg-tts-engine"]["selected"] == "indextts"
+
+    def test_entries_validate_against_schema(self):
+        import jsonschema
+        from batch.batch_runner import build_config_decision_entries
+        schema = json.loads(
+            (Path(__file__).parent.parent.parent / "schemas" / "artifacts" / "decision_log.schema.json")
+            .read_text(encoding="utf-8")
+        )
+        entries = build_config_decision_entries(self._config())
+        decision_log = {"version": "1.0", "project_id": "x", "decisions": entries}
+        jsonschema.validate(decision_log, schema)  # 不应抛异常
+
