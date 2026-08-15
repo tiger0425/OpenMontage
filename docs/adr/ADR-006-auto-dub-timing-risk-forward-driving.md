@@ -79,19 +79,36 @@ density_risk      = estimated_zh_chars / budget_for_dur  # 预估译文 / 时长
   - density_risk <= 1.0 → 安全段
 ```
 
-**折扣函数**：
+**实测标定结果（2026-08 采集，53 个 script.json / 7648 句）**：
+
+| 指标 | 实测值 |
+|------|--------|
+| `zh_chars_per_en_word` 全局膨胀率 | **1.046**（94150 英文词 → 98437 中文字）|
+| 逐句比值中位数 / 均值 | 1.050 / 1.087（p10=0.571, p90=1.583）|
+| 按句长分桶（<1s / 1-3s / 3-6s / ≥6s） | 1.046 / 1.041 / 0.993 / 1.127 |
+
+**标定结论（修正占位假设）**：
+1. 膨胀率 **≈1.05，不是此前占位的 1.8**——中文「每字信息密度高」，每英文词约对应 1 个中文字，这是合理且稳定的。
+2. 膨胀率**几乎不随句长变化**（1.04±0.13）→ **D1 无需按句长分档**，一个全局常数即可，设计大幅简化。
+3. **`density_risk > 1` 是常态而非例外**：用历史数据反推，中文 cps=4.1 时 **46.2%** 的句子预估译文会超预算，cps=3.5 时高达 **67.9%**。这证明了「英文源普遍偏密，中译往往较长」是既有事实，也让 D1 的折扣必须**极其保守**——否则会大面积「过度砍删」，违反 lessons-learned 铁律「严禁为贴时长删有意义内容」。
+
+**因此折扣函数改为「保守安全网」而非「默认动作」**：
 
 ```
-risk_discount = clamp(budget_for_dur / estimated_zh_chars, DISCOUNT_FLOOR, 1.0)
+# 只对「极端密集」句触发——用密度超标量而非「是否 >1」作为门槛
+overrun     = estimated_zh_chars / budget_for_dur   # 预计超预算倍数
+risk_discount = clamp(1.0 / overrun, FLOOR, 1.0)    # FLOOR 待实测（占位 0.9，非 0.7）
 final_budget  = budget_for_dur × risk_discount
+# 仅当 overrun 超过阈值（如 >1.3，即预估译文超预算 30%+）才收紧；
+# overrun 在 1.0~1.3 的句子交给既有「逐句 ±5% atempo + 溢出推挤」吸收，不动预算。
 ```
 
-- `DISCOUNT_FLOOR` 默认 **0.7**（与现有 `_retranslate_utterance` 里 `*0.85`、`_budget_cps` 的 `cps_safety_factor 0.7` 经验值同源，需实测定参）。
-- 这样「密集段事前翻得更短」，事后 `out_of_budget` 定向缩短重翻 / 逐句 atempo / 全局 atempo 三档兜底的触发次数会显著下降。
+- `FLOOR` 从占位 0.7 **上调至 0.9** 起测：因为标定显示 46~68% 句子都「超预算」却靠既有兜底无害通过，激进折扣（0.7）会误伤大量本可正常吸收的句子。0.9 是「只对极端句轻微收紧」的保守起点，需靠 D3 的对账数据再迭代。
+- `trigger_threshold`（默认 `overrun > 1.3`）把折扣限定在「真正会漂移的极端密集句」上，呼应 lessons-learned 铁律 A「翻译预算控制是首选、但绝不强行变速/砍删」。
 
-**膨胀率标定**：`zh_chars_per_en_word` 用历史 transcript→译文逐句对齐数据标定，**不写死**，与中文 cps 一样走「实测优先」。
+**膨胀率标定**：`zh_chars_per_en_word` 用历史 `script.json` 的 `sections[].text`（英文）与 `sections[].delivery_cues.provider_text`（中文）**逐句自带中英对照**，无需跨文件对齐（script.json 本身就有双语）。与中文 cps 一样走「实测优先 + 缓存」。
 
-**标定数据源（只读，不改）**：历史项目的 `transcript.json`（`utterances[].text` = 英文）与 `script.json`（`sections[].delivery_cues.provider_text` = 中文），逐句对齐后算 `sum(中文字数) / sum(英文词数)` 得全局膨胀率。可进一步按 `segment_id` 聚类，必要时给「科技域 / 对话域」各一套系数。
+**标定数据源（只读，不改）**：`projects/auto-dub/*/script.json` 的 `sections[]`（每节同时含英文 `text` 与中文 `provider_text`），算 `sum(中文字数) / sum(英文词数)`。膨胀率稳定（跨句长 ±0.13），首版用单一全局常数，暂不分「科技域/对话域」。
 
 ### D2: 前向驱动时机——「翻译前算 density_risk」，不等 scene_plan
 
@@ -115,9 +132,9 @@ final_budget  = budget_for_dur × risk_discount
     "status": "aligned",
     "en_wps": 5.2,
     "density_risk": 1.35,
-    "risk_discount": 0.74,
+    "risk_discount": 0.90,
     "pre_budget_chars": 11,
-    "post_budget_chars": 8
+    "post_budget_chars": 10
   }
 ]
 ```
@@ -168,7 +185,7 @@ final_budget  = budget_for_dur × risk_discount
 
 ### 负面 / 风险
 - `zh_chars_per_en_word` 膨胀率需要历史数据标定与实测定参，首版可能不精确；需靠 D3 的对账数据迭代。
-- 折扣过激可能让密集段译文过度精简（与「严禁过度砍删」铁律冲突），`DISCOUNT_FLOOR=0.7` 是可回退的安全下限，需实测确认听感。
+- 折扣过激可能让密集段译文过度精简（与「严禁过度砍删」铁律冲突）。标定已显示「超预算」句占比高达 46~68%，故 `FLOOR` 从 0.7 上调至 **0.9** 起测、且仅对 `overrun > 1.3` 的极端句触发，作为可回退的保守安全网；最终值需靠 D3 对账数据确认。
 - D7 改 schema 会波及所有用 `edit_decisions.schema.json` 的管线，需回归确认新增字段为 optional、不影响既有产物校验。
 
 ### 回退方案
@@ -195,7 +212,7 @@ final_budget  = budget_for_dur × risk_discount
 
 ## 待定（Open Questions）
 
-1. `zh_chars_per_en_word` 的初始值该取多少？（需从历史 transcript/script 标定；技术域 vs 对话域是否分套）
-2. `DISCOUNT_FLOOR` 的最终值（0.7 为占位，需实测确认与「严禁过度砍删」铁律的平衡点）。
+1. `zh_chars_per_en_word` 已实测为 **1.046**（首版用此全局常数，暂不分域）——待确认是否需按「科技域/对话域」再分套。
+2. `FLOOR` 与 `trigger_threshold` 的最终值（占位 FLOOR=0.9、threshold=1.3，需靠 D3 对账确认与「严禁过度砍删」铁律的平衡点）。
 3. D1 的 density_risk 是否要按 `segment_id` 做更细的聚类（而非全局单一膨胀率）。
 4. D8 的 decision_log 记到多细（每项目一次 vs 每配置变化一次）。
