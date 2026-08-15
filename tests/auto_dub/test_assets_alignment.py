@@ -1,4 +1,4 @@
-﻿"""TDD 测试：assets 阶段逐句对齐 + 多音色编排（ticket 06/07）。
+"""TDD 测试：assets 阶段逐句对齐 + 多音色编排（ticket 06/07）。
 
 用 mock 合成边界走真实 `_do_assets_stage`：
 1. 多 speaker 时启用 speaker_refs 并按 speaker 选声纹
@@ -54,6 +54,7 @@ def _make_automator(tmp_path):
     inst.tts_model_version = "2.5"
     inst.tts_engine = "indextts"
     inst.force_resynth = False
+    inst.subtitle_split_sentences = False
     inst._voxcpm_calibrator = None
     inst._cps = 5.0
     return inst
@@ -225,3 +226,84 @@ class TestAssetsAlignment:
         report = json.loads((inst.project_dir / "alignment_report.json").read_text(encoding="utf-8"))
         assert report["metrics"]["inherently_long_count"] >= 1
         assert report["utterances"][0]["inherently_long"] is True
+
+
+class TestDensityRiskDiscount:
+    """ADR-006 D1/D2/D3：漂移风险前向驱动（英→中膨胀率 + 保守折扣）。"""
+
+    def _inst(self):
+        inst = object.__new__(PipelineAutomator)
+        inst.zh_chars_per_en_word = 1.046
+        inst.risk_discount_floor = 0.9
+        inst.risk_trigger_threshold = 1.3
+        return inst
+
+    def test_no_discount_when_not_dense(self):
+        inst = self._inst()
+        # 2 英文词 → 预估 2.092 字；预算 10 → overrun 0.21 < 1.3 → 不触发
+        r = inst._density_risk_discount("hello world", 5.0, 10)
+        assert r["en_words"] == 2
+        assert r["estimated_zh_chars"] == round(2 * 1.046, 2)
+        assert r["overrun"] < 1.3
+        assert r["discount"] == 1.0
+        assert r["final_budget"] == 10
+        assert r["triggered"] is False
+
+    def test_discount_clamps_to_floor(self):
+        inst = self._inst()
+        # 20 英文词 → 预估 20.92 字；预算 5 → overrun 4.18 → 触发，1/4.18=0.239 → clamp 到 floor 0.9
+        r = inst._density_risk_discount(" ".join(["word"] * 20), 5.0, 5)
+        assert r["overrun"] > 1.3
+        assert r["triggered"] is True
+        assert r["discount"] == 0.9
+        assert r["final_budget"] == int(5 * 0.9)  # 4
+
+    def test_discount_between_floor_and_one(self):
+        inst = self._inst()
+        # 8 英文词 → 预估 8.368；预算 4 → overrun 2.092 → 1/2.092=0.478 < floor 0.9 → 仍 clamp 0.9
+        r = inst._density_risk_discount("a b c d e f g h", 4.0, 4)
+        assert r["overrun"] > 1.3
+        assert r["discount"] == 0.9  # floor 兜底
+
+        # overrun 刚好略超阈值但 1/overrun > floor 时用 1/overrun：
+        # 需要 overrun > 1.3 且 1/overrun > 0.9 → overrun < 1.111，矛盾（阈值>1.3）。
+        # 故 floor=0.9 下，trigger 时永远是 floor。用更低的 floor 验证非 floor 分支：
+        inst.risk_discount_floor = 0.5
+        r2 = inst._density_risk_discount("a b c d e f", 4.0, 4)  # 6词→6.276, overrun 1.569, 1/1.569=0.637 > 0.5
+        assert r2["triggered"] is True
+        assert abs(r2["discount"] - 0.637) < 0.01
+
+    def test_zero_budget_triggers_discount(self):
+        inst = self._inst()
+        r = inst._density_risk_discount("hello world", 5.0, 0)
+        assert r["overrun"] is None  # inf 记为 None
+        assert r["triggered"] is True
+        assert r["final_budget"] == 0  # 0 * discount = 0
+
+    def test_alignment_report_carries_risk_dimension(self, tmp_path, monkeypatch):
+        inst = _make_automator(tmp_path)
+        inst.zh_chars_per_en_word = 1.046
+        inst.risk_discount_floor = 0.9
+        inst.risk_trigger_threshold = 1.3
+        _write_transcript(inst)
+        monkeypatch.setattr(inst, "_extract_speaker_voice_refs", lambda turns: {})
+        monkeypatch.setattr(inst, "_extract_voice_ref", lambda p: True)
+        monkeypatch.setattr(checkpoint, "read_checkpoint", lambda *a, **k: None)
+
+        def fake_build(block_id, text, voice_ref, tts_engine, tts, block_dur, force_resynthesize=False):
+            out = inst.audio_dir / f"seg_{block_id}.wav"
+            target = max(0.1, block_dur - inst.queue_gap_seconds)
+            inst._create_silent_wav(target, out)
+            return out, target, "aligned", [], []
+
+        monkeypatch.setattr(inst, "_build_block_audio", fake_build)
+        inst._do_assets_stage(_full_script(), {})
+
+        report = json.loads((inst.project_dir / "alignment_report.json").read_text(encoding="utf-8"))
+        u0 = report["utterances"][0]
+        # _sections 里 u0 = 2 英文词、5.0s；预算按 cps 5.0*0.7=3.5 → measured_char_budget(5,3.5)
+        for key in ("en_words", "density_risk", "risk_discount", "pre_budget_chars", "post_budget_chars"):
+            assert key in u0, f"alignment_report 缺 {key}"
+        assert u0["en_words"] == 2  # "English one"
+        assert u0["risk_discount"] == 1.0  # 2 词 5s 不密集，不触发折扣
+

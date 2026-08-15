@@ -96,6 +96,10 @@ pipeline:
     untranslated_check: true     # 漏译/未翻译检测：译文中文占比过低时单条重译
     untranslated_ratio: 0.5      # 漏译判定阈值：汉字 / 非空白非标点字符 < 此值视为未翻译
     cps_safety_factor: 0.7       # 长度预算 cps 打折系数：校准值 5.8 是长文本均值，短句真实 cps 约 3.6-4.2，乘 0.7 ≈ 4.1
+    # 漂移风险前向驱动（ADR-006 D1/D2）：英→中膨胀率预估译文长度，极端密集句提前收紧预算
+    zh_chars_per_en_word: 1.046  # 英→中膨胀率：实测 53 项目/7648 句 = 中文字数/英文词数 ≈ 1.046（不随句长变化）
+    risk_discount_floor: 0.9     # 保守折扣下限：仅极端密集句触发，避免「过度砍删」（铁律）
+    risk_trigger_threshold: 1.3  # 触发阈值：预估译文超预算 >1.3× 才收紧；其余交逐句变速+溢出推挤吸收
   # 分段清理链（diarization 后、原句合并前）：治 pyannote 假翻转微段/Whisper 按呼吸切句/超长段
   segments:
     enabled: true                # 是否启用分段清理链

@@ -267,6 +267,12 @@ class PipelineAutomator:
         # （首音节拉伸/句首静音），实测短句真实 cps 约 3.6-4.2。乘此因子压低预算
         # （0.7 → 4.1），让译文更短、合成时长更贴合原句，减少对事后变速/溢出推挤依赖。
         self.cps_safety_factor = float(_tr.get("cps_safety_factor", 0.7))
+        # 漂移风险前向驱动（ADR-006 D1/D2）：用「英→中膨胀率」预估译文长度，
+        # 仅对极端密集句（overrun 超阈值）提前收紧中文预算，减少事后重翻/变速。
+        # 膨胀率实测 1.046（53 项目 / 7648 句标定）；折扣是保守安全网，非默认动作。
+        self.zh_chars_per_en_word = float(_tr.get("zh_chars_per_en_word", 1.046))
+        self.risk_discount_floor = float(_tr.get("risk_discount_floor", 0.9))
+        self.risk_trigger_threshold = float(_tr.get("risk_trigger_threshold", 1.3))
         # 缩短重翻：默认关闭——避免为了贴时间窗而砍句子（用户反馈"句子被截断"）。
         # 开启时，变速不可达句会被 LLM 改写得更短以塞进时间窗。
         self.retranslate_enabled = bool(_align.get("retranslate", False))
@@ -1668,7 +1674,19 @@ class PipelineAutomator:
         translated: list[dict] = []
         for idx, item in enumerate(utterances):
             dur = item["end"] - item["start"]
-            max_chars = self._char_budget_for(dur)
+            pre_budget = self._char_budget_for(dur)
+            # 漂移风险前向驱动（ADR-006 D2）：翻译前预估中文长度，极端密集句收紧预算
+            risk = self._density_risk_discount(item["text"], dur, pre_budget)
+            max_chars = risk["final_budget"]
+            item["_risk"] = {
+                "en_words": risk["en_words"],
+                "estimated_zh_chars": risk["estimated_zh_chars"],
+                "pre_budget_chars": pre_budget,
+                "post_budget_chars": max_chars,
+                "overrun": risk["overrun"],
+                "density_risk": risk["density_risk"],
+                "risk_discount": risk["discount"],
+            }
             single_data = {
                 "id": item["id"],
                 "text": item["text"],
@@ -1732,7 +1750,19 @@ class PipelineAutomator:
         translated: list[dict] = []
         for idx, block in enumerate(blocks):
             dur = block["end"] - block["start"]
-            max_chars = self._char_budget_for(dur)
+            pre_budget = self._char_budget_for(dur)
+            # 漂移风险前向驱动（ADR-006 D2）：翻译前预估中文长度，极端密集句收紧预算
+            risk = self._density_risk_discount(block["text"], dur, pre_budget)
+            max_chars = risk["final_budget"]
+            block["_risk"] = {
+                "en_words": risk["en_words"],
+                "estimated_zh_chars": risk["estimated_zh_chars"],
+                "pre_budget_chars": pre_budget,
+                "post_budget_chars": max_chars,
+                "overrun": risk["overrun"],
+                "density_risk": risk["density_risk"],
+                "risk_discount": risk["discount"],
+            }
             block_data = {
                 "id": block["id"],
                 "text": block["text"],
@@ -2103,6 +2133,11 @@ class PipelineAutomator:
                 "path": output_file,
                 "audio_len": audio_len
             })
+            # 漂移风险前向驱动维度（ADR-006 D3）：在 assets 阶段用英文原文 + 时权重算
+            # density_risk（无需跨 script.json 持久化，避免污染 schema 强校验的 sections）。
+            _en_text = line.get("text") or ""
+            _pre_budget = self._char_budget_for(block_dur)
+            _risk = self._density_risk_discount(_en_text, block_dur, _pre_budget)
             alignment_reports.append({
                 "id": block_id,
                 "speaker": speaker,
@@ -2111,6 +2146,12 @@ class PipelineAutomator:
                 "actual": round(audio_len, 3),
                 "status": align_status,
                 "inherently_long": self.is_inherently_long(block_dur, self.inherently_long_seconds),
+                # ADR-006 D3：漂移风险维度（事前预测 vs 事后漂移对账）
+                "en_words": _risk["en_words"],
+                "density_risk": _risk["density_risk"],
+                "risk_discount": _risk["discount"],
+                "pre_budget_chars": _pre_budget,
+                "post_budget_chars": _risk["final_budget"],
             })
 
         # 逐句对齐验收指标（ADR-003 D5）：±15% 达标率 / 碎句率 / 物理不可达句数
@@ -3159,6 +3200,51 @@ class PipelineAutomator:
         return measured_char_budget(
             duration_seconds, self._budget_cps(), min_budget=floor
         )
+
+    def _density_risk_discount(
+        self, en_text: str, duration_seconds: float, budget: int
+    ) -> dict:
+        """漂移风险前向驱动（ADR-006 D1）：用「英→中膨胀率」预估译文长度，
+        对极端密集句（预估译文超预算阈值）返回保守折扣，供翻译前收紧预算。
+
+        纯函数（除读 self 配置），可单测。返回：
+        {
+          "en_words": 英文词数,
+          "estimated_zh_chars": 预估中文字数,
+          "overrun": estimated / budget（预算为 0 时视为无穷大 → 触发折扣），
+          "density_risk": 同 overrun（语义别名），
+          "discount": 折扣因子（未触发=1.0；触发=clamp(1/overrun, floor, 1.0)），
+          "final_budget": int(budget * discount),
+          "triggered": bool,
+        }
+
+        设计约束（ADR-006 实测结论）：膨胀率 ≈1.046、不随句长变化；且 46~68%
+        句子「预估超预算」是常态而非异常（靠既有逐句变速+溢出推挤无害吸收）。
+        因此折扣是「保守安全网」，只对 overrun > risk_trigger_threshold（默认 1.3）
+        的极端句触发，floor 默认 0.9 起测，避免大面积「过度砍删」（铁律）。
+        """
+        import re as _re
+        en_words = len(_re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?", en_text or ""))
+        ratio = float(getattr(self, "zh_chars_per_en_word", 1.046))
+        estimated = en_words * ratio
+        budget = int(budget)
+        overrun = estimated / budget if budget > 0 else float("inf")
+        threshold = float(getattr(self, "risk_trigger_threshold", 1.3))
+        floor = float(getattr(self, "risk_discount_floor", 0.9))
+        triggered = overrun > threshold
+        if triggered and overrun > 0:
+            discount = max(floor, min(1.0, 1.0 / overrun))
+        else:
+            discount = 1.0
+        return {
+            "en_words": en_words,
+            "estimated_zh_chars": round(estimated, 2),
+            "overrun": round(overrun, 4) if overrun != float("inf") else None,
+            "density_risk": round(overrun, 4) if overrun != float("inf") else None,
+            "discount": round(discount, 4),
+            "final_budget": int(budget * discount),
+            "triggered": triggered,
+        }
 
     def _calibrate_indextts_cps(self) -> float:
         """每次都用 IndexTTS2 实测中文语速（不读旧缓存，避免用过期的虚高 cps）。
