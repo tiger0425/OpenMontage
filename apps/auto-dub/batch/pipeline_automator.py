@@ -4707,6 +4707,35 @@ class PipelineAutomator:
     # ==========================================
     # 阶段 6: publish
     # ==========================================
+    @staticmethod
+    def _extract_qa_context(render_report_data: Optional[dict]) -> dict:
+        """提取 render_report 里对人审有意义的 QA 上下文（ADR-006 D5）。
+
+        遵循 localization-dub publish-director 铁律：审阅上下文绝不丢，warnings 随包走。
+        返回的 dict 会被并入 _meta.json，供人工审核时直接看到「这段哪句静音兜底 /
+        是否触发了全局 atempo / 漂移多少秒 / 零重叠是否失败」等关键信息。
+
+        纯函数，可单测。输入为空/缺失字段时安全降级为空 dict。
+        """
+        if not render_report_data:
+            return {}
+        qa = {}
+        rr_warnings = render_report_data.get("warnings") or []
+        rr_notes = render_report_data.get("verification_notes") or []
+        meta = render_report_data.get("metadata") or {}
+
+        qa["qa_warnings"] = list(rr_warnings)
+        qa["qa_notes"] = list(rr_notes)
+        qa["drift_seconds"] = meta.get("drift_seconds")
+        qa["atempo_applied"] = meta.get("atempo_applied")
+        qa["atempo_factor"] = meta.get("atempo_factor")
+        qa["outro_duration_seconds"] = meta.get("outro_duration_seconds")
+        # 静音兜底 / 合成失败（assets 阶段的 synthesis 审校遗留，若有则单列）
+        qa["has_synthesis_fallback"] = len(
+            [w for w in rr_warnings if "静音兜底" in w or "合成失败" in w or "silent" in w.lower()]
+        ) > 0
+        return qa
+
     def _run_publish_stage(self, render_report_data: dict) -> Optional[dict]:
         print("  ⚙️ 运行 [publish] 阶段...")
         
@@ -4805,6 +4834,10 @@ class PipelineAutomator:
             "original_description": original_desc,
             "translated_description": translated_desc
         }
+        # ADR-006 D5：审阅上下文随包走——把 QA 上下文并入 _meta.json，供人工审核可见
+        qa_context = self._extract_qa_context(render_report_data)
+        if qa_context.get("qa_warnings") or qa_context.get("qa_notes"):
+            metadata_payload["qa"] = qa_context
         meta_json = review_dir / f"{safe_name}_meta.json"
         with open(meta_json, "w", encoding="utf-8") as f:
             json.dump(metadata_payload, f, ensure_ascii=False, indent=2)

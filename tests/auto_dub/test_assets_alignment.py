@@ -307,3 +307,49 @@ class TestDensityRiskDiscount:
         assert u0["en_words"] == 2  # "English one"
         assert u0["risk_discount"] == 1.0  # 2 词 5s 不密集，不触发折扣
 
+
+class TestExtractQaContext:
+    """ADR-006 D5：publish 阶段 QA 上下文提取（审阅上下文随包走）。"""
+
+    def test_empty_input(self):
+        assert PipelineAutomator._extract_qa_context(None) == {}
+        assert PipelineAutomator._extract_qa_context({}) == {}
+
+    def test_extracts_warnings_notes_and_meta(self):
+        rr = {
+            "version": "1.0",
+            "outputs": [{"path": "x.mp4", "format": "mp4", "resolution": "1920x1080", "duration_seconds": 100}],
+            "warnings": ["零重叠校验失败：存在相邻分段间隔小于 100ms 限制"],
+            "verification_notes": ["零变速校验通过", "SRT同步校验通过"],
+            "metadata": {
+                "drift_seconds": 2.3,
+                "atempo_applied": True,
+                "atempo_factor": 1.03,
+                "outro_duration_seconds": 2.3,
+            },
+        }
+        qa = PipelineAutomator._extract_qa_context(rr)
+        assert qa["qa_warnings"] == ["零重叠校验失败：存在相邻分段间隔小于 100ms 限制"]
+        assert qa["qa_notes"] == ["零变速校验通过", "SRT同步校验通过"]
+        assert qa["drift_seconds"] == 2.3
+        assert qa["atempo_applied"] is True
+        assert qa["atempo_factor"] == 1.03
+        assert qa["outro_duration_seconds"] == 2.3
+        assert qa["has_synthesis_fallback"] is False
+
+    def test_detects_synthesis_fallback(self):
+        rr = {
+            "warnings": ["多人合成失败 2 个子块，静音兜底"],
+            "verification_notes": [],
+            "metadata": {},
+        }
+        qa = PipelineAutomator._extract_qa_context(rr)
+        assert qa["has_synthesis_fallback"] is True
+
+    def test_missing_meta_fields_default_none(self):
+        rr = {"warnings": [], "verification_notes": [], "metadata": {}}
+        qa = PipelineAutomator._extract_qa_context(rr)
+        assert qa["drift_seconds"] is None
+        assert qa["atempo_applied"] is None
+        assert qa["has_synthesis_fallback"] is False
+
