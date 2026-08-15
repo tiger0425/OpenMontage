@@ -4305,11 +4305,13 @@ class PipelineAutomator:
                 "color": "#FFFFFF",
                 "font_size": 24
             },
+            # ADR-006 D7：localization 字段上浮到 edit_decisions 顶层（schema 已定义），
+            # 不再塞 metadata 逃逸校验；speed_modification 对齐铁律 A 三级变速（D6）。
+            "mix_algorithm": "serial_queue",
+            "timing_drift_policy": "allow_natural_extension",
+            "min_pause_between_segments_ms": 100,
+            "speed_modification": "bounded_atempo",
             "metadata": {
-                "mix_algorithm": "serial_queue",
-                "timing_drift_policy": "allow_natural_extension",
-                "min_pause_between_segments_ms": 100,
-                "speed_modification": "forbidden",
                 "interview_type": self.is_interview,
                 "outro_engine": "hyperframes",
                 "outro_style": "bilibili"

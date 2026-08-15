@@ -229,6 +229,26 @@
         "verdict": { "type": "string", "enum": ["strong", "acceptable", "revise", "fail"] }
       }
     },
+    "mix_algorithm": {
+      "type": "string",
+      "enum": ["serial_queue"],
+      "description": "Localization-dub mix algorithm (optional; only used by localization pipelines). See skills/pipelines/localization-dub lessons-learned 铁律 B."
+    },
+    "timing_drift_policy": {
+      "type": "string",
+      "enum": ["allow_natural_extension"],
+      "description": "Localization-dub drift policy (optional)."
+    },
+    "min_pause_between_segments_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Localization-dub minimum physical gap between narration segments in ms (optional)."
+    },
+    "speed_modification": {
+      "type": "string",
+      "enum": ["bounded_atempo", "none"],
+      "description": "Localization-dub tempo strategy (optional). 'bounded_atempo' = ADR-006 D6 铁律 A 三级变速（逐句 ±5% / 全局 ±4%）；'none' = 零变速。"
+    },
     "metadata": { "type": "object" }
   },
   "additionalProperties": false
