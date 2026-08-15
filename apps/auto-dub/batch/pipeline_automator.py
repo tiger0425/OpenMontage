@@ -14,9 +14,10 @@
 import os
 import sys
 import re
-import math
 import json
+import math
 import logging
+from importlib import util as _importlib_util
 import subprocess
 import shutil
 import tempfile
@@ -169,7 +170,7 @@ def _resolve_merge_target(speaker: Optional[str], merge_map: dict) -> str:
 class PipelineAutomator:
     """管线自动执行器"""
 
-    def __init__(self, project_id: str, project_dir: Path, video: dict, config: dict, db, glossary, auto_reviewer, quiet: bool = False):
+    def __init__(self, project_id: str, project_dir: Path, video: dict, config: dict, db, glossary, auto_reviewer, quiet: bool = False, force_resynth: bool = False):
         self.project_id = project_id
         self.project_dir = Path(project_dir)
         self.video = video
@@ -179,6 +180,8 @@ class PipelineAutomator:
         self.auto_reviewer = auto_reviewer
         self.llm = LLMClient()
         self.quiet = quiet
+        # 是否强制全量重新合成 TTS 音频（默认 False=断点续跑，只合成缺失/无效 seg）
+        self.force_resynth = bool(force_resynth)
         
         # 语速校准器（延迟初始化，首次 translate 时测速）
         cache = self.project_dir.parent / "voxcpm_cps_cache.json"
@@ -225,6 +228,11 @@ class PipelineAutomator:
         # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
         #           none=不烧字幕（只生成 SRT 字幕文件留档）
         self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
+        # 字幕句子拆分：true=把一句里含多个内容项（一个单元内含多个 。！？ 句子）的 SRT 字幕，
+        #          按句子边界拆成多条、各自独占时间窗，避免「两个内容页同时显示」
+        #          （健康对比类短内容常见：一句里并列数组 "For X.. For Y.."）。
+        #          默认 false（不影响既有 AI 管线行为），健康项目 config 里开启。
+        self.subtitle_split_sentences = bool(config.get("pipeline", {}).get("subtitle_split_sentences", False))
         # 分段/翻译粒度：sentence=逐句（每句一条中文，时间与英文原句一致，默认）；block=按说话人轮次语段
         self.segmentation = config.get("pipeline", {}).get("segmentation", "sentence")
         _align = config.get("pipeline", {}).get("alignment", {}) or {}
@@ -1785,6 +1793,14 @@ class PipelineAutomator:
                 "Your task is to translate ONE English passage (one or more spoken sentences) "
                 "to natural, spoken Simplified Chinese (zh-CN)."
             )
+        if self.translation_domain == "health":
+            return (
+                "You are a professional health & nutrition content localizer for Chinese "
+                "short-video platforms (Douyin / Xiaohongshu).\n"
+                "Your task is to translate ONE English passage (one or more spoken sentences) "
+                "to natural, spoken Simplified Chinese (zh-CN) that complies with Chinese "
+                "health-content review rules."
+            )
         return (
             "You are a professional video localization translator specializing in AI and cloud technology.\n"
             "Your task is to translate ONE English passage (one or more spoken sentences) "
@@ -1802,6 +1818,13 @@ class PipelineAutomator:
         n = 4
         if self.translation_domain == "general":
             rules.append(f"{n}. 保持说话人情感/语气（质问、犹豫、委屈、调侃等），不要书面化。")
+            n += 1
+        if self.translation_domain == "health":
+            rules.append(f"{n}. 健康合规：不得出现医疗功效宣称（治疗/治愈/抗癌/根治/防病）。")
+            n += 1
+            rules.append(f"{n}. 把「伤肝/伤肾/损伤器官/致癌」类表述软化为营养学建议（如「可能增加XX负担」「长期大量摄入可能不利于健康」「建议适量」）。")
+            n += 1
+            rules.append(f"{n}. 保留营养学常识表述（富含膳食纤维/抗氧化/低糖等），无需弱化。")
             n += 1
         if speaker:
             rules.append(f"{n}. 该语段主要由说话人 '{speaker}' 说出，保持其语气与称谓风格。")
@@ -1966,11 +1989,21 @@ class PipelineAutomator:
             if not use_external_ref:
                 use_external_ref = self._extract_voice_ref(external_voice_ref)
 
-        # === 强制清空旧的 TTS 音频，确保用当前声纹全量重新合成（避免复用旧声纹的 wav 导致时长漂移） ===
+        # === TTS 音频目录处理：默认断点续跑，仅 force_resynth 时全量清空重合成 ===
+        # 默认（force_resynth=False）：保留已有 seg，下方逐语段 `is_valid_existing`
+        # 复用逻辑会跳过已合成且有效的句子，超时中断后重跑只补缺失/无效句，
+        # 避免每次重跑都全量重新合成（数十句×GPU 推理耗时巨大）。
+        # 仅当调用方显式要求（--force-resynth，如声纹/配置变更）才清空整个 audio 目录。
         import shutil as _shutil
-        if self.audio_dir.exists():
-            _shutil.rmtree(self.audio_dir, ignore_errors=True)
-        self.audio_dir.mkdir(parents=True, exist_ok=True)
+        if self.force_resynth:
+            if self.audio_dir.exists():
+                _shutil.rmtree(self.audio_dir, ignore_errors=True)
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+            print("    🔁 force_resynth=True：已清空 audio 目录，全量重新合成 TTS")
+        else:
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+            existing = [f for f in self.audio_dir.glob("seg_u*.wav") if f.stat().st_size > 1000] if self.audio_dir.exists() else []
+            print(f"    ♻️ 断点续跑模式：已有 {len(existing)} 个 seg 音频将被复用，仅补缺失/无效句")
 
         temp_segments = []
         alignment_reports = []
@@ -2368,7 +2401,13 @@ class PipelineAutomator:
         return asset_manifest
 
     def _write_srt(self, lines: list[dict], output_path: Path):
-        """将分段写入 SRT 文件格式"""
+        """将分段写入 SRT 文件格式。
+
+        当 subtitle_split_sentences=True 时，把一句里含多个内容项
+        （一个单元内含多个 。！？ 句子，如 "For X.. For Y.." 并列对比）
+        的译文按句子边界拆成多条 SRT cue，各自独占时间窗（按字符比例切分），
+        避免「两个内容页同时显示」。默认关闭，不影响既有 AI 管线。
+        """
         def format_time(seconds: float) -> str:
             hrs = int(seconds // 3600)
             mins = int((seconds % 3600) // 60)
@@ -2376,14 +2415,36 @@ class PipelineAutomator:
             ms = int(round((seconds % 1) * 1000))
             return f"{hrs:02d}:{mins:02d}:{secs:02d},{ms:03d}"
 
+        def _split_sentences(text: str) -> list[str]:
+            # 按中文句末标点切分为多个句子（保留标点），过滤空白段
+            import re as _re
+            parts = _re.split(r'(?<=[。！？；])', text)
+            return [p.strip() for p in parts if p.strip()]
+
         with open(output_path, "w", encoding="utf-8") as f:
-            for idx, line in enumerate(lines, 1):
-                f.write(f"{idx}\n")
-                # 优先使用实际的 actual_start/end 以支持动态重同步
+            idx = 0
+            for line in lines:
                 start = line.get("actual_start", line["start_seconds"])
                 end = line.get("actual_end", line["end_seconds"])
+                text = line['delivery_cues']['provider_text']
+                if self.subtitle_split_sentences:
+                    subs = _split_sentences(text)
+                    if len(subs) > 1:
+                        total_len = sum(len(s) for s in subs) or 1
+                        t = start
+                        for s_idx, sub in enumerate(subs):
+                            idx += 1
+                            seg_dur = (end - start) * len(sub) / total_len
+                            seg_end = end if s_idx == len(subs) - 1 else min(t + seg_dur, end)
+                            f.write(f"{idx}\n")
+                            f.write(f"{format_time(t)} --> {format_time(seg_end)}\n")
+                            f.write(f"{sub}\n\n")
+                            t = seg_end
+                        continue
+                idx += 1
+                f.write(f"{idx}\n")
                 f.write(f"{format_time(start)} --> {format_time(end)}\n")
-                f.write(f"{line['delivery_cues']['provider_text']}\n\n")
+                f.write(f"{text}\n\n")
 
     def _create_silent_wav(self, duration_sec: float, output_path: Path):
         """生成指定时长的静音音频作为异常兜底"""
@@ -2434,14 +2495,24 @@ class PipelineAutomator:
     # 辅助方法
     # ==========================================
 
-    # IndexTTS2 venv Python 路径（机器相关，可用 env 覆盖）
-    INDEXTTS_VENV_PYTHON = os.environ.get("INDEXTTS_VENV_PYTHON", r"D:/index-tts/.venv/Scripts/python.exe")
+    # IndexTTS 路径统一解析（apps/indextts-bridge/client.py 一处维护）
+    _ENGINE_PATHS = None
+
+    @classmethod
+    def _engine_paths(cls) -> dict:
+        if cls._ENGINE_PATHS is None:
+            _spec = _importlib_util.spec_from_file_location(
+                "indextts_bridge_client",
+                Path(__file__).resolve().parents[3] / "apps" / "indextts-bridge" / "client.py",
+            )
+            _mod = _importlib_util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            cls._ENGINE_PATHS = _mod.engine_paths()
+        return cls._ENGINE_PATHS
+
+    INDEXTTS_VENV_PYTHON = None  # 惰性：_engine_paths()["venv"]
     INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"
-    # 桥收编进 OpenMontage apps/indextts-bridge/（支持 --version 2.5|2）
-    INDEXTTS_SERVER = os.environ.get(
-        "INDEXTTS_SERVER",
-        str(Path(__file__).resolve().parents[3] / "apps" / "indextts-bridge" / "indextts_server.py"),
-    )
+    INDEXTTS_SERVER = None  # 惰性：_engine_paths()["server"]
 
     def _extract_voice_ref(self, external_voice_ref) -> bool:
         """提取更长的干净声纹片段并归一化音量。
@@ -2889,7 +2960,8 @@ class PipelineAutomator:
         try:
             stderr_log = open(self.project_dir / "indextts_server.log", "w", encoding="utf-8", errors="replace")
             self._indextts_stderr_log = stderr_log
-            cmd = [self.INDEXTTS_VENV_PYTHON, self.INDEXTTS_SERVER]
+            _ep = self._engine_paths()
+            cmd = [_ep["venv"], _ep["server"]]
             # 模型版本分支：2.5（默认）/ 2（回退），权重目录由桥内 --checkpoints 解析
             tts_version = getattr(self, "tts_model_version", "2.5")
             cmd += ["--version", tts_version]
@@ -2938,38 +3010,20 @@ class PipelineAutomator:
     ) -> bool:
         """通过常驻 IndexTTS2 服务进程合成单句音频（模型只加载一次，GPU 加速）。
 
+        2.5 双次合成对齐（ADR-004 阶段二）：duration_factor 是语速倍数（0.5-2.0，
+        1.0=自然语速，>1 更长/更慢，<1 更短/更快），**不是目标秒数**。
+        - 先以 factor=1.0 自然合成到临时文件，测量实际时长
+        - 有 target_duration 时：factor = 自然时长 / 目标时长（钳制 0.5-2.0），
+          用该 factor 重合成到最终路径，使音频时长贴合目标
+        - factor 越界（超出 2.5 支持范围）→ 保留自然合成版本，靠外层 atempo 兜底
+
         情感：默认固定 calm（use_emo_text=False + calm 向量），贴合原版平淡语气；
         tts_emotion=auto 时不传情感参数，服务端从文字自动判情感。
         """
-        try:
+        def _do_synth(req_payload: dict, out_path) -> bool:
             proc = self._get_indextts_server()
-            req = {
-                "id": str(hash((text, str(output_path)))),
-                "text": text,
-                "output_path": str(output_path),
-                "seed": seed,
-            }
-            # 2.5 版本：透传 lang 与 duration_factor（原生语速控制）；2 版本桥忽略未知字段
-            if getattr(self, "tts_model_version", "2.5") == "2.5":
-                req["lang"] = getattr(self, "tts_lang", "ZH")
-                if target_duration:
-                    req["duration_factor"] = float(target_duration)
-            # 情感：2.5 固定 calm 时【不传 emo_vector】（官方纯净路径，保声纹保真；
-            # 传 emo_vector 会触发情感-音色混合导致音色漂移/女声化）。auto 才用 use_emo_text。
-            if self.tts_model_version == "2.5":
-                if self.tts_emotion == "auto":
-                    req["use_emo_text"] = True
-                    req["emo_alpha"] = 0.6
-                # calm：不传任何情感参数 → 官方纯净克隆
-            else:
-                # 2 版本：沿用旧行为（calm 固定向量 / auto 自动判情感）
-                if self.tts_emotion == "calm":
-                    req["use_emo_text"] = False
-                    req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
-            if voice_ref:
-                req["voice_ref"] = voice_ref
             with self._indextts_lock:
-                proc.stdin.write(json.dumps(req) + "\n")  # ensure_ascii 默认 True，Windows 管道安全
+                proc.stdin.write(json.dumps(req_payload) + "\n")  # ensure_ascii 默认 True，Windows 管道安全
                 proc.stdin.flush()
                 resp_line = proc.stdout.readline()
             if not resp_line:
@@ -2982,6 +3036,72 @@ class PipelineAutomator:
                 print(f"      ❌ IndexTTS2 服务返回失败: {resp.get('error')}")
                 self._dump_indextts_stderr()
             return ok
+
+        try:
+            import tempfile as _tf
+            is_v25 = getattr(self, "tts_model_version", "2.5") == "2.5"
+            base_req = {
+                "id": str(hash((text, str(output_path)))),
+                "text": text,
+                "output_path": str(output_path),
+                "seed": seed,
+            }
+            if is_v25:
+                base_req["lang"] = getattr(self, "tts_lang", "ZH")
+            # 情感：2.5 固定 calm 时【不传 emo_vector】（官方纯净路径，保声纹保真；
+            # 传 emo_vector 会触发情感-音色混合导致音色漂移/女声化）。auto 才用 use_emo_text。
+            if self.tts_model_version == "2.5":
+                if self.tts_emotion == "auto":
+                    base_req["use_emo_text"] = True
+                    base_req["emo_alpha"] = 0.6
+                # calm：不传任何情感参数 → 官方纯净克隆
+            else:
+                # 2 版本：沿用旧行为（calm 固定向量 / auto 自动判情感）
+                if self.tts_emotion == "calm":
+                    base_req["use_emo_text"] = False
+                    base_req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
+            if voice_ref:
+                base_req["voice_ref"] = voice_ref
+
+            # 非 2.5：无 duration_factor 语义，单次合成即完成
+            if not is_v25:
+                return _do_synth(base_req, output_path)
+
+            # ---- 2.5 双次合成 ----
+            if not target_duration or target_duration <= 0:
+                # 无目标时长：单次自然合成（factor=1.0）
+                base_req["duration_factor"] = 1.0
+                return _do_synth(base_req, output_path)
+
+            # 第一次：自然合成（factor=1.0）到临时文件，测量实际时长
+            with _tf.TemporaryDirectory(prefix="indextts_nat_") as td:
+                nat_path = Path(td) / "natural.wav"
+                nat_req = dict(base_req)
+                nat_req["id"] = nat_req["id"] + "_nat"
+                nat_req["output_path"] = str(nat_path)
+                nat_req["duration_factor"] = 1.0
+                if not _do_synth(nat_req, nat_path):
+                    return False
+                nat_dur = self._wav_duration(nat_path)
+                if nat_dur is None or nat_dur <= 0:
+                    print("      ⚠️ 自然合成测时失败，回退 factor=1.0 单次合成")
+                    base_req["duration_factor"] = 1.0
+                    return _do_synth(base_req, output_path)
+
+                # factor = 目标时长 / 自然时长（>1 拉长减速，<1 压缩加速）
+                # duration_factor 与生成时长成正比（infer_v2_5: target_lengths = S*1.72*factor），
+                # 故要用 目标/自然 得到贴合目标的倍数。
+                factor = target_duration / nat_dur
+                if not (0.5 <= factor <= 2.0):
+                    # 越界：保留自然合成版本（语速正常），对齐靠外层 atempo 兜底
+                    print(f"      ↪ duration_factor={factor:.2f} 越界，保留自然语速（atempo 兜底对齐）")
+                    shutil.copy2(str(nat_path), str(output_path))
+                    return True
+
+                # 第二次：按 factor 重合成到最终路径
+                final_req = dict(base_req)
+                final_req["duration_factor"] = round(factor, 4)
+                return _do_synth(final_req, output_path)
         except Exception as e:
             print(f"      ❌ IndexTTS2 服务异常: {e}")
             self._dump_indextts_stderr()
@@ -3705,7 +3825,14 @@ class PipelineAutomator:
         return adjusted
 
     def _render_hyperframes_outro(self, duration: float, channel_name: str, output_path: Path) -> bool:
-        """渲染 B站一键三连片尾。"""
+        """渲染 B站一键三连片尾。
+
+        复用现有成品：若 output_path 已存在且非空（如已用其他方式生成），
+        直接复用，避免在 HyperFrames 无法发现 ffmpeg 的环境里反复渲染失败。
+        """
+        if output_path.exists() and output_path.stat().st_size > 0:
+            print(f"    ♻️ 复用已有片尾: {output_path.name} ({output_path.stat().st_size}B)")
+            return True
         template_dir = APPS_ROOT / "templates"
         if not (template_dir / "index.html").exists():
             print(f"    ❌ 片尾模板不存在: {template_dir / 'index.html'}")

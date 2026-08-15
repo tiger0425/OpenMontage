@@ -40,6 +40,20 @@ from tools.base_tool import (
 
 from lib.gpu_lock import GpuLockHandle
 
+import sys as _sys
+_stdout_reconfigure = getattr(_sys.stdout, "reconfigure", None)
+if _stdout_reconfigure:
+    try:
+        _stdout_reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+_stderr_reconfigure = getattr(_sys.stderr, "reconfigure", None)
+if _stderr_reconfigure:
+    try:
+        _stderr_reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 _DEFAULT_REPO_CANDIDATES = [Path("D:/index-tts"), Path("C:/Users/tiger/index-tts")]
 
 CALM_EMO_VECTOR = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
@@ -98,20 +112,33 @@ def _venv_python(repo: Path) -> Path | None:
 
 def _server_script(repo: Path) -> Path:
     """优先用收编进 OpenMontage 的桥（apps/indextts-bridge/），回退 repo 根。"""
-    omo_server = Path(__file__).resolve().parents[1] / "apps" / "indextts-bridge" / "indextts_server.py"
+    omo_server = Path(_engine_paths()["server"])
     if omo_server.is_file():
         return omo_server
     return repo / "indextts_server.py"
 
 
+def _engine_paths() -> dict:
+    """统一路径解析（apps/indextts-bridge/client.py）。"""
+    import importlib.util as _iu
+    _spec = _iu.spec_from_file_location(
+        "indextts_bridge_client",
+        Path(__file__).resolve().parents[2] / "apps" / "indextts-bridge" / "client.py",
+    )
+    _mod = _iu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod.engine_paths()
+
+
 def _start_server() -> subprocess.Popen:
     global _SERVER_PROC, _GPU_HANDLE, _SERVER_LAST_ERROR
     repo = _repo_root()
-    venv_py = _venv_python(repo)
+    _ep = _engine_paths()
+    venv_py = Path(_ep["venv"])
     server = _server_script(repo)
-    if venv_py is None:
+    if not venv_py.is_file():
         raise RuntimeError(
-            f"IndexTTS-2 venv python not found under {repo}/.venv. "
+            f"IndexTTS-2 venv python not found: {venv_py}. "
             "Run 'uv sync --all-extras' inside the repo first."
         )
     if not server.is_file():
@@ -156,7 +183,10 @@ def _start_server() -> subprocess.Popen:
         for line in proc.stderr:
             line = line.rstrip()
             if line:
-                print(f"[IndexTTS2] {line}", flush=True)
+                try:
+                    print(f"[IndexTTS2] {line}", flush=True)
+                except Exception:
+                    pass
             if _SERVER_READY_MARKER in line:
                 ready.set()
             if ">> ERROR" in line:

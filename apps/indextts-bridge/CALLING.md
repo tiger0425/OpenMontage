@@ -1,23 +1,46 @@
 # IndexTTS 桥调用规范（所有 Agent 必读）
 
-> 2026-08-13 生效。**任何 Agent（OpenCode / OpenClaw / Cursor / Codex / Claude Code）
+> 2026-08-14 更新。**任何 Agent（OpenCode / OpenClaw / Cursor / Codex / Claude Code）
 > 调用本地 IndexTTS 合成语音时，必须按本文档执行。**
 > 违反本文档会导致：**生成内容为杂音**（权重错位）、**男声变女声**（情感混合）、**中文乱码**（编码问题）。
 
----
+## ✅ 统一入口（强烈推荐）
+
+所有工作流（auto-dub / markhasara / repo-to-video / series-adapt）已统一到：
+
+```
+apps/indextts-bridge/client.py  →  IndexTTSSession 类
+```
+
+```python
+# 推荐：用统一客户端（自动处理 UTF-8 / 情感纯净 / lang / duration_factor / GPU 锁）
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "indextts_client", r"E:\YifuAIForge\OpenMontage\apps\indextts-bridge\client.py")
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+with _mod.IndexTTSSession(
+    voice_ref="D:/ref.wav", model_version="2.5", lang="ZH", emotion="calm",
+) as tts:
+    ok = tts.synthesize("大家好", "D:/out.wav")
+```
+
+内部自动处理：桥位置、--version/--checkpoints、UTF-8 编码、calm 情感纯净（不传 emo_vector）、GPU 锁、超时。
 
 ## 🚨 最常见错误：用了旧桥 → 杂音
 
 **错误写法（会产生杂音）：**
 ```python
-subprocess.run([PY, r"D:/index-tts/indextts_server.py", ...])  # ❌ 旧桥，加载 2.0 模型
+subprocess.run([PY, r"D:/index-tts/indextts_server.py", ...])  # ❌ 旧桥已删除，不存在
 ```
 
-**为什么杂音**：`D:/index-tts/indextts_server.py` 是 2.0 时代的旧桥，
-`from indextts.infer_v2 import IndexTTS2`（**2.0 模型结构**）。
-但 `D:/index-tts/checkpoints` 现在装的是 **2.5 权重**（含 `spk_emb_proj`/`lang_embedding` 等 2.5 新层）。
-**2.0 模型 + 2.5 权重 = 权重错位**（日志出现 `missing keys (212)` + `skipping spk_emb_proj`）
-→ 生成的是杂音。
+**旧桥 `D:/index-tts/indextts_server.py`（2.0 模型）已删除（2026-08-14）**。
+若 Agent 仍引用它，会直接报「文件不存在」——这是**有意为之**，提醒你用新桥/统一客户端。
+
+**为什么杂音**：旧桥 `from indextts.infer_v2 import IndexTTS2`（**2.0 模型结构**）。
+而 `D:/index-tts/checkpoints` 装的是 **2.5 权重**（含 `spk_emb_proj`/`lang_embedding` 等 2.5 新层）。
+**2.0 模型 + 2.5 权重 = 权重错位**（日志 `missing keys (212)` + `skipping spk_emb_proj`）→ 杂音。
 
 ---
 
