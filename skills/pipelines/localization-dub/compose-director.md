@@ -46,8 +46,10 @@ for segment in tts_segments:
     # 记录 actual_start / actual_end 用于 SRT 重对齐
 ```
 
-**硬性禁止**：
-- ❌ 不得对 TTS 音频施加任何 atempo / 变速处理
+**硬性禁止**（对应 `lessons-learned.md` 铁律 A「三级变速策略」）：
+- ❌ 不得对 TTS 音频施加**超出已验证听感**的 atempo / 变速——三级变速从低到高依次尝试：① 翻译预算控制（首选）→ ② 逐句 atempo ±5% → ③ 全局 atempo 兜底 ±4%。能用低级别绝不用高级别。
+- ❌ 漂移 ≤1.5s 时仍全局变速（应由逐句对齐 + 溢出推挤吸收）
+- ❌ 变速后声音变怪仍强行使用（宁可溢出推挤或缩短译文）
 - ❌ 不得截断 TTS 音频尾部
 - ❌ 不得按原始英文时间戳硬放（会导致重叠）
 
@@ -75,7 +77,7 @@ Allow for:
 渲染完成后，**必须**执行以下校验：
 
 1. **零重叠校验**：检测最终音频中任意相邻段落的间隔 ≥ 100ms
-2. **零变速校验**：确认未使用任何 atempo 滤镜
+2. **变速合规校验**：确认未使用任何**超出已验证听感范围**的 atempo 滤镜（逐句 ±5%、全局 ±4%；见 `lessons-learned.md` 铁律 A）
 3. **SRT 同步校验**：抽检至少 5 个段落的字幕显示时间与音频播放时间的偏差 ≤ 50ms
 4. **完整性校验**：运行 `ffprobe` 验证最终 MP4 的音视频轨完整性
 
@@ -89,7 +91,7 @@ Record findings in:
 
 - each locale output exists,
 - the dub and subtitle timing are acceptable,
-- **Serial Queue Mix algorithm was used (no atempo, no truncation)**,
+- **Serial Queue Mix algorithm was used (no truncation; atempo only within the verified 3-tier limits)**,
 - **SRT timestamps match actual audio placement**,
 - labels and filenames are unambiguous,
 - warnings are preserved.
@@ -100,5 +102,5 @@ Record findings in:
 - Forgetting to re-check subtitle line length after translation.
 - Naming outputs in ways that hide the locale or treatment mode.
 - **Placing TTS audio at original English timestamps without serial queue adjustment** — causes overlap.
-- **Using atempo to fit TTS into original time windows** — causes speed instability.
+- **Using atempo beyond the verified listening range to fit TTS into original time windows** — causes speed instability; use the 3-tier tempo strategy from `lessons-learned.md` 铁律 A (translation budget first → per-utterance ±5% → global ±4% fallback).
 - **Reusing English SRT timestamps for dubbed audio** — causes subtitle desync.

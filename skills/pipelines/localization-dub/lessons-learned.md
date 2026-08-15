@@ -77,7 +77,7 @@ SRT 字幕的时间戳**必须**根据混音后各段的 `actual_start` 和 `act
 ### Edit 阶段（时间轴规划）
 - `edit_decisions` 必须包含 `mix_algorithm: "serial_queue"`
 - `timing_drift_policy: "allow_natural_extension"` — 允许自然延伸
-- 禁止输出任何 atempo 相关的变速指令
+- 禁止输出**超出铁律 A 已验证听感**的 atempo 变速指令（逐句 ±5% / 全局 ±4%；见上「两条铁律」）
 
 ### Compose 阶段（混音渲染）
 - 严格执行 Serial Queue Mix 算法
