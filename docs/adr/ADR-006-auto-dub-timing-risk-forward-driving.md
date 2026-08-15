@@ -1,6 +1,6 @@
 # ADR-006: Auto-Dub「漂移风险前向驱动 + 中英膨胀率校准」优化决策
 
-- **状态**: Proposed（本 ADR 只记录方案与决策意图，**不改代码**；实现另开任务）
+- **状态**: Accepted（D6 / D1+D2+D3 / D5 / D7 / D8 已落地；D4 Deferred 暂缓）
 - **日期**: 2026-08-XX
 - **决策者**: 用户 + AI Agent（localization-dub 对比研究 session）
 - **影响范围**: Auto-Dub 流水线（`apps/auto-dub/`）+ localization-dub 框架文档（`skills/pipelines/localization-dub/`）
@@ -141,11 +141,18 @@ final_budget  = budget_for_dur × risk_discount
 
 这样「**事前预测的 density_risk**」与「**事后实际漂移 status**」能对账，验证 D1 到底省了多少次重翻/变速，为折扣系数迭代提供数据。
 
-### D4: 泛化 `hybrid_covered` / `on_screen_text_replacement_map`（P0-2）
+### D4: 泛化 `hybrid_covered` / `on_screen_text_replacement_map`（P0-2）—— **【Deferred 暂缓】**
 
-- 在 `scene_plan` 的 `scene_localization_meta` 里新增 `on_screen_text_replacement` 字段（枚举：`none` / `caption_overlay` / `broll_cover` / `gfx_cover`）。
-- 现有 `caption_overlay` 作为 `on_screen_text_replacement == "caption_overlay"` 的一种实现；`broll_cover` / `gfx_cover`（口型遮罩）作为预留枚举，首期不实现，只在 schema/文档层面立规矩。
-- **本 ADR 只定义语义契约**，不写检测/合成代码。
+> **状态：Deferred（暂缓，不落地）。** 决策于 2026-08 研究 session 中做出。
+
+原计划：在 `scene_plan` 的 `scene_localization_meta` 里新增 `on_screen_text_replacement` 字段（枚举：`none` / `caption_overlay` / `broll_cover` / `gfx_cover`），把现有 `caption_overlay` 定位为其中一种，`broll_cover` / `gfx_cover`（口型遮罩）作预留枚举。
+
+**暂缓理由**（本次 session 实际探索后得出）：
+1. **无真实需求**：auto-dub 定位是「整轨替换 + 不改画面」，口型不匹配是常态且被接受；`broll_cover` / `gfx_cover` 面向的「口型遮罩」功能**无人提出要做**，只是框架概念性存在。
+2. **`caption_overlay` 本身是窄实现且不成熟**：它用 easyocr 检测画面中下部/底部硬字幕条并原位替换，作者已在 config 注释标明「实测 OCR 不稳（漏字、条不准）」且默认关闭。泛化它不会让它变得更可靠。
+3. **避免空字段**：为一个「不存在、也不成熟」的能力在 schema/config 里加枚举占位，只会增加维护负担和语义漂移风险——与本次整体「先改文档/让实现对齐」的方向相悖。
+
+**再启用条件**：当确有一个明确需求——「画面口型需遮罩」或「画面文字需成体系地检测并原位替换」——时，重新评估并落地；届时可参考本 ADR 的原始设计。在启用前，`caption_overlay` 继续作为独立 config 开关（`subtitle_mode: caption_overlay`）存在，不纳入 `on_screen_text_replacement` 语义体系。
 
 ### D5: publish 包带 QA 上下文（P0-3）
 
@@ -190,8 +197,9 @@ final_budget  = budget_for_dur × risk_discount
 
 ### 回退方案
 - **D1/D2/D3**：`risk_discount` 默认 1.0（不开折扣），等于退回到现状；`zh_chars_per_en_word` 未标定时回退到「不折扣」。整个 P0-1 是纯增量，可一开关关闭。
-- **D4/D5/D7**：均为「新增字段/枚举/文档」，不影响既有行为，可独立回退。
+- **D5/D7**：均为「新增字段/枚举/文档」，不影响既有行为，可独立回退。
 - **D6**：文档改动，可与 `git revert` 逐文件回退。
+- **D4**：Deferred，无代码落地，无需回退。
 
 ---
 
@@ -204,9 +212,9 @@ final_budget  = budget_for_dur × risk_discount
 | 3 | D5 publish 带 QA 上下文 | 低 | 否 |
 | 4 | D7 edit_decisions 字段上浮 | 中，schema 回归 | 否 |
 | 5 | D8 轻量 decision_log | 低 | 否 |
-| 6 | D4 hybrid_covered 语义契约（仅文档/schema） | 低，首期不实现 | 否 |
+| 6 | ~~D4 hybrid_covered 语义契约~~ **Deferred**（暂缓，见 D4 说明） | — | 否 |
 
-**建议顺序**：先 1（快赢、纯文档）→ 再 2（核心价值，但需实测标定）→ 其余按需。
+**建议顺序**：先 1（快赢、纯文档）→ 再 2（核心价值，但需实测标定）→ 其余按需。D4 已 Deferred，不纳入本轮落地。
 
 ---
 
