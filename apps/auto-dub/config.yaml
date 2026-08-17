@@ -85,7 +85,7 @@ pipeline:
   whisper_model: large-v3         # 转录模型（准确率优先）：base(快) < small < medium < large-v3(最准，慢)
   min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分
   subtitle_style: "中文+术语英文标注"
-  output_format: "16:9"        # B站横屏
+  output_format: "source"      # 输出画面格式：source/auto=跟随原视频画幅（横屏出横屏、竖屏出竖屏，默认透传）；16:9（横屏）/ 4:3 / 9:16（竖屏，上下模糊填充保留完整画面）为显式覆盖
   render_runtime: ffmpeg        # 使用 FFmpeg 合成（替换音轨+烧字幕）
   diarize: auto                  # auto=全量跑说话人分离按结果分档（多人/单人）；off=跳过（现状）
   human_review: single-auto        # 人审分流（说话人审校 + 翻译审校，ticket #10/#9）：single-auto=所有视频（含单人）都生成 speaker_review.md + translation_review.md，单人自动通过留档、多人强制人审；required=所有视频强制人审；auto=仅多人强制人审（单人连文档都不生成）
@@ -122,6 +122,7 @@ pipeline:
     tolerance: 0.15              # 对齐容差 ±15%（验收达标率）
     inherently_long_seconds: 1.0 # 物理不可达句阈值（原句 < 1s，允许超容差且不计入达标率）
     queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
+    allow_slowdown: true         # 是否允许放慢语速对齐时间槽：true=允许 duration_factor/atempo 拉长配音贴合原句（默认，追求音画同步）；false=只禁放慢、允许加快（听感自然，配音可能略短于原画面）
     block_gap_seconds: 1.0       # 语段切分：相邻原句间隙 >= 此值 → 新语段
     block_max_pause_seconds: 0.8 # 语段内句间自然停顿上限（富余时间分摊，防拖沓）
     retranslate: false           # 缩短重翻：默认关闭（避免砍句子导致"句子被截断"）；true=变速不可达句改写更短塞进时间窗

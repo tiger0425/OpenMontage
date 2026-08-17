@@ -337,6 +337,7 @@ pipeline:
     tolerance: 0.15              # 对齐容差 ±15%（验收达标率）
     inherently_long_seconds: 1.0 # 物理不可达句阈值（原句 < 1s，允许超容差且不计入达标率）
     queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
+    allow_slowdown: true         # 是否允许放慢语速对齐时间槽（铁律 A 补充，2026-08-17）：true=允许 duration_factor/atempo 拉长配音贴合原句（默认）；false=只禁放慢、允许加快（听感自然）。优先级 video.metadata.allow_slowdown > config。改此配置后必须清空 assets/audio 并删 assets/edit/compose/publish checkpoint 再重跑，否则旧 WAV 被复用不生效。
 ```
 
 - **转录后按原句（Utterance）合并**：字幕与时长对齐锚点为原句，不再出现碎句；SRT 每条 = 一个原句。

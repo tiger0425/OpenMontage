@@ -30,6 +30,32 @@
 
 **核心经验**：旧"完全禁止 atempo"导致超长句只能溢出推挤，访谈类视频累积漂移 5-13s。本次真机（tt-test）验证：**翻译预算打折（首要）+ 逐句 ±5% 变速 + 全局兜底**能把漂移压到 ~1.5s 内，主视频时长 = 原视频，且 ±5% 内听感自然。**变速幅度严格限制在听感已验证的范围内，是修订后铁律 A 的底线。**
 
+### 铁律 A 补充：禁放慢 (No-Slowdown / allow_slowdown) — 2026-08-17 修订
+
+**背景**：用户反馈"有时配音语速明显被拉慢，拖沓，放慢是没有必要的"。根因是**对齐策略**：流水线为让配音时长贴合英文原句时间槽，用 IndexTTS 2.5 的 `duration_factor`（双次合成）或逐句 atempo 把"自然合成短于原句"的句子**拉长减速**。对翻译后很短的句子（尤其 1~2s 短句），拉长幅度可达 1.2~3.4×，听感明显拖沓。
+
+**判断标准**：放慢只服务于"音画同步"这个验收指标，但**用户感知的听感优先于对齐达标率**。对齐的收益（字幕/画面/配音同步）不值得用"读得怪"换。
+
+**解决方案**：新增配置 `pipeline.alignment.allow_slowdown`（`apps/auto-dub/config.yaml`，默认 `true` 保持既有行为）：
+- `true`：允许 `duration_factor`/atempo 拉长配音贴合原句（追求音画同步，现状）
+- `false`：**只禁放慢、允许加快**——合成 `factor>1` 时保留自然语速版本不重合成；逐句/全局 atempo 因子下限钳到 `1.0`
+- **优先级**：`video.metadata.allow_slowdown` > `config.pipeline.alignment.allow_slowdown`（单视频可用 DB metadata 覆盖，不影响全局）
+
+**代码落点**（`apps/auto-dub/batch/pipeline_automator.py`）：
+1. `_synthesize_indextts`：`factor > 1.0` 且禁放慢 → 直接复制自然合成版本，不做第二次拉长重合成
+2. `compute_utterance_tempo` / `clamp_tempo_factor`：新增 `allow_slowdown` 参数，`lo` 钳到 `1.0`
+3. 全局 atempo 兜底：`min_speed = max(min_speed, 1.0)`，禁止整体放慢
+
+**真机验证**（`auto-dub-5vEEBhbfUWw`，2026-08-17）：
+- 放慢最明显的长句 u43（35 字译文）：禁放慢前被拉长到 **10.47s ≈ 3.3 字/秒** → 禁放慢后 **6.69s ≈ 5.2 字/秒**，恢复自然语速
+- 全片变速副本均为 `_t10xx.wav`（因子 ≥1.0），无任何减速副本
+- 配音总时长仍对齐 606.3s（0 漂移，SRT 0ms）：多数句子自然语速本就够长，只有少数被拉长的短句问题被消除
+- **注意**：极短句（如「全部。」3 字）`out_of_budget` 的慢是 TTS 短句固有起步开销（真实 cps 3.1~4.2），不是对齐放慢，`allow_slowdown=false` 不改变它
+
+**复盘教训**：
+- 分析"是否被放慢"不要用"中文字数/4.1cps"的估算（短句真实 cps 远低于校准值，会误判超长句为放慢）；应直接对比新旧两版同句 `actual` 时长，或检查变速副本文件名的因子
+- 音频复用风险：改 `allow_slowdown` 后必须**清空 `assets/audio/`** 并删除 `assets/edit/compose/publish` checkpoint 再重跑，否则旧的"放慢版" WAV 被 `is_valid_existing` 复用，改动不生效
+
 ---
 
 ### 铁律 B：串行排队混音算法 (Serial Queue Mix)

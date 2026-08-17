@@ -228,6 +228,43 @@ class PipelineAutomator:
         # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
         #           none=不烧字幕（只生成 SRT 字幕文件留档）
         self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
+        # 视频级 metadata 覆盖（DB videos.metadata JSON；PipelineAutomator 收到时可能是字符串）
+        _vid_meta = video.get("metadata") or {}
+        if isinstance(_vid_meta, str):
+            try:
+                _vid_meta = json.loads(_vid_meta or "{}")
+            except Exception:
+                _vid_meta = {}
+        self.video_meta = _vid_meta or {}
+        # 输出画面格式：source/auto=跟随原视频画幅（横屏出横屏、竖屏出竖屏，默认，直接透传不做比例转换）；
+        # 16:9（横屏）/ 4:3 / 9:16（竖屏，上下模糊填充保留完整画面）为显式覆盖。
+        # 优先级：video.metadata.output_format > config.pipeline.output_format。
+        self.output_format = str(
+            self.video_meta.get("output_format")
+            or config.get("pipeline", {}).get("output_format", "source")
+        ).strip().lower()
+        # 保留原声的说话人/句子（车手/领航等不转中文，从 vocals.wav 切原声片段，保留英文原声）。
+        # 优先级：video.metadata > config.pipeline。
+        # 句子级（keep_original_utterances，按 u-id 精确控制）优先于说话人级
+        # （keep_original_speakers）——多人视频经 speaker 合并后，同一 cluster 常混有
+        # 解说与车手句子，按 speaker 整体控制会把旁白也误保留原声。
+        _kos = self.video_meta.get("keep_original_speakers") \
+            or config.get("pipeline", {}).get("keep_original_speakers", [])
+        if isinstance(_kos, str):
+            try:
+                _kos = json.loads(_kos)
+            except Exception:
+                _kos = []
+        self.keep_original_speakers = [str(s).strip() for s in (_kos or [])]
+        _kou = self.video_meta.get("keep_original_utterances") \
+            or config.get("pipeline", {}).get("keep_original_utterances", [])
+        if isinstance(_kou, str):
+            try:
+                _kou = json.loads(_kou)
+            except Exception:
+                _kou = []
+        self.keep_original_utterances = [str(s).strip() for s in (_kou or [])]
+
         # 字幕句子拆分：true=把一句里含多个内容项（一个单元内含多个 。！？ 句子）的 SRT 字幕，
         #          按句子边界拆成多条、各自独占时间窗，避免「两个内容页同时显示」
         #          （健康对比类短内容常见：一句里并列数组 "For X.. For Y.."）。
@@ -245,6 +282,16 @@ class PipelineAutomator:
         self.queue_gap_seconds = float(_align.get("queue_gap_seconds", 0.1))
         self.block_gap_seconds = float(_align.get("block_gap_seconds", 1.0))
         self.block_max_pause_seconds = float(_align.get("block_max_pause_seconds", 0.8))
+        # 是否允许放慢语速对齐时间槽（ADR-003 D3）：true=允许 duration_factor/atempo
+        # 拉长配音贴合原句（默认，追求音画同步）；false=只禁放慢、允许加快
+        # （听感自然，配音可能略短于原画面，富余时间分摊为句间停顿/提前结束）。
+        # 优先级：video.metadata.allow_slowdown > config.pipeline.alignment.allow_slowdown。
+        _as = self.video_meta.get("allow_slowdown")
+        if _as is None:
+            _as = _align.get("allow_slowdown", True)
+        if isinstance(_as, str):
+            _as = str(_as).strip().lower() not in ("false", "0", "no", "off")
+        self.allow_slowdown = bool(_as)
         # 分段清理链（ticket 01）：diarization 后、原句合并前
         _seg = config.get("pipeline", {}).get("segments", {}) or {}
         self.segment_postprocess = bool(_seg.get("enabled", True))
@@ -314,6 +361,12 @@ class PipelineAutomator:
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.audio_dir.mkdir(parents=True, exist_ok=True)
         self.renders_dir.mkdir(parents=True, exist_ok=True)
+
+    def _is_keep_original(self, block_id: str, speaker: str) -> bool:
+        """判断句子是否保留英文原声：句子级列表优先，其次说话人级列表。"""
+        if self.keep_original_utterances:
+            return block_id in self.keep_original_utterances
+        return speaker in self.keep_original_speakers
 
     def _heartbeat(self, msg: str, *, force: bool = False):
         """结构化心跳输出：flush 实时可见 + [AutoDub] 前缀。
@@ -2065,6 +2118,35 @@ class PipelineAutomator:
                 speaker = merge_map[speaker]
                 line["speaker"] = speaker  # 同步更新 line，供声像分离/字幕/音轨使用
 
+            # 保留原声（车手/领航等不转中文）：从 vocals.wav 切取原句时段人声片段，
+            # 不合成 TTS、不做变速/对齐，原时长直贴（实际起止 = 原句时间轴）。
+            if self._is_keep_original(block_id, speaker):
+                output_file = self.audio_dir / f"orig_{block_id}.wav"
+                if not (output_file.exists() and output_file.stat().st_size > 1000):
+                    self._cut_original_segment(output_file, block_start, block_end)
+                audio_len = block_dur
+                temp_segments.append({
+                    "line": line,
+                    "path": output_file,
+                    "audio_len": audio_len,
+                    "keep_original": True,
+                })
+                alignment_reports.append({
+                    "id": block_id,
+                    "speaker": speaker,
+                    "target": round(max(0.1, block_dur - self.queue_gap_seconds), 3),
+                    "slot_seconds": round(block_dur, 3),
+                    "actual": round(audio_len, 3),
+                    "status": "original_kept",
+                    "inherently_long": self.is_inherently_long(block_dur, self.inherently_long_seconds),
+                    "en_words": len((line.get("text") or "").split()),
+                    "density_risk": 0.0,
+                    "risk_discount": 0.0,
+                    "pre_budget_chars": 0,
+                    "post_budget_chars": 0,
+                })
+                continue
+
             # 按说话人选择声纹；缺失 speaker 时回退单声纹/最长声纹
             voice_ref = None
             if multi_speaker:
@@ -2209,12 +2291,19 @@ class PipelineAutomator:
             line = item["line"]
             ideal_start = line["start_seconds"]
             audio_len = item["audio_len"]
-            
-            # 串行排队混音，若上一段顺延，下一段自动往后推延 (零重叠保护)
-            actual_start = max(ideal_start, previous_end + min_pause)
-            actual_end = actual_start + audio_len
-            previous_end = actual_end
-            
+
+            if item.get("keep_original"):
+                # 保留原声段：严格贴原视频时间轴（原声时长 = 原句时长），
+                # 不参与串行排队延展，避免车手/领航原声与画面错位。
+                actual_start = line["start_seconds"]
+                actual_end = line["end_seconds"]
+                previous_end = max(previous_end, actual_end)
+            else:
+                # 串行排队混音，若上一段顺延，下一段自动往后推延 (零重叠保护)
+                actual_start = max(ideal_start, previous_end + min_pause)
+                actual_end = actual_start + audio_len
+                previous_end = actual_end
+
             # 记录 actual_start 和 actual_end，用于下游 SRT 重同步
             line["actual_start"] = actual_start
             line["actual_end"] = actual_end
@@ -2494,6 +2583,25 @@ class PipelineAutomator:
             silence.export(output_path, format="wav")
         except Exception as e:
             logging.error(f"Failed to create silent wav: {e}")
+
+    def _cut_original_segment(self, output_path: Path, start: float, end: float):
+        """保留原声：从 game_audio 分离出的 vocals.wav 切取 [start,end] 时段的人声片段。
+
+        用于 keep_original_speakers 说话人（车手/领航等不转中文，保留英文原声）。
+        vocals.wav 是 demucs 分离后的纯人声（无引擎声/BGM），叠加到 no_vocals 底音轨上
+        不会造成引擎声重复。切片失败时兜底生成等长静音，保证时间轴完整。
+        """
+        try:
+            vocals_path = self.assets_dir / "vocals.wav"
+            if not (vocals_path.exists() and vocals_path.stat().st_size > 1000):
+                raise FileNotFoundError(f"vocals.wav 缺失: {vocals_path}")
+            seg = AudioSegment.from_wav(str(vocals_path))
+            chunk = seg[int(start * 1000):int(end * 1000)]
+            chunk = chunk.set_channels(2)
+            chunk.export(str(output_path), format="wav")
+        except Exception as e:
+            logging.warning(f"切取原声片段失败 {output_path.name} ({start}-{end}s): {e}")
+            self._create_silent_wav(max(0.05, end - start), output_path)
 
     @staticmethod
     def _wav_is_silent(path: Path, threshold: int = 100) -> bool:
@@ -3133,6 +3241,11 @@ class PipelineAutomator:
                 # duration_factor 与生成时长成正比（infer_v2_5: target_lengths = S*1.72*factor），
                 # 故要用 目标/自然 得到贴合目标的倍数。
                 factor = target_duration / nat_dur
+                if not self.allow_slowdown and factor > 1.0:
+                    # 禁放慢（allow_slowdown=false）：自然合成已快于目标，不重合成拉长。
+                    # 保留自然语速版本，富余时间由上层句间停顿/提前结束吸收。
+                    shutil.copy2(str(nat_path), str(output_path))
+                    return True
                 if not (0.5 <= factor <= 2.0):
                     # 越界：保留自然合成版本（语速正常），对齐靠外层 atempo 兜底
                     print(f"      ↪ duration_factor={factor:.2f} 越界，保留自然语速（atempo 兜底对齐）")
@@ -3446,12 +3559,15 @@ class PipelineAutomator:
 
     @staticmethod
     def compute_utterance_tempo(
-        chunk_durations: list[float], target_duration: float, tempo_budget: float = 0.05
+        chunk_durations: list[float], target_duration: float, tempo_budget: float = 0.05,
+        allow_slowdown: bool = True,
     ) -> Optional[float]:
         """计算逐句变速因子（ADR-003 D3 Tempo Budget ±budget）。
 
         返回使合成总时长贴合目标时长的 atempo 因子；超出预算返回 None
         （调用方回退 LLM 重翻，或标记物理不可达句豁免）。
+        allow_slowdown=False 时下限钳到 1.0：只允许加速（factor>1），
+        不允许放慢（factor<1）拉长配音去贴合目标时长。
         """
         total = sum(chunk_durations)
         if total <= 0 or target_duration <= 0:
@@ -3459,6 +3575,8 @@ class PipelineAutomator:
         factor = total / target_duration
         lo = 1.0 / (1.0 + tempo_budget)
         hi = 1.0 + tempo_budget
+        if not allow_slowdown:
+            lo = 1.0
         if lo <= factor <= hi:
             return round(factor, 6)
         return None
@@ -3468,12 +3586,14 @@ class PipelineAutomator:
         factor: float,
         tempo_budget: float = 0.05,
         max_ratio: float | None = None,
+        allow_slowdown: bool = True,
     ) -> Optional[float]:
         """把超出预算的变速因子钳制到预算边界（ticket 06）。
 
         变速不可达时，不再完全不变速，而是尽量利用预算边界内的容量
         （默认 1.05；max_ratio 可放宽到 1.15 等更高档），剩余差距靠
         下一段的溢出推挤吸收。返回钳制后的因子；若 factor 无效返回 None。
+        allow_slowdown=False 时下限钳到 1.0：只允许加速，不允许放慢。
         """
         if factor is None or factor <= 0 or tempo_budget <= 0:
             return None
@@ -3482,6 +3602,8 @@ class PipelineAutomator:
         if max_ratio is not None:
             hi = max(hi, max_ratio)
             lo = min(lo, 1.0 / max_ratio)
+        if not allow_slowdown:
+            lo = max(lo, 1.0)
         if factor < lo:
             return round(lo, 6)
         if factor > hi:
@@ -3678,7 +3800,7 @@ class PipelineAutomator:
         target = max(0.1, block_dur - self.queue_gap_seconds)
         total = sum(c["dur"] for c in chunk_wavs)
         factor = self.compute_utterance_tempo(
-            [c["dur"] for c in chunk_wavs], target, self.tempo_budget
+            [c["dur"] for c in chunk_wavs], target, self.tempo_budget, self.allow_slowdown
         )
         status = "aligned"
         if factor is None:
@@ -3689,7 +3811,10 @@ class PipelineAutomator:
                 # 严重超长（原速/目标 > 1.15）再放宽到 1.15 高档（tachidubb 上限）。
                 raw_factor = total / target if total > 0 and target > 0 else 1.0
                 max_ratio = 1.15 if raw_factor > 1.15 else None
-                clamped = self.clamp_tempo_factor(raw_factor, self.tempo_budget, max_ratio=max_ratio)
+                clamped = self.clamp_tempo_factor(
+                    raw_factor, self.tempo_budget, max_ratio=max_ratio,
+                    allow_slowdown=self.allow_slowdown,
+                )
                 if clamped is not None:
                     # 先钳制变速；若 1.15 高档仍不够贴合（剩余 > 30%），
                     # 标记 out_of_budget 让调用方做定向缩短重译（tt-test 反馈修复）。
@@ -3936,6 +4061,9 @@ class PipelineAutomator:
         if not npx_exe:
             print("    ❌ 未找到 npx，无法渲染片尾")
             return False
+        # 片尾模板为 1920x1080 横屏 composition（templates/index.html），
+        # 始终以 landscape 渲染；竖屏输出时由拼接阶段的 scale+pad 适配到竖屏
+        # （片尾背景为深色，上下填充视觉自然）。
         cmd = [
             npx_exe, "hyperframes", "render", str(template_dir),
             "--output", str(output_path),
@@ -3978,6 +4106,23 @@ class PipelineAutomator:
         except Exception:
             pass
         return 0.0
+
+    def _probe_resolution(self, video_path: Path) -> tuple[int, int]:
+        """用 ffprobe 探测视频分辨率，返回 (width, height)。失败回退 (1920, 1080)。"""
+        try:
+            res = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "csv=s=x:p=0", str(video_path)],
+                capture_output=True, text=True
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                parts = res.stdout.strip().split('x')
+                if len(parts) >= 2:
+                    return int(parts[0]), int(parts[1])
+        except Exception:
+            pass
+        return 1920, 1080
 
     @staticmethod
     def _sanitize_filename(title: str, max_len: int = 60) -> str:
@@ -4417,6 +4562,9 @@ class PipelineAutomator:
             max_drift_for_atempo = float(interview_cfg.get("max_drift_seconds", 5.0))
             min_speed = float(interview_cfg.get("min_speed_factor", 0.96))
             max_speed = float(interview_cfg.get("max_speed_factor", 1.05))
+            if not self.allow_slowdown:
+                # 禁放慢：只允许加速（factor>1），不允许放慢拉长。
+                min_speed = max(min_speed, 1.0)
             if atempo_enabled and self._should_apply_global_atempo(
                 drift_seconds, drift_budget, max_drift_for_atempo
             ):
@@ -4465,11 +4613,35 @@ class PipelineAutomator:
             if caption_drawbox:
                 video_filter += f",{caption_drawbox}"
 
+        # 竖屏（9:16）画面转换：上下模糊填充，保留完整画面。
+        # 背景：原画缩放到填满 1080x1920 后居中裁剪出整屏，再做 boxblur 模糊；
+        # 前景：原画在 1080x1920 框内等比缩小（宽度触顶 → 1080x607，横向铺满），
+        #       居中叠加在模糊背景上（上下各留 ~656px 模糊区）。
+        # 之后字幕/tpad 再叠到转换后的画面上。
+        # output_format=source/auto 时跟随原视频画幅直接透传（不做比例转换）；
+        # 9:16 也仅在源为横屏时做模糊填充转换（源本身已是竖屏则透传）。
+        pre_video_filters = []
+        video_chain_input = "[0:v]"
+        if self.output_format == "9:16":
+            src_w, src_h = self._probe_resolution(self.source_video)
+            if src_w >= src_h:
+                pre_video_filters = [
+                    "[0:v]split=2[bg][fg]",
+                    "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5,setsar=1[bg0]",
+                    "[fg]scale=1080:1920:force_original_aspect_ratio=decrease,setsar=1[fg0]",
+                    "[bg0][fg0]overlay=(W-w)/2:(H-h)/2[base]",
+                ]
+                video_chain_input = "[base]"
+            else:
+                print(f"    📐 源视频已是竖屏（{src_w}x{src_h}），9:16 直接透传")
+        elif self.output_format in ("source", "auto"):
+            print("    📐 output_format=source：跟随原视频画幅直接透传")
+
         # 构造 [0:v] -> [v] 链：有滤镜时走滤镜链；none 模式且无 tpad 时直接透传。
         # 注意：tpad 是可选尾缀，无前导逗号，与 video_filter 拼接时按需补逗号。
-        if video_filter or tpad_filter:
-            chain = [f for f in (video_filter, tpad_filter) if f]
-            filter_complex = f"[0:v]{','.join(chain)}[v];[1:a]volume=1.0[a]"
+        if video_filter or tpad_filter or pre_video_filters:
+            chain = pre_video_filters + [video_chain_input + f"{','.join(f for f in (video_filter, tpad_filter) if f)}[v]"]
+            filter_complex = ";".join(chain) + ";[1:a]volume=1.0[a]"
             map_v, map_a = "[v]", "[a]"
         else:
             filter_complex = "[1:a]volume=1.0[a]"
@@ -4615,7 +4787,7 @@ class PipelineAutomator:
                 {
                     "path": str(final_video.relative_to(OMO_ROOT)).replace('\\', '/'),
                     "format": "mp4",
-                    "resolution": "1920x1080",
+                    "resolution": f"{width}x{height}",
                     "duration_seconds": actual_duration if actual_duration > 0 else video_duration + outro_duration
                 }
             ],
@@ -4651,7 +4823,7 @@ class PipelineAutomator:
                 "technical_probe": {
                     "valid_container": True,
                     "duration_seconds": actual_duration if actual_duration > 0 else video_duration,
-                    "resolution": "1920x1080",
+                    "resolution": f"{width}x{height}",
                     "fps": 30.0,
                     "has_audio": True,
                     "codec": "h264",
