@@ -1,0 +1,104 @@
+{
+  "episode": {
+    "index": 3,
+    "total_episodes": 3,
+    "title": "小厂春天怎么落地？燃料与零件通用",
+    "hook_open": "上集评论区有人不服：说34万进WRC，吹牛吧？小厂真玩得起？",
+    "hook_close": "这套规则到底是真香，还是挖了个十年后的坑？关注我，下条我给你把坑也挖出来，咱下期接着唠。",
+    "prev_tail": "车便宜、规则稳、谁都能造，听着很美，但油呢？电呢？下集讲：为啥FIA这次把混动改成可选，可持续燃料才是必答题。点赞追更，下集《小厂春天怎么落地》。",
+    "duration_estimate_s": 126,
+    "scenes": [
+      {
+        "id": "s0",
+        "hook_type": "open_conflict",
+        "hook_text": "评论区质疑 → 掀底裤承诺（强冲突）",
+        "narration": "上集评论区有人不服：说34万进WRC，吹牛吧？小厂真玩得起？——玩得起！FIA这波，是把门槛焊死在地板上。今天就把底裤给你掀开：靠啥？就俩字，通用。",
+        "visuals": [
+          { "desc": "摩纳哥夜赛车列阵", "source_hint": null },
+          { "desc": "WRC27认证规则图", "source_hint": null }
+        ],
+        "duration_estimate_s": 13
+      },
+      {
+        "id": "s1",
+        "hook_type": "twist",
+        "hook_text": "反常识钩：环保=换电=烧钱？→ 错！",
+        "narration": "先说油，有人一听环保就慌：完了，要改电了，贵到飞起？错！发动机一颗螺丝都不动，就换口粮。FIA早就定了：2022年WRC就上可持续燃料，2026年全世锦赛百分之百可持续燃料。车还是那台车，喝的油变了，成本几乎没涨。",
+        "visuals": [
+          { "desc": "可持续燃料时间线", "source_hint": null },
+          { "desc": "内燃机剖面", "source_hint": null },
+          { "desc": "动力总成选项", "source_hint": null }
+        ],
+        "duration_estimate_s": 19
+      },
+      {
+        "id": "s2",
+        "hook_type": "metaphor",
+        "hook_text": "乐高梗：拼装即用",
+        "narration": "真正让小厂活下来的，是零件通用到离谱。发动机、变速箱、悬挂、刹车，全是Rally2现成货架件，就像拼乐高——不用等厂家开模，购物车一拉就能组装。钢管车架统一标准，连螺栓都给你锁死同款。谁都能搭，搭完就能跑。",
+        "visuals": [
+          { "desc": "发动机装配", "source_hint": null },
+          { "desc": "购物车装零件", "source_hint": null },
+          { "desc": "空间框架+螺栓", "source_hint": null }
+        ],
+        "duration_estimate_s": 18
+      },
+      {
+        "id": "s3",
+        "hook_type": "number",
+        "hook_text": "数字钩：等三周/几十万 vs 砍半",
+        "narration": "以前想造车？等三周拿一个定制件，几十万就这么烧了。现在？开模重造那条烧钱路直接焊死，开发成本往下砍，件还是那个件，钱少花一大截。小车队、私人车队，终于付得起门槛了。",
+        "visuals": [
+          { "desc": "通用件/DEV成本", "source_hint": null },
+          { "desc": "成本木块图", "source_hint": null }
+        ],
+        "duration_estimate_s": 15
+      },
+      {
+        "id": "s4",
+        "hook_type": "contrast",
+        "hook_text": "反差钩：丰田能造 → 改装店也能造",
+        "narration": "搁以前规则就一句话：没钱别玩。丰田现代这种大厂玩得起Rally1，私人车队直接劝退。现在FIA改口了：能设计、能造、能认证、一年卖10台，改装大佬也能上！像LMP2一样，小厂也能造底盘、卖客户、上领奖台。",
+        "visuals": [
+          { "desc": "私营车队负担不起", "source_hint": null },
+          { "desc": "摩纳哥车队", "source_hint": null },
+          { "desc": "领奖台", "source_hint": null }
+        ],
+        "duration_estimate_s": 18
+      },
+      {
+        "id": "s5",
+        "hook_type": "trust",
+        "hook_text": "信任钩：画饼 vs 签字",
+        "narration": "别以为这是画饼。M-Sport这种独立厂商都接招了，丰田、现代全都签了字。为啥？规则锁死10年，一次认证管10年，你投的钱十年不变废铁。规则稳，厂家才敢真砸钱。",
+        "visuals": [
+          { "desc": "握手签约", "source_hint": null },
+          { "desc": "TOYOTA confirmed", "source_hint": null }
+        ],
+        "duration_estimate_s": 16
+      },
+      {
+        "id": "s6",
+        "hook_type": "result",
+        "hook_text": "结果钩：神仙打架 → 混战",
+        "narration": "最后看结果：以前顶级车队就那几台神仙打架，看腻了。以后15到25台都能赢，小厂多了、格子满了、比赛热闹了。热闹才有流量，流量才养得起这项运动。这才是掀桌的终局。",
+        "visuals": [
+          { "desc": "RULE BOOK/cheaper", "source_hint": null },
+          { "desc": "INNOVATION词云", "source_hint": null }
+        ],
+        "duration_estimate_s": 15
+      },
+      {
+        "id": "s7",
+        "hook_type": "follow",
+        "hook_text": "悬念追更：真香还是挖坑？",
+        "narration": "车便宜、规则稳、零件通用、燃料不用愁，小厂春天真落地了。但是！这套规则到底是真香，还是挖了个十年后的坑？关注我，下条我给你把坑也挖出来，咱下期接着唠。",
+        "visuals": [
+          { "desc": "动力总成选项", "source_hint": null },
+          { "desc": "可持续燃料", "source_hint": null }
+        ],
+        "duration_estimate_s": 14
+      }
+    ]
+  }
+}

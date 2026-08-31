@@ -1,0 +1,272 @@
+# health_biology.yaml — @PeleExplainss 中文化专用 config
+# 由 ticket #72 落盘；源 config.yaml（AI 频道）保持不动
+# ticket: https://github.com/tiger0425/OpenMontage/issues/72
+
+channels:
+- name: Pele Explains
+  url: https://www.youtube.com/@PeleExplainss
+  scan_mode: full
+  max_videos: 15
+keywords:
+- run LLM locally free Ollama LM Studio tutorial
+- Google Colab free GPU fine tune LLM open source
+- free AI API credits OpenRouter Gemini tier tutorial
+- build local AI agent Ollama Open WebUI no cost
+- free alternative Cursor GitHub Copilot local model
+- Unsloth HuggingFace Google Colab tutorial free
+- free cloud GPU for AI training Kaggle Colab Lambda
+filters:
+  min_duration_seconds: 150
+  max_duration_seconds: 480
+  max_age_days: 60
+  exclude_languages:
+  - zh
+  relevance_prompt: "你是一个视频内容分类器。请判断以下 YouTube 视频是否符合\"人体生物 / 进化遗留 / 罕见身体特征 / 健康信号 / 神经科学 / 心理学\"主题。\n排除两类：\n  ① 硬医疗话题（cancer treatment、用药、急救、mental health 诊断）；\n  ② 个体化医疗建议（\"我建议你...\"、个人健康推荐）。\n\n视频标题: {title}\n视频描述: {description}\n\n只回答 YES 或 NO。"
+pipeline:
+  name: localization-dub-hb
+  target_language: zh-CN
+  source_language: en-US
+  tts_engine: indextts
+  tts_emotion: calm
+  tts_model_version: '2.5'
+  tts_lang: ''
+  tts_use_qwen_emo: false
+  mix_mode: replace
+  game_audio_volume: 1.05
+  subtitle_mode: caption_overlay
+  subtitle_driven: false
+  whisper_model: large-v3
+  min_char_budget: 15
+  subtitle_style: 中文+术语英文标注
+  output_format: '9:16'
+  render_runtime: ffmpeg
+  diarize: auto
+  human_review: required
+  synth_retry_max: 2
+  multi_synth_failure_review: true
+  translation_domain: health_biology
+  translation:
+    untranslated_check: true
+    untranslated_ratio: 0.5
+    cps_safety_factor: 0.7
+    zh_chars_per_en_word: 1.046
+    risk_discount_floor: 0.9
+    risk_trigger_threshold: 1.3
+    retranslate: true
+  segments:
+    enabled: true
+    merge_max_chars: 240
+    micro_duration_seconds: 1.0
+    micro_chars: 40
+    split_threshold_seconds: 15.0
+  voice_ref:
+    target_seconds: 30.0
+    min_seconds: 6.0
+    sweet_min: 1.5
+    sweet_max: 12.0
+    long_cap: 15.0
+  alignment:
+    merge_gap_seconds: 0.5
+    max_utterance_seconds: 15.0
+    chunk_max_chars: 40
+    tempo_budget: 0.03
+    tolerance: 0.15
+    inherently_long_seconds: 1.0
+    queue_gap_seconds: 0.05
+    allow_slowdown: false
+    block_gap_seconds: 1.0
+    block_max_pause_seconds: 0.8
+    retranslate: false
+auto_review:
+  max_fix_loops: 3
+  checks:
+    idea:
+    - brief_schema_valid
+    - target_language_set
+    - source_language_detected
+    script:
+    - transcript_not_empty
+    - translation_completeness
+    - glossary_terms_preserved
+    - no_untranslated_sentences
+    scene_plan:
+    - all_scenes_have_timing
+    - dub_mode_set
+    - subtitle_format_correct
+glossary:
+  user_glossary_path: apps/auto-dub/user_glossary_hb.json
+  domains:
+  - name: tech
+    triggers:
+    - GPU
+    - LLM
+    - API
+    - model
+    - training
+    - neural network
+    - token
+    terms:
+      fine-tuning: 微调
+      inference: 推理
+      token: token
+      context window: 上下文窗口
+      quantization: 量化
+      weights: 权重
+      dataset: 数据集
+      benchmark: 基准测试
+  - name: interview
+    triggers:
+    - relationship
+    - affair
+    - cheat
+    - sex
+    - romance
+    terms:
+      had a sexual relationship: 发生过性关系
+      four times: 四次
+      affair: 婚外情
+      cheating: 出轨
+  - name: slang
+    triggers:
+    - bird
+    - birds
+    - chick
+    - dude
+    - bro
+    - gonna
+    terms:
+      birds: 姑娘们（俚语）
+      dude: 哥们
+      gonna: 将要
+  keep_english:
+  - GPU
+  - CPU
+  - API
+  - Docker
+  - Kubernetes
+  - GitHub
+  - Hugging Face
+  - HuggingFace
+  - Colab
+  - Google Colab
+  - Kaggle
+  - CUDA
+  - VRAM
+  - LLM
+  - LoRA
+  - QLoRA
+  - RAG
+  - Transformer
+  - GGUF
+  - ONNX
+  - Ollama
+  - LM Studio
+  - ComfyUI
+  - Stable Diffusion
+  - Midjourney
+  - Claude
+  - ChatGPT
+  - Gemini
+  - DeepSeek
+  - Llama
+  - Mistral
+  - Qwen
+  - Phi
+  - Gemma
+  - OpenRouter
+  - Groq
+  - Unsloth
+  - LangChain
+  - LangGraph
+  - LlamaIndex
+  - Streamlit
+  - Gradio
+  - FastAPI
+  - PyTorch
+  - TensorFlow
+  - Jupyter
+  - VS Code
+  - Cursor
+  - Copilot
+  - n8n
+  - Flowise
+  - Open WebUI
+  - Jan.ai
+  - AutoGen
+  - CrewAI
+  - Lightning AI
+  translations:
+    fine-tuning: 微调
+    fine-tune: 微调
+    inference: 推理
+    deployment: 部署
+    open-source: 开源
+    open source: 开源
+    pre-trained: 预训练
+    pretrained: 预训练
+    prompt engineering: 提示词工程
+    embedding: 嵌入向量
+    embeddings: 嵌入向量
+    token: token
+    tokens: token
+    context window: 上下文窗口
+    quantization: 量化
+    quantize: 量化
+    model weights: 模型权重
+    weights: 权重
+    checkpoint: 检查点
+    batch size: 批次大小
+    learning rate: 学习率
+    epoch: 轮次
+    dataset: 数据集
+    pipeline: 管线
+    serverless: 无服务器
+    notebook: 笔记本
+    runtime: 运行时
+    container: 容器
+    cloud instance: 云实例
+    multi-modal: 多模态
+    multimodal: 多模态
+    agentic: 智能体化
+    agent: 智能体
+    workflow: 工作流
+    retrieval: 检索
+    vector database: 向量数据库
+    vector store: 向量存储
+    free tier: 免费层
+batch:
+  max_per_run: 15
+  download_quality: best
+  search_max_results: 10
+outro:
+  engine: hyperframes
+  style: bilibili
+  min_duration_seconds: 1.5
+  max_duration_seconds: 5.0
+  drift_fail_threshold_seconds: 10.0
+  channel_name: ''
+  text:
+    thanks: 感谢观看
+    cta: 觉得有用，欢迎点赞 · 收藏 · 关注
+cover:
+  engine: hyperframes
+  template: cover.html
+  width: 1200
+  height: 900
+  channel_templates: {}
+interview:
+  enabled: true
+  classification:
+    min_duration_seconds: 180
+  atempo:
+    enabled: true
+    drift_budget: 1.5
+    max_drift_seconds: 10.0
+    min_speed_factor: 0.96
+    max_speed_factor: 1.05
+output:
+  base_dir: projects/auto-dub
+  review_dir: projects/auto-dub/review
+  published_dir: projects/auto-dub/published
+database:
+  path: projects/auto-dub/tracking.db

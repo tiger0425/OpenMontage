@@ -188,3 +188,41 @@ downloads/
 # ComfyUI workflow scratch/backup files
 tools/_comfyui/workflows/_tmp_*.json
 tools/_comfyui/workflows/*.bak.json
+
+# Local model weights (VoxCPM/IndexTTS — downloaded, not source)
+models/voxcpm/
+
+# npm cache (local package cache, never source)
+.npm-cache/
+
+# WRC / ref-remake background media library (runtime downloads, large binaries)
+background_library/
+
+# HyperFrames browser-use workspace (renders + wavs, regenerable)
+browser-use-hf/
+
+# Generated deliverable packages (covers/notes/thumbnails — regenerable)
+exports/
+
+# Pipeline checkpoint state (regenerable production-run state)
+pipelines/
+
+# Agent scratch / temp dirs
+tmp/
+_tmp/
+_tmp_cap/
+_tmp_cap_check/
+_aitrack_analysis/
+snap_*/
+.research/
+
+# Stray rally/scratch media in repo root
+/temp_rally_video*
+/Takamoto*.mp4
+
+# Root scratch JSON / probe outputs
+/out.json
+/out_*.json
+/qa_*.json
+/qa_title_zoom.png
+/*_probe.jpg

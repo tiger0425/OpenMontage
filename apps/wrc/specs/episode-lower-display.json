@@ -1,0 +1,171 @@
+{
+  "episode": {
+    "index": 3,
+    "total_episodes": 3,
+    "title": "小厂春天怎么落地？燃料与零件通用",
+    "hook_open": "上集评论区有人不服：说34万进WRC，吹牛吧？小厂真玩得起？",
+    "hook_close": "这套规则到底是真香，还是挖了个十年后的坑？关注我，下条我给你把坑也挖出来，咱下期接着唠。",
+    "prev_tail": "车便宜、规则稳、谁都能造，听着很美，但油呢？电呢？下集讲：为啥FIA这次把混动改成可选，可持续燃料才是必答题。点赞追更，下集《小厂春天怎么落地》。",
+    "background": "youtube_rally_vertical.mp4",
+    "watermark": "拉力冷知识",
+    "scenes": [
+      {
+        "id": "s0",
+        "hook_type": "open_conflict",
+        "hook_text": "评论区质疑 → 掀底裤承诺（强冲突）",
+        "audio_s": 13.13,
+        "narration": "上集评论区有人不服：说34万进WRC，吹牛吧？小厂真玩得起？——玩得起！FIA这波，是把门槛焊死在地板上。今天就把底裤给你掀开：靠啥？就俩字，通用。",
+        "visuals": [
+          { "type": "image", "desc": "摩纳哥夜赛车列阵", "asset_path": "scene0_grid.jpg" },
+          { "type": "image", "desc": "WRC27认证规则图", "asset_path": "scene0_regs.jpg" }
+        ],
+        "display": {
+          "layout": "center",
+          "badge": "下集 · 小厂春天怎么落地",
+          "question": "34万进WRC？评论区：吹牛吧？",
+          "hook": { "main": "玩得起！", "sub": "门槛焊死在地板上" },
+          "sub": "今天把底裤给你掀开\n靠啥？就俩字：通用"
+        }
+      },
+      {
+        "id": "s1",
+        "hook_type": "twist",
+        "hook_text": "反常识钩：环保=换电=烧钱？→ 错！",
+        "audio_s": 18.61,
+        "narration": "先说油，有人一听环保就慌：完了，要改电了，贵到飞起？错！发动机一颗螺丝都不动，就换口粮。FIA早就定了：2022年WRC就上可持续燃料，2026年全世锦赛百分之百可持续燃料。车还是那台车，喝的油变了，成本几乎没涨。",
+        "visuals": [
+          { "type": "image", "desc": "可持续燃料", "asset_path": "scene1_fuel.jpg" },
+          { "type": "image", "desc": "内燃机剖面", "asset_path": "scene1_engine.jpg" },
+          { "type": "image", "desc": "动力总成", "asset_path": "scene1_powertrain.jpg" }
+        ],
+        "display": {
+          "layout": "split",
+          "tag": "燃料别慌",
+          "title": { "main": "2026全世锦赛", "highlight": "100%可持续燃料" },
+          "sub": "车还是那台车，喝的油变了\n成本几乎没涨",
+          "hook": { "main": "错！", "sub": "发动机一颗螺丝都不动" }
+        }
+      },
+      {
+        "id": "s2",
+        "hook_type": "metaphor",
+        "hook_text": "乐高梗：拼装即用",
+        "audio_s": 17.73,
+        "narration": "真正让小厂活下来的，是零件通用到离谱。发动机、变速箱、悬挂、刹车，全是Rally2现成货架件，就像拼乐高——不用等厂家开模，购物车一拉就能组装。钢管车架统一标准，连螺栓都给你锁死同款。谁都能搭，搭完就能跑。",
+        "visuals": [
+          { "type": "image", "desc": "购物车装零件", "asset_path": "scene2_parts.jpg" },
+          { "type": "image", "desc": "空间框架+螺栓", "asset_path": "scene2_spaceframe.jpg" }
+        ],
+        "display": {
+          "layout": "center",
+          "hook": { "main": "零件通用到离谱", "sub": "就像拼乐高" },
+          "list": [
+            { "emoji": "🏎️", "text": "发动机·变速箱·悬挂·刹车", "badge": "现成货架件", "hot": true },
+            { "emoji": "🛒", "text": "购物车一拉就能组装", "badge": "不用等开模" },
+            { "emoji": "🔩", "text": "钢管车架统一标准", "badge": "螺栓同款" }
+          ],
+          "punch": "谁都能搭，搭完就能跑"
+        }
+      },
+      {
+        "id": "s3",
+        "hook_type": "number",
+        "hook_text": "数字钩：等三周/几十万 vs 砍半",
+        "audio_s": 15.01,
+        "narration": "以前想造车？等三周拿一个定制件，几十万就这么烧了。现在？开模重造那条烧钱路直接焊死，开发成本往下砍，件还是那个件，钱少花一大截。小车队、私人车队，终于付得起门槛了。",
+        "visuals": [
+          { "type": "image", "desc": "通用件/DEV成本", "asset_path": "scene3_components.jpg" },
+          { "type": "image", "desc": "成本木块图", "asset_path": "scene3_costdown.jpg" }
+        ],
+        "display": {
+          "layout": "split",
+          "tag": "省钱省到肉疼",
+          "title": { "main": "开发成本往下砍", "highlight": "件还是那个件，钱少花一大截" },
+          "sub": "小车队·私人车队，终于付得起门槛",
+          "hook": { "main": "等三周？几十万？", "sub": "现在直接焊死" },
+          "vs": { "before": { "label": "以前", "value": "等三周" }, "after": { "label": "现在", "value": "现成拿走" } },
+          "extra_img": "scene3_nowait.jpg"
+        }
+      },
+      {
+        "id": "s4",
+        "hook_type": "contrast",
+        "hook_text": "反差钩：丰田能造 → 改装店也能造",
+        "audio_s": 17.84,
+        "narration": "搁以前规则就一句话：没钱别玩。丰田现代这种大厂玩得起Rally1，私人车队直接劝退。现在FIA改口了：能设计、能造、能认证、一年卖10台，改装大佬也能上！像LMP2一样，小厂也能造底盘、卖客户、上领奖台。",
+        "visuals": [
+          { "type": "image", "desc": "私营车队负担不起", "asset_path": "scene4_privateers.jpg" },
+          { "type": "image", "desc": "摩纳哥车队", "asset_path": "scene4_monaco.jpg" },
+          { "type": "image", "desc": "领奖台", "asset_path": "scene4_podium.jpg" }
+        ],
+        "display": {
+          "layout": "split",
+          "tag": "门槛踹烂",
+          "title": { "main": "小厂也能造底盘", "highlight": "卖客户、上领奖台" },
+          "sub": "LMP2模式搬来WRC\n小厂春天真来了",
+          "vs": { "before": { "label": "以前", "value": "没钱别玩" }, "after": { "label": "现在", "value": "改装大佬也能上" } },
+          "label": "能设计·能造·能认证·一年卖10台 = 就能玩 · 像LMP2"
+        }
+      },
+      {
+        "id": "s5",
+        "hook_type": "trust",
+        "hook_text": "信任钩：画饼 vs 签字",
+        "audio_s": 15.81,
+        "narration": "别以为这是画饼。M-Sport这种独立厂商都接招了，丰田、现代全都签了字。为啥？规则锁死10年，一次认证管10年，你投的钱十年不变废铁。规则稳，厂家才敢真砸钱。",
+        "visuals": [
+          { "type": "image", "desc": "握手签约", "asset_path": "scene5_handshake.jpg" },
+          { "type": "image", "desc": "TOYOTA confirmed", "asset_path": "scene5_toyota.jpg" }
+        ],
+        "display": {
+          "layout": "split",
+          "tag": "厂商认账",
+          "title": { "main": "规则锁死10年", "highlight": "一次认证管10年" },
+          "sub": "投的钱十年不变废铁\n规则稳，才敢真砸钱",
+          "hook": { "main": "别以为画饼", "sub": "M-Sport·丰田·现代全签字了" }
+        }
+      },
+      {
+        "id": "s6",
+        "hook_type": "result",
+        "hook_text": "结果钩：神仙打架 → 混战",
+        "audio_s": 14.57,
+        "narration": "最后看结果：以前顶级车队就那几台神仙打架，看腻了。以后15到25台都能赢，小厂多了、格子满了、比赛热闹了。热闹才有流量，流量才养得起这项运动。这才是掀桌的终局。",
+        "visuals": [
+          { "type": "image", "desc": "RULE BOOK cheaper", "asset_path": "scene6_rulebook.jpg" },
+          { "type": "image", "desc": "INNOVATION词云", "asset_path": "scene6_innovation.jpg" }
+        ],
+        "display": {
+          "layout": "center",
+          "hook": { "main": "神仙打架看腻了", "sub": "以后都能赢" },
+          "numbers": [
+            { "key": "grid", "label": "能赢的车", "value": 25, "countup": true, "highlight": true },
+            { "key": "teams", "label": "小厂数量", "value": 15, "countup": true }
+          ],
+          "list": [
+            { "emoji": "🏁", "text": "小厂多了·格子满了", "badge": "热闹", "hot": true },
+            { "emoji": "📈", "text": "热闹才有流量", "badge": "养得起运动" }
+          ],
+          "punch": "这才是掀桌的终局"
+        }
+      },
+      {
+        "id": "s7",
+        "hook_type": "follow",
+        "hook_text": "悬念追更：真香还是挖坑？",
+        "audio_s": 13.93,
+        "narration": "车便宜、规则稳、零件通用、燃料不用愁，小厂春天真落地了。但是！这套规则到底是真香，还是挖了个十年后的坑？关注我，下条我给你把坑也挖出来，咱下期接着唠。",
+        "visuals": [
+          { "type": "image", "desc": "动力总成", "asset_path": "scene1_powertrain.jpg" },
+          { "type": "image", "desc": "可持续燃料", "asset_path": "scene1_fuel.jpg" }
+        ],
+        "display": {
+          "layout": "ending",
+          "title": { "main": "小厂春天", "highlight": "真落地了" },
+          "hook": { "main": "但是！", "sub": "真香，还是十年后的坑？" },
+          "cta": "关注我 · 下条把坑挖出来"
+        }
+      }
+    ]
+  }
+}

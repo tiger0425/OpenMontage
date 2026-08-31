@@ -40,13 +40,14 @@ class MiniMaxImage(BaseTool):
     )
     agent_skills = ["flux-best-practices"]
 
-    capabilities = ["generate_image", "generate_illustration", "text_to_image"]
+    capabilities = ["generate_image", "generate_illustration", "text_to_image", "image_to_image"]
     supports = {
         "seed": True,
         "aspect_ratio": True,
         "prompt_optimizer": True,
         "custom_size": True,
         "batch_generation": True,
+        "reference_image": True,
     }
     best_for = [
         "cost-effective image generation",
@@ -110,6 +111,22 @@ class MiniMaxImage(BaseTool):
                 "type": "string",
                 "description": "Style hint for image generation",
             },
+            "reference_image": {
+                "type": "string",
+                "description": (
+                    "Local image path or http(s) URL used as a visual anchor. "
+                    "Sent via the API `messages` field (base64 data URL for local files). "
+                    "Improves character/style consistency across a batch; pairs with "
+                    "reference_instruction."
+                ),
+            },
+            "reference_instruction": {
+                "type": "string",
+                "description": (
+                    "Instruction text accompanying reference_image "
+                    "(default: 'Copy this character design and 2D cartoon art style exactly.')"
+                ),
+            },
             "output_path": {"type": "string"},
         },
     }
@@ -118,7 +135,7 @@ class MiniMaxImage(BaseTool):
         cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
     )
     retry_policy = RetryPolicy(max_retries=2, retryable_errors=["rate_limit", "timeout"])
-    idempotency_key_fields = ["prompt", "model", "aspect_ratio", "seed"]
+    idempotency_key_fields = ["prompt", "model", "aspect_ratio", "seed", "reference_image"]
     side_effects = ["writes image file to output_path", "calls MiniMax API"]
     fallback_tools = ["flux_image", "openai_image", "google_imagen"]
     user_visible_verification = ["Inspect generated image for relevance and quality"]
@@ -172,7 +189,41 @@ class MiniMaxImage(BaseTool):
         }
 
         # Optional parameters
-        if inputs.get("prompt_optimizer", True):
+        reference_image = inputs.get("reference_image")
+        if reference_image:
+            import base64
+
+            if reference_image.startswith(("http://", "https://")):
+                ref_url = reference_image
+            else:
+                ref_path = Path(reference_image)
+                if not ref_path.exists():
+                    return ToolResult(
+                        success=False,
+                        error=f"reference_image file not found: {reference_image}",
+                    )
+                mime = "image/png" if ref_path.suffix.lower() == ".png" else "image/jpeg"
+                ref_b64 = base64.b64encode(ref_path.read_bytes()).decode()
+                ref_url = f"data:{mime};base64,{ref_b64}"
+            instruction = inputs.get(
+                "reference_instruction",
+                "Copy this character design and 2D cartoon art style exactly.",
+            )
+            payload["messages"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": ref_url}},
+                        {"type": "text", "text": instruction},
+                    ],
+                }
+            ]
+            # Reference-image mode: prompt_optimizer defaults OFF (verified pipeline
+            # behavior — see projects/outsmart-cn/scripts/gen_all_frames.py);
+            # non-reference mode keeps the original default of ON.
+            if inputs.get("prompt_optimizer", False):
+                payload["prompt_optimizer"] = True
+        elif inputs.get("prompt_optimizer", True):
             payload["prompt_optimizer"] = True
 
         if inputs.get("aspect_ratio"):

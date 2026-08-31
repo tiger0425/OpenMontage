@@ -105,6 +105,8 @@ def main():
     parser_render_assets = subparsers.add_parser(
         'render-assets', help='仅 TTS 合成 + 混音 + SRT（重算力 GPU，建议派发子 Agent）')
     parser_render_assets.add_argument('--video-id', required=True, help='目标视频 ID')
+    parser_render_assets.add_argument('--force-resynth', action='store_true',
+                                      help='强制清空 audio 目录全量重新合成 TTS（默认断点续跑，只补缺失/无效 seg）')
     
     parser_render_video = subparsers.add_parser(
         'render-video', help='仅 FFmpeg 压制 + 片尾 + 归档（重算力，建议派发子 Agent）')
@@ -113,6 +115,8 @@ def main():
     parser_run_heavy = subparsers.add_parser(
         'run-heavy', help='assets + edit + compose 打包一条龙（重算力，建议派发子 Agent）')
     parser_run_heavy.add_argument('--video-id', required=True, help='目标视频 ID')
+    parser_run_heavy.add_argument('--force-resynth', action='store_true',
+                                  help='强制清空 audio 目录全量重新合成 TTS（默认断点续跑，只补缺失/无效 seg）')
 
     # ---- 人审闸门（ticket #8/#9/#11）----
     parser_approve_review = subparsers.add_parser(
@@ -167,11 +171,11 @@ def main():
             print(f"成功: 视频 {args.video_id} 已确认发布并归档到 published/。")
             result = {"command": "confirm-video", "video_id": args.video_id, "success": True, **result}
         elif args.command == 'render-assets':
-            result = runner.render_assets(args.video_id)
+            result = runner.render_assets(args.video_id, force_resynth=getattr(args, 'force_resynth', False))
         elif args.command == 'render-video':
             result = runner.render_video(args.video_id)
         elif args.command == 'run-heavy':
-            result = runner.run_heavy(args.video_id)
+            result = runner.run_heavy(args.video_id, force_resynth=getattr(args, 'force_resynth', False))
         elif args.command == 'approve-review':
             result = runner.approve_review(args.video_id)
         else:

@@ -1,0 +1,289 @@
+name: ref-remake
+version: "0.1.0"
+description: >
+  二创解说管线：输入一条 YouTube 参考视频 URL（兼容本地文件），产出
+  ① 中文竖屏 9:16 二创解说视频（阿黄 + V2 点缀式 + 参考图锚点 + IndexTTS
+  克隆配音 + HyperFrames 合成）；② 双平台成品包（抖音+小红书标题/简介/封面图）；
+  ③ 小红书图文笔记变体（独立干货型：生成原图 + 排版层文字卡片）。
+  结构借鉴+改写中文脚本（红线 0.75/0.45），脚本闸门人审 + 最终质检人审，
+  发布手动。单集为主，超长原片（>8 分钟且内容可分）可选拆 2 集（提案随
+  脚本闸门一并人审）。设计定案见 issues/wayfinder-ref-remake/findings/01。
+category: custom
+stability: beta
+
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: true
+  analysis_depth: standard
+  analysis_tools:
+    - video_downloader
+    - transcriber
+    - scene_detect
+    - frame_sampler
+
+orchestration:
+  mode: guided
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 60
+
+compatible_playbooks:
+  recommended:
+    - ref-remake
+  also_works: []
+  custom_allowed: true
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/ref-remake/fetch-director
+  - pipelines/ref-remake/brief-director
+  - pipelines/ref-remake/script-director
+  - pipelines/ref-remake/scene-director
+  - pipelines/ref-remake/assets-director
+  - pipelines/ref-remake/compose-director
+  - pipelines/ref-remake/review-director
+  - pipelines/ref-remake/package-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+stages:
+
+  # ── Source Ingestion ───────────────────────────────────────────
+
+  - name: fetch
+    skill: pipelines/ref-remake/fetch-director
+    produces:
+      - fetch_report
+      - video_analysis_brief
+    required_tools:
+      - video_downloader
+      - transcriber
+    optional_tools:
+      - scene_detect
+      - frame_sampler
+    tools_available:
+      - video_downloader
+      - transcriber
+      - scene_detect
+      - frame_sampler
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Source video downloaded with verified file integrity (yt-dlp, URL or local file)
+      - Whisper transcription complete with timestamps (transcriber input_path)
+      - Frames sampled for reference analysis (style / scene density)
+      - fetch_report records source_url, video_id, file paths
+      - No hallucinated facts — raw extraction only
+    success_criteria:
+      - fetch_report present with source_url, video_id, and file paths
+      - Transcription JSON contains full text with timestamps
+      - Sampled frames exist for the brief stage analysis
+
+  # ── Brief / Reference Analysis ─────────────────────────────────
+
+  - name: brief
+    skill: pipelines/ref-remake/brief-director
+    required_artifacts_in:
+      - fetch_report
+    optional_artifacts_in:
+      - video_analysis_brief
+    produces:
+      - knowledge_brief
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - 'Reference video analysis (5-aspect: content/pacing/structure/style/hook) for differentiation concepts only — NOT scene-by-scene shots'
+      - Core arguments and key facts extracted from transcript with line references
+      - Split proposal present for >8min divisible sources (when to split / how many / content boundaries)
+      - Adaptation tier locked to 结构借鉴+改写 (see findings/02 red lines)
+      - No creative interpretation yet — raw extraction only
+    success_criteria:
+      - Schema-valid knowledge_brief with core arguments + key facts + split_proposal
+      - All facts have source_transcript_line references
+      - video_analysis_brief recorded if reference analysis ran
+
+  # ── Script (Gate A) ────────────────────────────────────────────
+
+  - name: script
+    skill: pipelines/ref-remake/script-director
+    required_artifacts_in:
+      - knowledge_brief
+    optional_artifacts_in:
+      - fetch_report
+    produces:
+      - script
+      - redline_scan
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Chinese script is an independent rewrite, not line-by-line translation (结构借鉴+改写)
+      - 'Red-line similarity scan attached: single-sentence >=0.75 red, whole-script >=0.45 yellow'
+      - Whitelist respected (core concepts / argument skeleton / case topics only)
+      - Rewrite obligations met (wording, case localization, cultural conversion, hook originality)
+      - Forbidden items absent (literal translation, copied gags, shot recreation, likeness, channel name)
+      - Health/science wording downgraded (no 治疗/治愈/100% claims) — dual-platform compliance
+      - Split proposal from brief reviewed together at this gate
+    success_criteria:
+      - Schema-valid script with narrative sections + visual_direction per section
+      - redline_scan JSON present as gate attachment
+      - Estimated duration recorded (~250 chars/min, by-content length)
+
+  # ── Scene Planning ─────────────────────────────────────────────
+
+  - name: scene_plan
+    skill: pipelines/ref-remake/scene-director
+    required_artifacts_in:
+      - script
+    optional_artifacts_in:
+      - knowledge_brief
+    produces:
+      - scene_plan
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Full script duration covered with no timeline gaps
+      - Scene boundaries follow narration segments (estimated durations at ~250 chars/min)
+      - 'Visual approach per scene: V2 点缀式 (阿黄 focal 60%+, 1-3 necessary icons only)'
+      - No scene describes original footage shots (analysis output not in shots)
+      - Split episodes each get their own scene_plan
+    success_criteria:
+      - Schema-valid scene_plan with continuous windows and per-scene asset requirements
+      - Each scene maps to exact narration words
+
+  # ── Asset Generation ───────────────────────────────────────────
+
+  - name: assets
+    skill: pipelines/ref-remake/assets-director
+    required_artifacts_in:
+      - scene_plan
+      - script
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+      - image_selector
+    optional_tools:
+      - audio_mixer
+    tools_available:
+      - tts_selector
+      - image_selector
+      - audio_mixer
+      - minimax_image
+      - hyperframes_compose
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - 'TTS FIRST: narration segments via IndexTTS cloned voice (voice_ref_futian3.wav, fixed seed 20260825)'
+      - Per-segment duration measured with ffprobe and backfilled into asset_manifest
+      - 'Image generation: V2 style block verbatim (styles/ref-remake.yaml) + reference anchor (background_library/ref-remake/anchor/ahhuang_anchor.png)'
+      - Reference-image mode via minimax_image reference_image param (prompt_optimizer OFF)
+      - Textless images only (no text in AI images; all text via HTML overlay)
+      - 3-4 images per narration segment by semantic split
+      - MiniMax 422 sensitive frames skipped without blocking batch
+      - 'HEAVY STAGE: dispatch to Compute Worker with --json single-line report'
+    success_criteria:
+      - Schema-valid asset_manifest with all required files
+      - All file paths resolve to existing files on disk
+      - narration_segments have measured durations (ffprobe)
+
+  # ── Composition ────────────────────────────────────────────────
+
+  - name: compose
+    skill: pipelines/ref-remake/compose-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - composition_report
+    required_tools:
+      - hyperframes_compose
+      - video_compose
+    optional_tools:
+      - audio_mixer
+    tools_available:
+      - hyperframes_compose
+      - video_compose
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Timeline built from measured TTS durations (word-ratio fallback), not fixed segments
+      - index.html uses textless AI images + HTML text overlay (titles/numbers/captions)
+      - Scene divs use data-layout-allow-overflow; push transitions; old scenes opacity:0; pushWithRank only for ranked badges
+      - Chinese fonts declared via @font-face src local (Noto Sans SC / PingFang SC / Microsoft YaHei)
+      - index.sample.html removed before lint (multiple_root_compositions)
+      - hyperframes lint + validate pass; render --resolution portrait --fps 30
+      - Default NO BGM (audio_mixer only if user requests)
+      - 'HEAVY STAGE: dispatch to Compute Worker with --json single-line report'
+    success_criteria:
+      - Schema-valid composition_report with output path
+      - final.mp4 exists and passes ffprobe validation
+      - hyperframes lint exit 0, hyperframes render exit 0
+      - Duration within +/-5% of script target
+
+  # ── Review (Human Gate) ────────────────────────────────────────
+
+  - name: review
+    skill: pipelines/ref-remake/review-director
+    required_artifacts_in:
+      - composition_report
+      - script
+    optional_artifacts_in:
+      - asset_manifest
+    produces:
+      - final_review
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Frame sampling + MiniMax-M3 visual QA (per-frame tolerance for 422 sensitive frames)
+      - 'Character consistency vs anchor (transparent glasses, yellow capsule, thick outline)'
+      - 'Textless-image rule respected in final frames (no AI-rendered text)'
+      - Visual-to-audio sync frame-accurate
+      - 'Voice fidelity: narration matches cloned reference voice'
+      - 'Dual-platform suitability (9:16, safe areas, no in-video AI badge burned — AI disclosure via publish-time checkbox + platform-side badge)'
+    success_criteria:
+      - Schema-valid final_review with approval status
+      - If rejected, specific revision items listed with target stages
+
+  # ── Package ────────────────────────────────────────────────────
+
+  - name: package
+    skill: pipelines/ref-remake/package-director
+    required_artifacts_in:
+      - composition_report
+      - final_review
+    optional_artifacts_in:
+      - script
+      - asset_manifest
+    produces:
+      - publish_copy
+      - cover_manifest
+      - note_manifest
+      - publish_log
+    tools_available:
+      - export_bundle
+      - minimax_image
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 'Douyin title hook-driven; Xiaohongshu title <=20 chars (official limit)'
+      - Descriptions per platform with AI disclosure statement (正文固定声明 + 发布勾选)
+      - 'Tags: 3-6 (douyin 1-3, xiaohongshu 3-6) — topic + positioning + long-tail'
+      - 'Cover: 3:4 (1080x1440) shared for both platforms, safe-area margins 10-15%'
+      - 'Image-note variant: 6-9 cards (3:4 1080x1440), generated originals + text-card overlay (HTML/PIL compositing)'
+      - 'AI disclosure mandatory: 正文固定「本图文由 AI 辅助生成」 + 发布时平台勾选 AI 生成声明 (标识办法 2025-09-01)'
+      - Export package contains video, cover, metadata JSON, note assets
+    success_criteria:
+      - Schema-valid publish_copy / cover_manifest / note_manifest / publish_log
+      - Export directory contains video, covers, metadata, note images
+      - AI disclosure present in every platform copy

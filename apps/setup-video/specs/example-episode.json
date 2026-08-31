@@ -1,0 +1,36 @@
+{
+  "video": { "game": "Assetto Corsa RALLY", "brand": "skoda", "title": "FABIA RS RALLY2", "track": "Turini", "badge": "MONTE CARLO · TURINI 专用", "team_primary": "#d42a7d" },
+  "drive": { "in": 105.2, "out": 110.2, "crop": "810:1440:875:0", "slowmo": 1.5 },
+  "points": [
+    { "label": "第一招 · 防倾杆 AXLES", "k1": "前 FRONT", "v1": "13650", "u1": "N/m", "k2": "后 REAR", "v2": "23250", "u2": "N/m", "renhua": "后比前硬 70% = 车屁股变活", "evidence_ts": 62.0 },
+    { "label": "第二招 · 差速器 LSD", "k1": "功率/滑行", "v1": "68/85", "u1": "开放 → 稳", "k2": "预载 前/后", "v2": "55/95", "u2": "前松·后紧", "renhua": "前松后紧 = 油门再大不抢方向", "evidence_ts": 64.0 },
+    { "label": "第三招 · 轮胎 WHEELS", "k1": "胎压", "v1": "32.0", "u1": "psi 低压", "k2": "后轮外倾", "v2": "-2.7°", "u2": "大负外倾", "renhua": "低压 + 大外倾 = 黑冰也稳", "evidence_ts": 78.0 }
+  ],
+  "flash": [
+    { "label": "变速箱 · 1档", "img_ts": 10.0 },
+    { "label": "悬挂 · 60000 N/m", "img_ts": 88.0 },
+    { "label": "刹车 · 前硬后软 · 手刹0.8", "img_ts": 92.0 },
+    { "label": "电子 · ABS1 · TCS1", "img_ts": 96.0 }
+  ],
+  "chips": ["变速箱1档", "悬挂六万", "刹车前硬后软"],
+  "narration": {
+    "s1": "跑蒙特卡洛总在黑冰上打滑？别调半天了，抄这三个数就行。",
+    "s2": "第一招防倾杆，前一万三后两万三，后面比前面硬七成，车屁股变活，弯里不推头，冰上跟手。",
+    "s3": "第二招差速器，六八比八五，前面五十五，后面九十五，前松后紧，油门再大方向也不抢。",
+    "s4": "第三招轮胎，三十二低胎压，后轮负二点七外倾，抓地拉满还不跳胎，黑冰也稳。",
+    "s5": "其他照抄别纠结，变速箱一档，悬挂六万，刹车前硬后软，手刹零点八。",
+    "s6": "暂停抄作业，全参数已定格，去跑个圈速吧。"
+  },
+  "table": [
+    { "name": "变速箱 GEARBOX", "value": "1 档" },
+    { "name": "悬挂 SUSPENSIONS", "value": "60000 N/m · 前0.070/后0.065" },
+    { "name": "阻尼 DAMPERS", "value": "5250/8000 · 后回弹7750" },
+    { "name": "防倾杆 AXLES", "value": "13650 / 23250" },
+    { "name": "差速器 DIFFERENTIALS", "value": "68/85 · 55/95 Nm" },
+    { "name": "轮胎 WHEELS", "value": "32 psi · -2.5°/-2.7°" },
+    { "name": "刹车 BRAKES", "value": "前MED/后SOFT · 0.58" },
+    { "name": "电子 ELECTRONICS", "value": "ABS1 · TCS1" }
+  ],
+  "package": { "title": "蒙特卡洛不再打滑的三个数", "desc": "调校数据来自游戏内实截，抄作业请看评论区。" },
+  "notes": "smoke-test episode (skoda 数据)"
+}

@@ -1,0 +1,40 @@
+{
+  "keep_english": [
+    "cortisol",
+    "dopamine",
+    "serotonin",
+    "melatonin",
+    "DNA",
+    "mRNA",
+    "ADHD",
+    "circadian rhythm"
+  ],
+  "translations": {
+    "cortisol": "皮质醇",
+    "dopamine": "多巴胺",
+    "ancestor": "祖先",
+    "ancestral trait": "祖传特征",
+    "procrastination": "拖延症",
+    "sleep deprivation": "睡眠剥夺",
+    "lean": "精瘦",
+    "gut": "肠道",
+    "evolution": "进化",
+    "glitch": "小故障",
+    "almost died": "差点挂掉",
+    "dumb habits": "蠢习惯"
+  },
+  "disclaimer_triggers": [
+    "cancer",
+    "tumor",
+    "medication",
+    "treatment",
+    "cure",
+    "diagnose",
+    "disease",
+    "disorder",
+    "syndrome",
+    "doctor",
+    "prescription"
+  ],
+  "disclaimer_text": "⚠️ 本视频仅供科普参考，不构成医疗建议"
+}

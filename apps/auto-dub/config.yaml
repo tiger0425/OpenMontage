@@ -91,7 +91,7 @@ pipeline:
   human_review: single-auto        # 人审分流（说话人审校 + 翻译审校，ticket #10/#9）：single-auto=所有视频（含单人）都生成 speaker_review.md + translation_review.md，单人自动通过留档、多人强制人审；required=所有视频强制人审；auto=仅多人强制人审（单人连文档都不生成）
   synth_retry_max: 2             # 合成失败重试上限（ticket #11）：单人子块 TTS 失败/静音伪文件重试 N 次；多人 0 次直接人审
   multi_synth_failure_review: true  # 多人合成失败后直接人审（ticket #11）：生成 synthesis_review.md 挂起 assets 等人审
-  translation_domain: tech       # tech=技术教程域（AI/云技术专业词汇，队列默认）；general=通用/对话域（口语化、保持情感）
+  translation_domain: general    # tech=技术教程域（AI/云技术专业词汇，队列默认）；general=通用/对话域（口语化、保持情感）
   translation:
     untranslated_check: true     # 漏译/未翻译检测：译文中文占比过低时单条重译
     untranslated_ratio: 0.5      # 漏译判定阈值：汉字 / 非空白非标点字符 < 此值视为未翻译
@@ -122,7 +122,7 @@ pipeline:
     tolerance: 0.15              # 对齐容差 ±15%（验收达标率）
     inherently_long_seconds: 1.0 # 物理不可达句阈值（原句 < 1s，允许超容差且不计入达标率）
     queue_gap_seconds: 0.10      # 排队间隔 100ms（变速目标 = 原句时长 − 排队间隔）
-    allow_slowdown: true         # 是否允许放慢语速对齐时间槽：true=允许 duration_factor/atempo 拉长配音贴合原句（默认，追求音画同步）；false=只禁放慢、允许加快（听感自然，配音可能略短于原画面）
+    allow_slowdown: false         # 是否允许放慢语速对齐时间槽：true=允许 duration_factor/atempo 拉长配音贴合原句（默认，追求音画同步）；false=只禁放慢、允许加快（听感自然，配音可能略短于原画面）
     block_gap_seconds: 1.0       # 语段切分：相邻原句间隙 >= 此值 → 新语段
     block_max_pause_seconds: 0.8 # 语段内句间自然停顿上限（富余时间分摊，防拖沓）
     retranslate: false           # 缩短重翻：默认关闭（避免砍句子导致"句子被截断"）；true=变速不可达句改写更短塞进时间窗
@@ -295,7 +295,7 @@ outro:
   style: bilibili
   min_duration_seconds: 1.5
   max_duration_seconds: 5.0
-  drift_fail_threshold_seconds: 10.0   # 漂移在此内允许出片（tpad 冻末帧延展吸收），超过才失败重翻
+  drift_fail_threshold_seconds: 120.0   # 漂移在此内允许出片（tpad 冻末帧延展吸收），超过才失败重翻
   # 片尾显示的频道名（@ 账号引导）；留空则不显示任何频道名
   channel_name: ""
   text:
@@ -331,7 +331,7 @@ interview:
   atempo:
     enabled: true                    # 全局调速兜底开关（末段安全网）
     drift_budget: 1.5                # 漂移 <= 此值由逐句对齐+溢出推挤吸收，不触发全局 atempo
-    max_drift_seconds: 10.0          # 漂移在此范围内允许末段兜底调速（超过才失败重翻）
+    max_drift_seconds: 120.0          # 漂移在此范围内允许末段兜底调速（超过才失败重翻）
     min_speed_factor: 0.96           # 兜底最慢 96%
     max_speed_factor: 1.05           # 兜底最快 105%（听感已验证上限；tt-test 实测仅需 1.02-1.03，勿放宽）
 

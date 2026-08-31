@@ -1,0 +1,90 @@
+identity:
+  name: ref-remake
+  category: custom
+  mood: "warm, humorous, clean, minimal, curious (二创解说: 阿黄 Yellow Blob on off-white)"
+  pace: moderate
+  best_for: "参考视频 → 中文竖屏 9:16 二创解说视频：阿黄点缀式风格，MiniMax image-01 生图（无字底稿）+ HyperFrames 合成。抖音+小红书双平台。"
+
+visual_language:
+  color_palette:
+    primary:
+      - "#F7C948"   # 阿黄主体黄
+      - "#1A1A1A"   # 粗黑圆角描边
+    accent:
+      - "#C33B2E"   # 强调红（小道具/警示）
+      - "#8AB4F8"   # 辅助蓝（信息图标）
+    background: "#FCFBF7"   # 米白底
+    text: "#1A1A1A"
+    muted: "#8A8A8A"
+  composition: "阿黄为绝对焦点：居中、占画面 60%+。背景只放 1-3 个『讲内容必需』的小图标/小道具作点缀（内容相关），禁止完整房间、场景堆砌、人群、街道建筑。大量留白。竖屏 9:16。"
+  texture: "2D flat cartoon doodle：纯平涂色块、粗黑圆角描边、无渐变、无 3D/CGI/真实光影，干净扁平的插画质感"
+
+typography:
+  headings:
+    font: "Noto Sans SC / PingFang SC / Microsoft YaHei (system sans, bold)"
+    weight: 700
+    tracking: "0.01em"
+  body:
+    font: "Noto Sans SC / PingFang SC / Microsoft YaHei (system sans)"
+    weight: 400
+  stat_card:
+    font: "Noto Sans SC / PingFang SC / Microsoft YaHei (system sans, bold)"
+    weight: 700
+
+motion:
+  transitions:
+    - "场景间用 HyperFrames push 转场；带 rank 徽章的场景用 pushWithRank，结尾场景用普通 push"
+    - "场景 div 加 data-layout-allow-overflow（push 转场溢出是预期的）"
+    - "转场后旧场景设 opacity:0"
+  animation_style: "轻点缀式动效：阿黄主体可微动（呼吸感/轻微位移），内容相关小图标随旁白入场；禁花哨堆叠。所有文字由 HTML 层叠加（无字底稿原则），标题/数字/字幕走排版层。"
+  pacing_rules:
+    simple_beat_seconds: "2-3"
+    standard_beat_seconds: "4-8"
+    complex_beat_seconds: "8-12"
+    reveal_beat_seconds: "up to 15"
+    total_tolerance_percent: 5
+  entrance: "小图标 fade/slide 随对应旁白句入场，主体保持居中稳定"
+  exit: "无退出动效；转场由 HyperFrames push 处理"
+
+audio:
+  voice_style: "IndexTTS2 克隆音色 voice_ref_futian3.wav，固定 seed=20260825，中文口播 ~250 字/分，语速偏快，按内容定长"
+  music_mood: "默认无 BGM（纯解说）；用户指定时才挂载轻量 BGM（-18dB 以下）"
+  music_volume: 0
+  sfx_style: "无默认 SFX；用户指定时可选"
+  ducking_threshold_db: -18
+  voice_variation_allowed: false
+
+asset_generation:
+  image_prompt_prefix: >-
+    2D flat cartoon doodle illustration, pure off-white background (#FCFBF7),
+    thick black rounded outline strokes, flat solid colors, no gradients,
+    no 3D, no CGI, no realistic shading, no realistic lighting, no clutter,
+    no busy background, minimal clean composition, lots of white space,
+    no text, no letters, no numbers, no words, no watermark.
+    The EXACT same yellow capsule blob character with black round glasses
+    as in the reference image. Same character design, same art style,
+    same outline thickness, transparent lens glasses showing eyes.
+    Character is the clear focal point, fills 60 percent of the frame, centered.
+    With at most 3 small simple icons or props beside as minimal decorations,
+    vertical 9:16 portrait layout.
+  image_negative_prompt: "3D, CGI, realistic shading, realistic lighting, gradients, clutter, busy background, full room furniture, crowds, street scenes, text, letters, numbers, words, watermark, sunglasses (墨镜化)"
+  consistency_anchors:
+    - "锚点图 background_library/ref-remake/anchor/ahhuang_anchor.png（MiniMax image-01 messages 参考图，base64 data URL）"
+    - "reference_instruction: 'Copy this character design and 2D cartoon art style exactly.'（经工具 reference_image 参数传入）"
+    - "参考图模式下 prompt_optimizer 默认 OFF（已验证管线行为）"
+    - "每次生图必须完整包含上方 image_prompt_prefix 风格块，缺一不可（防 3D / 防墨镜 / 防堆砌）"
+
+quality_rules:
+  - "生图必须为无字底稿：AI 图内不得出现任何文字，中文文字全部由 HyperFrames HTML 层叠加"
+  - "主体突出：阿黄占画面 50%+、居中；点缀元素 ≤3 个且与内容相关"
+  - "背景干净：非满屏环境、非纯白单主体（V1/V1.5 均否决）"
+  - "角色一致性：对照锚点图，眼镜透明镜片能看到眼睛、黄色胶囊身形、粗黑描边一致"
+  - "MiniMax 422 sensitive 帧跳过即可，不阻塞整批"
+  - "index.sample.html 残留会触发 lint multiple_root_compositions，用后必删"
+  - "中文需要 @font-face { src: local(...) } 声明（Noto Sans SC / PingFang SC / Microsoft YaHei），否则 lint 报错"
+  - "build_index 类脚本的 index.html 路径必须是 OpenMontage 根目录相对路径（workdir 在根目录运行）"
+  - "AI 标识：成片不烧录角标（保持画面专业）；发布时双平台勾选『AI 生成』声明，平台侧自动叠加角标（《标识办法》2025-09-01，findings/05：创作者侧以勾选声明为主，无需自绘角标）"
+  - "科普/健康类措辞规避绝对化断言（禁 治疗/治愈/100% 等），降级为『有研究显示』级别"
+
+overrides:
+  max_deviation_ratio: 0.2

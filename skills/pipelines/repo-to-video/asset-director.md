@@ -29,18 +29,29 @@ Use the SAME file for every segment (no mid-episode voice drift).
 **Segmentation:** Split narration by scene (one WAV per scene). Use sentence
 boundaries (`.。！？`) as split points.
 
-For each scene, call `tts_selector` → `indextts_tts`:
+> ⚠️ **MANDATORY — 先读 `apps/indextts-bridge/CALLING.md` 再调 IndexTTS。**
+> 2.5 下**禁止传 `emo_vector`**（即使 calm 向量）——会触发情感-音色混合
+> `emovec_mat + (1-sum)*emovec`，削弱声纹，导致**男声被克隆成女声**。
+> 正确路径：用统一客户端 `apps/indextts-bridge/client.py → IndexTTSSession`
+> （自动处理 UTF-8 / 情感纯净 / lang / duration_factor / GPU 锁）。
+
+For each scene, use the unified client (`emotion="calm"` → 纯净克隆，不传 emo_vector):
 ```python
-tts.infer(
-    spk_audio_prompt="D:/index-tts/my_voice.wav",  # user's cloned voice
-    text="scene narration text",
-    output_path=f"seg_{scene_index:03d}.wav",
-    emo_vector=[0, 0, 0, 0, 0, 0, 0, 1.0],  # calm=1.0 (documentary read)
-    use_fp16=True
-)
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "indextts_client", r"E:\YifuAIForge\OpenMontage\apps\indextts-bridge\client.py")
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+with _mod.IndexTTSSession(
+    voice_ref="D:/index-tts/my_voice.wav",  # user's cloned voice
+    model_version="2.5", lang="ZH", emotion="calm",
+) as tts:
+    tts.synthesize("scene narration text", f"seg_{scene_index:03d}.wav")
 ```
-> 语义：显式传 `emo_vector` = 固定 calm 情感、关闭自动文字判情感。repo-to-video
-> 要求平稳知识解读，禁止自动情感跳跃。
+> 语义：`emotion="calm"` 在 2.5 下**不传任何情感参数**（官方纯净克隆，保声纹）。
+> repo-to-video 要求平稳知识解读，禁止自动情感跳跃；如需自动判情感才用
+> `emotion="auto"`（需服务端 `--use-qwen-emo`）。
 
 Save WAVs to:
 ```

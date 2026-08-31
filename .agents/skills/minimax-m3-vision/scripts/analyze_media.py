@@ -336,6 +336,10 @@ def build_prompt(paths: list[str], user_prompt: str) -> str:
 
     if user_prompt:
         parts.append(user_prompt)
+        # 自定义 prompt 已自带输出格式要求时，不再追加默认 JSON 格式，
+        # 避免两个冲突的输出规范导致模型随机二选一（2026-08-28 setup-video 管线踩坑根因）。
+        if "JSON" not in user_prompt and "json" not in user_prompt:
+            parts.append('请以结构化JSON格式输出。')
     else:
         if images and not videos:
             parts.append("请分析这张图片的内容，包括：主体对象、场景环境、构图、色彩、文字内容（如有）。以结构化JSON格式输出。")
@@ -343,15 +347,14 @@ def build_prompt(paths: list[str], user_prompt: str) -> str:
             parts.append("请分析这个视频的内容，包括：场景描述、时间线上的变化、关键视觉元素。以结构化JSON格式输出。")
         elif images and videos:
             parts.append("请分析这些图片和视频的内容，描述它们之间的关系和整体叙事。以结构化JSON格式输出。")
-
-    parts.append(
-        "请严格按照以下JSON格式输出（不要使用<think>标签，不要使用markdown代码块，直接输出纯JSON）：\n"
-        '{"summary": "总体描述", '
-        '"scenes": [{"timestamp": "时间戳或序号", "description": "描述", '
-        '"elements": ["关键元素1", "关键元素2"]}], '
-        '"details": {"composition": "构图分析", "colors": "色彩分析", '
-        '"text_content": "文字内容（如有）", "objects": ["检测到的对象列表"]}}'
-    )
+        parts.append(
+            "请严格按照以下JSON格式输出（不要使用<think>标签，不要使用markdown代码块，直接输出纯JSON）：\n"
+            '{"summary": "总体描述", '
+            '"scenes": [{"timestamp": "时间戳或序号", "description": "描述", '
+            '"elements": ["关键元素1", "关键元素2"]}], '
+            '"details": {"composition": "构图分析", "colors": "色彩分析", '
+            '"text_content": "文字内容（如有）", "objects": ["检测到的对象列表"]}}'
+        )
     return "\n".join(parts)
 
 

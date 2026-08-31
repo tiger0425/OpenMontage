@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{SERIES_NAME}} · {{TITLE_FULL}}</title>
+  <style>
+    :root {
+      --color-bg: #FAFAFA;
+      --color-fg: #1A1A2E;
+      --color-accent: #E94560;
+      --color-primary: #6366F1;
+      --color-secondary: #34A853;
+      --font-heading: 'Space Grotesk', 'Noto Sans SC', sans-serif;
+    }
+    @font-face { font-family: 'Space Grotesk'; src: local('Microsoft YaHei'); }
+    @font-face { font-family: 'Noto Sans SC'; src: local('Microsoft YaHei'); }
+    body { margin: 0; background: #FAFAFA; }
+    #root {
+      position: relative; width: 1920px; height: 1080px; overflow: hidden;
+      font-family: var(--font-heading); color: var(--color-fg);
+    }
+    .bg {
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(circle at 30% 20%, #EEF0F6 0%, #FAFAFA 60%, #F1F5F9 100%),
+        linear-gradient(rgba(26,26,46,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(26,26,46,0.05) 1px, transparent 1px);
+      background-size: cover, 90px 90px, 90px 90px;
+    }
+    .eyebrow {
+      position: absolute; top: 120px; left: 0; width: 100%; text-align: center;
+      font-size: 40px; font-weight: 700; color: #64748B; letter-spacing: 0.35em;
+    }
+    .main-title {
+      position: absolute; top: 260px; left: 0; width: 100%; text-align: center;
+      font-size: 150px; font-weight: 800; color: #1A1A2E; letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    .main-title .accent { color: #E94560; }
+    .subtitle {
+      position: absolute; top: 520px; left: 0; width: 100%; text-align: center;
+      font-size: 54px; font-weight: 600; color: #334155;
+    }
+    .subtitle .hl { color: #E94560; font-weight: 800; }
+    .plug-row { position: absolute; left: 380px; top: 720px; display: flex; gap: 40px; }
+    .plug {
+      width: 200px; height: 88px; border-radius: 22px; display: flex; align-items: center; justify-content: center;
+      font-size: 26px; font-weight: 700; color: #FAFAFA; box-shadow: 0 10px 24px rgba(26,26,46,0.15);
+    }
+    .plug-1 { background: #E94560; }
+    .plug-2 { background: #6366F1; }
+    .plug-3 { background: #34A853; }
+    .ring {
+      position: absolute; right: 260px; top: 660px; width: 260px; height: 260px; border-radius: 50%;
+      border: 14px solid transparent;
+      border-top-color: #E94560; border-right-color: #6366F1;
+      border-bottom-color: #34A853; border-left-color: #F59E0B;
+      box-shadow: 0 0 60px rgba(233,69,96,0.3);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ring span { font-size: 66px; font-weight: 800; color: #1A1A2E; }
+    .series-bar {
+      position: absolute; bottom: 70px; left: 0; width: 100%; text-align: center;
+      font-size: 32px; color: #64748B; letter-spacing: 0.25em;
+    }
+    .series-bar .dot { color: #E94560; font-weight: 800; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-start="0" data-duration="2" data-width="1920" data-height="1080">
+    <div class="bg"></div>
+    <div class="eyebrow">{{SERIES_NAME}}</div>
+    <div class="main-title">{{TITLE_MAIN}} = <span class="accent">{{TITLE_ACCENT}}</span></div>
+    <div class="subtitle"><span class="hl">{{DURATION_LABEL}}</span> {{SUBTITLE}}</div>
+    <div class="plug-row">
+      <div class="plug plug-1">{{PLUG_1}}</div>
+      <div class="plug plug-2">{{PLUG_2}}</div>
+      <div class="plug plug-3">{{PLUG_3}}</div>
+    </div>
+    <div class="ring"><span>{{RING_LABEL}}</span></div>
+    <div class="series-bar">{{SERIES_NAME}}<span class="dot"> · </span>{{SERIES_TOPIC}}<span class="dot"> · </span>{{EPISODE_LABEL}}</div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(".main-title", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.1);
+      tl.fromTo(".subtitle", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.35);
+      tl.fromTo(".eyebrow", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.45);
+      tl.fromTo(".plug-1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 0.6);
+      tl.fromTo(".plug-2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 0.72);
+      tl.fromTo(".plug-3", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 0.84);
+      tl.fromTo(".ring", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 0.7);
+      tl.fromTo(".series-bar", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1.2);
+      window.__timelines["root"] = tl;
+    </script>
+  </div>
+</body>
+</html>

@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN" data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"视频标题"},
+  {"id":"channel","type":"string","label":"Channel","default":""},
+  {"id":"frame_url","type":"string","label":"FrameUrl","default":""},
+  {"id":"cover_style","type":"string","label":"CoverStyle","default":"vlogger"},
+  {"id":"author_name","type":"string","label":"AuthorName","default":""},
+  {"id":"author_title","type":"string","label":"AuthorTitle","default":""},
+  {"id":"author_badges","type":"array","label":"AuthorBadges","default":[]}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Bilibili 原视频帧封面模板 (9:16) - source-frame</title>
+    <style>
+      /* 引入项目内共享资料库的顶级字体（与 cover_vertical.html 保持一致） */
+      @font-face {
+        font-family: 'NotoSansSC';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/NotoSansSC-Black.ttf') format('truetype');
+        font-weight: 900;
+      }
+      @font-face {
+        font-family: 'Oswald';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/Oswald-Bold.ttf') format('truetype');
+        font-weight: 700;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'NotoSansSC', system-ui, -apple-system, sans-serif;
+        background-color: #040208;
+        overflow: hidden;
+      }
+
+      #root {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+      }
+
+      /* ==================== 全幅背景帧 (无 3D 旋转) ==================== */
+      .frame-bg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1080px;
+        height: 1920px;
+        object-fit: cover;
+        z-index: 1;
+      }
+
+      /* ==================== 暗化渐变 (保障顶部/底部文字可读) ==================== */
+      .gradient-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+      }
+      #root.theme-vlogger .gradient-overlay {
+        background: linear-gradient(
+          to bottom,
+          rgba(8, 5, 26, 0.72) 0%,
+          rgba(8, 5, 26, 0.10) 30%,
+          rgba(8, 5, 26, 0.10) 55%,
+          rgba(8, 5, 26, 0.85) 100%
+        );
+      }
+      #root.theme-frugal_red .gradient-overlay {
+        background: linear-gradient(
+          to bottom,
+          rgba(26, 2, 4, 0.72) 0%,
+          rgba(26, 2, 4, 0.10) 30%,
+          rgba(26, 2, 4, 0.10) 55%,
+          rgba(26, 2, 4, 0.92) 100%
+        );
+      }
+      #root.theme-hardcore_dark .gradient-overlay {
+        background: linear-gradient(
+          to bottom,
+          rgba(2, 8, 26, 0.72) 0%,
+          rgba(2, 8, 26, 0.10) 30%,
+          rgba(2, 8, 26, 0.10) 55%,
+          rgba(0, 2, 6, 0.92) 100%
+        );
+      }
+
+      /* ==================== 顶部身份信息 ==================== */
+      .top-section {
+        position: absolute;
+        top: 90px;
+        left: 0;
+        width: 1080px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        z-index: 10;
+      }
+
+      .author-card {
+        background: rgba(7, 5, 20, 0.88);
+        border: 2px solid rgba(102, 139, 255, 0.45);
+        border-radius: 12px;
+        padding: 8px 32px;
+        color: #ffffff;
+        font-size: 24px;
+        font-weight: 900;
+        letter-spacing: 1px;
+      }
+
+      .badges-row {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .badge-pill {
+        background: rgba(8, 6, 26, 0.9);
+        border: 1px solid rgba(40, 30, 105, 0.5);
+        border-radius: 10px;
+        padding: 6px 20px;
+        color: #9cb8ff;
+        font-size: 20px;
+        font-weight: 900;
+      }
+
+      /* ==================== 底部 3D 标题大字 (放在暗化区域，可读) ==================== */
+      .title-block {
+        position: absolute;
+        bottom: 220px;
+        left: 60px;
+        right: 60px;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        z-index: 10;
+      }
+
+      .title-line {
+        font-size: 96px;
+        font-weight: 900;
+        line-height: 1.15;
+        margin: 0;
+        text-align: left;
+        paint-order: stroke fill;
+      }
+
+      /* vlogger 大V金立体 */
+      #root.theme-vlogger .title-line {
+        color: #ffffff;
+        -webkit-text-stroke: 2px #000000;
+        text-shadow:
+          1px 1px 0px #e6c300,
+          2px 2px 0px #cca300,
+          3px 3px 0px #b38f00,
+          4px 4px 0px #997a00,
+          5px 5px 0px #806600,
+          6px 6px 15px rgba(0, 0, 0, 0.95);
+      }
+      #root.theme-vlogger .gold-text {
+        background: linear-gradient(to bottom, #ffe600 20%, #ff8800 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* frugal_red 爆裂红黄立体 */
+      #root.theme-frugal_red .title-line {
+        color: #ffffff;
+        -webkit-text-stroke: 2px #2b0002;
+        text-shadow:
+          1px 1px 0px #ff3333,
+          2px 2px 0px #e62e2e,
+          3px 3px 0px #cc2929,
+          4px 4px 0px #b32424,
+          5px 5px 0px #991f1f,
+          6px 6px 15px rgba(0, 0, 0, 0.95);
+      }
+      #root.theme-frugal_red .gold-text {
+        background: linear-gradient(to bottom, #ffea00 20%, #ff9500 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      #root.theme-frugal_red .title-line:not(.gold-text) {
+        background: linear-gradient(to bottom, #ff3333 20%, #bd0000 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* hardcore_dark 极客青绿发光立体 */
+      #root.theme-hardcore_dark .title-line {
+        color: #ffffff;
+        -webkit-text-stroke: 2px #021a36;
+        text-shadow:
+          1px 1px 0px #00ffcc,
+          2px 2px 0px #00e6b8,
+          3px 3px 0px #00cc9f,
+          4px 4px 0px #00b38b,
+          5px 5px 0px #009977,
+          6px 6px 15px rgba(0, 255, 204, 0.35);
+      }
+      #root.theme-hardcore_dark .gold-text {
+        background: linear-gradient(to bottom, #00f0ff 20%, #0077ff 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* ==================== 底部金句 + 金色饰条 ==================== */
+      .footer-quote {
+        position: absolute;
+        bottom: 90px;
+        left: 0;
+        width: 1080px;
+        color: #facc15;
+        font-size: 22px;
+        font-weight: 900;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        text-align: center;
+        z-index: 10;
+      }
+      .footer-quote::before {
+        content: "💬";
+      }
+
+      .bottom-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 10px;
+        background-color: #ffd700;
+        z-index: 100;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="cover_source_frame" data-no-timeline data-width="1080" data-height="1920" data-start="0" data-duration="0.1">
+
+      <!-- 全幅原视频帧 -->
+      <img id="frame-bg" class="frame-bg" alt="原视频帧" crossorigin="anonymous" />
+
+      <!-- 暗化渐变 -->
+      <div class="gradient-overlay"></div>
+
+      <!-- 顶部身份 -->
+      <div class="top-section">
+        <div class="author-card" id="author-info">
+          频道
+        </div>
+        <div class="badges-row" id="badges-container">
+          <!-- 动态载入标签 -->
+        </div>
+      </div>
+
+      <!-- 底部 3D 标题 -->
+      <div class="title-block" id="title-lines">
+        <!-- 动态加载标题行 -->
+      </div>
+
+      <!-- 底部金句 -->
+      <div class="footer-quote" id="footer-text">
+        中文AI配音 · 一键追番
+      </div>
+
+      <!-- 底部金色饰条 -->
+      <div class="bottom-bar"></div>
+
+    </div>
+
+    <script>
+      const v = window.__hyperframes.getVariables();
+
+      const coverStyle = v.cover_style || "vlogger";
+      document.getElementById("root").className = "theme-" + coverStyle;
+
+      const frameBg = document.getElementById("frame-bg");
+      if (v.frame_url) {
+        frameBg.src = v.frame_url;
+      }
+
+      if (v.author_name && v.author_title) {
+        document.getElementById("author-info").textContent = `${v.author_title} | ${v.author_name}`;
+      } else if (v.channel) {
+        document.getElementById("author-info").textContent = `频道 · ${v.channel}`;
+      }
+
+      const badgesContainer = document.getElementById("badges-container");
+      badgesContainer.innerHTML = "";
+      const badgesToUse = (v.author_badges && v.author_badges.length > 0) ? v.author_badges : [];
+      badgesToUse.forEach(badgeText => {
+        const pill = document.createElement("span");
+        pill.className = "badge-pill";
+        pill.textContent = badgeText;
+        badgesContainer.appendChild(pill);
+      });
+
+      if (coverStyle === "frugal_red") {
+        document.getElementById("footer-text").textContent = "中文AI翻译 · 完全免费";
+      } else if (coverStyle === "hardcore_dark") {
+        document.getElementById("footer-text").textContent = "代码终端实操 · 拒绝假大空";
+      } else {
+        document.getElementById("footer-text").textContent = "中文AI配音 · 一键追番";
+      }
+
+      const titleLinesContainer = document.getElementById("title-lines");
+      titleLinesContainer.innerHTML = "";
+
+      let rawTitle = v.title || "视频标题";
+      let lines = rawTitle.split("\n");
+
+      lines.forEach((lineText, idx) => {
+        if (!lineText.trim()) return;
+        const h1 = document.createElement("h1");
+        h1.className = "title-line";
+        h1.textContent = lineText.trim();
+
+        if (idx > 0 || lineText.startsWith("/")) {
+          h1.classList.add("gold-text");
+        }
+        titleLinesContainer.appendChild(h1);
+      });
+    </script>
+  </body>
+</html>

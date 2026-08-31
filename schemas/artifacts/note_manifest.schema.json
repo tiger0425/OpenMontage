@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "openmontage/artifacts/note_manifest",
   "title": "Note Manifest",
-  "description": "面料教育笔记产出清单。记录核心长文、多平台适配版本和配图信息。",
+  "description": "图文笔记产出清单（通用）。记录核心长文、多平台适配版本和配图信息。ref-remake 用于小红书图文笔记（独立干货型：生成原图 + 排版层文字卡片）；fabric-education 的面料教育笔记同样兼容。",
   "type": "object",
-  "required": ["version", "core_article", "platform_versions", "fabric_origin_image"],
+  "required": ["version", "core_article", "platform_versions"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "core_article": {
@@ -21,7 +21,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["xiaohongshu", "wechat_public", "zhihu", "moments", "bilibili"],
+            "enum": ["xiaohongshu", "douyin", "wechat_public", "zhihu", "moments", "bilibili"],
             "description": "目标平台"
           },
           "title": { "type": "string", "minLength": 1 },
@@ -44,20 +44,31 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "educational_role"],
+        "required": ["path"],
         "properties": {
           "path": { "type": "string" },
+          "role": {
+            "type": "string",
+            "description": "配图角色（通用）：ref-remake 用 card（文字卡片图），fabric-education 用 educational_role 值（microscopic_detail/comparison_diagram/care_label_explained/test_scene/diagram）"
+          },
           "educational_role": {
             "type": "string",
-            "enum": ["microscopic_detail", "comparison_diagram", "care_label_explained", "test_scene", "diagram"],
-            "description": "配图的教育角色"
+            "description": "教育角色（fabric-education 兼容字段）"
+          },
+          "card_point": {
+            "type": "string",
+            "description": "卡片承载的要点文字（ref-remake：排版层叠加的要点，1-2 句）"
+          },
+          "source_image": {
+            "type": "string",
+            "description": "生成原图路径（ref-remake：文字卡片合成前的底图）"
           },
           "description": { "type": "string", "description": "配图说明，用于标注" }
         },
         "additionalProperties": false
       }
     },
-    "fabric_origin_image": { "type": "string", "description": "用户原始面料图片路径" },
+    "fabric_origin_image": { "type": "string", "description": "用户原始面料图片路径（fabric-education 专用，可选）" },
     "metadata": { "type": "object" }
   },
   "additionalProperties": false

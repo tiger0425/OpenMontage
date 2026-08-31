@@ -221,4 +221,56 @@ LLM 对"贴近 X 字"的软约束遵守度不稳定。三层保障：
 - 静态单帧封面在 `#root` 上补 `data-no-timeline` 可跳过 45s 的 timeline 轮询超时
 - 字体 `url('/e:/...')` 绝对路径在渲染 file server 下 404，会回退系统字体；如需精确字体，放到模板同目录用相对路径
 
+## ✂️ 赞助商广告裁剪 — 实战经验 (Sponsor-Segment Trimming, 2026-08-26)
+
+> 来源：`auto-dub-xBByvFrqmWU`（Fireship，片尾 50s BlueDot 广告口播）。
+
+### 铁律 D：裁剪切点必须按「中文配音时间轴」选，不是英文词级时间戳
+
+- 串行排队混音使**中文配音整体比英文原声顺延**（本例英文 "grift." 278.60s 结束，对应中文配音 279.19s 才结束）
+- ❌ 按 `transcript.json` 词级时间戳切（278.65s）→ 切掉最后半句中文配音
+- ✅ 切点 = 上一段中文配音 `end_time` 与下一段 `start_time` 之间的 100ms 间隙（查 `segment_timings.json`）
+- 字幕同理：确认 SRT 条目边界（重同步后的时间轴与配音一致），切点处字幕条应刚好结束
+
+### 裁剪操作流程（成品后处理，无需重跑管线）
+
+1. `transcript.json` 词级时间戳定位广告边界（含引入过渡句，如 "But if you want to..."）
+2. `segment_timings.json` 找中文配音安全切点（两句配音之间的静音隙）
+3. 一条 ffmpeg 完成 裁剪+片尾拼接（**必须 concat filter 重编码**，禁止 demuxer+copy；outro fps 与主片不一致时先 `fps=24000/1001` 归一）：
+   `[0:v]trim=end=<T>,setpts=PTS-STARTPTS[v0];[0:a]atrim=end=<T>,asetpts=PTS-STARTPTS[a0];[1:v]fps=24000/1001,...;[v0][a0][v1][a1]concat=n=2:v=1:a=1`
+4. 校验：时长 = 切点 + outro 时长；包级 pts 跳变扫描（阈值 1.5s）零跳变
+5. 替换 `review/<频道>/<标题>/*.mp4`
+
+### 裁剪后必须同步清理的残留
+
+- `_meta.json` 与 `_简介.txt` 中的**赞助商链接**（如 bluedot.org）→ 不清会被 B站判定营销内容
+- ⚠️ 已知 bug：`pipeline_automator.py` 简介翻译 prompt 中 `原视频: [original English title]` 是字面占位符，LLM 会原样输出 → 已修复为嵌入真实标题；旧产物需人工修正
+
+## 🖼️ 封面模板动态布局 — 实战经验 (Cover Dynamic Layout, 2026-08-26)
+
+> 来源：`auto-dub-xBByvFrqmWU` 封面重构（默认模板 cover.html / cover_4_3.html / cover_vertical.html）。
+
+### 原封面卡片：容器比例必须与图一致，否则 object-fit: cover 裁切
+
+- ❌ 正方形/4:3 容器 + `object-fit: cover` 放 16:9 原封面 → 两侧大幅裁切（标题文字、人脸被切）
+- ✅ 卡片内容区严格 16:9（如 16:9 模板：img 1000×563 + padding 16 + border 4 = 1040×603）
+- 主题色背板（底与外框同色系）：wrapper 加 `padding + border + linear-gradient 背板`，边框透明度 0.35→0.55
+- 倾斜旋转：`transform: perspective(...) rotateY(-10deg) rotateX(2deg) rotate(-2.5deg)`（2D rotate 叠加在 3D 之上）
+
+### 竖屏 9:16：卡片必须进内容流，禁止底部绝对定位
+
+- ❌ `.poster-3d-wrapper { position: absolute; bottom: 120px }` → 短标题时中间空一大片
+- ✅ 卡片移入 `.content` flex 流（标题之后、金句之前），`margin: 60px auto 0`，标题多长卡片跟多远
+- `.content` 用 `justify-content: center` 整体垂直居中（`padding-top: 80px` 轻微上偏补偿底部饰条）
+
+### 横屏 16:9 / 4:3：footer 的 margin-top:auto 是居中杀手
+
+- `.left-section` 虽有 `justify-content: center`，但 `.footer-quote { margin-top: auto }` 会**吸干全部自由空间**，把标题群组顶到区块顶部（表现为"固定在左上角"）
+- ✅ footer 改固定间距（16:9 用 60px、4:3 用 48px），标题群组才真正垂直居中且随标题长度动态平衡
+
+### panel-label 避让原封面自带元素
+
+- 「原片 · 频道」标签默认左下角，会压住原封面自带的角标（如 The Code Report logo）→ 竖屏模板移到右下角；横屏模板默认已在右下
+- 重渲单张封面：复刻 `_render_single_cover_image`（临时目录放 index.html + thumb.jpg → `npx hyperframes render --quality high --variables <json>` → ffmpeg 抽首帧），变量与流水线一致（title/channel/cover_style/thumb_path）
+
 

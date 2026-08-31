@@ -32,8 +32,8 @@ class LLMClient:
         self.provider = None
         self._client = None
         
-        # 1. 优先使用 DeepSeek (由于 DEEPSEEK_V4_API_KEY 已配置)
-        deepseek_key = os.environ.get("DEEPSEEK_V4_API_KEY")
+        # 1. 优先使用 DeepSeek (DEEPSEEK_V4_API_KEY 或 DEEPSEEK_API_KEY 任一即可)
+        deepseek_key = os.environ.get("DEEPSEEK_V4_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
         if _OPENAI_AVAILABLE and deepseek_key:
             self.provider = "deepseek"
             self._client = OpenAI(
@@ -70,7 +70,7 @@ class LLMClient:
             json_mode: 是否强制以 JSON 格式返回 (仅在模型支持时有效)
         """
         if not self.is_available():
-            raise RuntimeError("LLM 客户端不可用，请配置 API 密钥（DEEPSEEK_V4_API_KEY 或 GOOGLE_API_KEY）。")
+            raise RuntimeError("LLM 客户端不可用，请配置 API 密钥（DEEPSEEK_V4_API_KEY / DEEPSEEK_API_KEY 或 GOOGLE_API_KEY）。")
 
         if self.provider == "deepseek":
             return self._generate_deepseek(prompt, system_instruction, json_mode)
@@ -108,14 +108,14 @@ class LLMClient:
                 config["response_mime_type"] = "application/json"
             
             response = self._client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=prompt,
                 config=config
             )
             return response.text
         else:
             # 旧版 SDK
-            model_name = "gemini-2.0-flash"
+            model_name = "gemini-2.5-flash"
             model = self._client.GenerativeModel(
                 model_name,
                 system_instruction=system_instruction

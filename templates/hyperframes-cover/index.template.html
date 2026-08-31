@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{SERIES_NAME}} · {{TITLE_FULL}}</title>
+  <style>
+    :root {
+      --color-bg: #0F172A;
+      --color-fg: #F8FAFC;
+      --color-accent: #7C3AED;
+      --color-primary: #4F46E5;
+      --color-secondary: #EC4899;
+      --color-cyan: #06B6D4;
+      --font-heading: 'Space Grotesk', 'Noto Sans SC', sans-serif;
+    }
+    @font-face { font-family: 'Space Grotesk'; src: local('Space Grotesk'); }
+    @font-face { font-family: 'Noto Sans SC'; src: local('Microsoft YaHei'); }
+    body { margin: 0; background: #0F172A; }
+    #root {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: var(--font-heading);
+      color: var(--color-fg);
+    }
+    .bg-gradient {
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 30% 28%, #1E1B4B 0%, #0F172A 55%, #020617 100%);
+    }
+    .bg-glow {
+      position: absolute; inset: -300px;
+      background: radial-gradient(circle at 50% 45%, rgba(124,58,237,0.45) 0%, rgba(124,58,237,0) 60%);
+    }
+    .bg-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.08) 1px, transparent 1px);
+      background-size: 90px 90px;
+    }
+    .deco { position: absolute; border-radius: 50%; filter: blur(3px); }
+    .deco-1 { width: 300px; height: 300px; left: 5%; top: 62%; background: rgba(124,58,237,0.28); }
+    .deco-2 { width: 180px; height: 180px; right: 8%; top: 8%; background: rgba(236,72,153,0.24); }
+    .deco-3 { width: 110px; height: 110px; left: 60%; top: 82%; background: rgba(6,182,212,0.3); }
+    .eyebrow {
+      position: absolute; top: 120px; left: 0; width: 100%; text-align: center;
+      font-size: 34px; font-weight: 700; color: #A5B4FC; letter-spacing: 0.4em;
+    }
+    .main-title {
+      position: absolute; top: 260px; left: 0; width: 100%; text-align: center;
+      font-size: 150px; font-weight: 800; letter-spacing: -0.02em; color: #F8FAFC;
+      text-shadow: 0 0 70px rgba(124,58,237,0.6), 0 0 140px rgba(79,70,229,0.35);
+    }
+    .main-title .accent {
+      background: linear-gradient(180deg, #C4B5FD 0%, #7C3AED 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 40px rgba(139,92,246,0.5));
+    }
+    .subtitle {
+      position: absolute; top: 500px; left: 0; width: 100%; text-align: center;
+      font-size: 52px; font-weight: 600; color: #E2E8F0;
+    }
+    .subtitle .hl { color: #67E8F9; font-weight: 800; }
+    .plug-row { position: absolute; left: 360px; top: 700px; display: flex; gap: 36px; }
+    .plug {
+      width: 170px; height: 85px; border-radius: 22px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 700; color: #F8FAFC;
+      box-shadow: 0 14px 36px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.28);
+      border: 1px solid rgba(255,255,255,0.14);
+    }
+    .plug-1 { background: linear-gradient(145deg, #8B5CF6, #6D28D9); }
+    .plug-2 { background: linear-gradient(145deg, #6366F1, #4338CA); }
+    .plug-3 { background: linear-gradient(145deg, #F472B6, #DB2777); }
+    .ring {
+      position: absolute; right: 280px; top: 640px;
+      width: 260px; height: 260px; border-radius: 50%;
+      border: 14px solid transparent;
+      border-top-color: #8B5CF6; border-right-color: #EC4899;
+      border-bottom-color: #6366F1; border-left-color: #22D3EE;
+      box-shadow: 0 0 70px rgba(124,58,237,0.5), inset 0 0 50px rgba(124,58,237,0.2);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ring span {
+      font-size: 64px; font-weight: 800;
+      background: radial-gradient(circle at 50% 50%, rgba(124,58,237,0.35), transparent 70%);
+      text-shadow: 0 0 40px rgba(167,139,250,0.9);
+    }
+    .series-bar {
+      position: absolute; bottom: 60px; left: 0; width: 100%; text-align: center;
+      font-size: 30px; color: #94A3B8; letter-spacing: 0.25em;
+    }
+    .series-bar .dot { color: #7C3AED; font-weight: 800; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-start="0" data-duration="2" data-width="1920" data-height="1080">
+    <div class="bg-gradient"></div>
+    <div class="bg-glow"></div>
+    <div class="bg-grid"></div>
+    <div class="deco deco-1"></div>
+    <div class="deco deco-2"></div>
+    <div class="deco deco-3"></div>
+    <div class="eyebrow">{{SERIES_NAME}}</div>
+    <div class="main-title">{{TITLE_MAIN}} = <span class="accent">{{TITLE_ACCENT}}</span></div>
+    <div class="subtitle"><span class="hl">{{DURATION_LABEL}}</span> {{SUBTITLE}}</div>
+    <div class="plug-row">
+      <div class="plug plug-1">{{PLUG_1}}</div>
+      <div class="plug plug-2">{{PLUG_2}}</div>
+      <div class="plug plug-3">{{PLUG_3}}</div>
+    </div>
+    <div class="ring"><span>{{RING_LABEL}}</span></div>
+    <div class="series-bar">{{SERIES_NAME}}<span class="dot"> · </span>{{SERIES_TOPIC}}<span class="dot"> · </span>{{EPISODE_LABEL}}</div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(".main-title", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.8)" }, 0.1);
+      tl.fromTo(".subtitle", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.4);
+      tl.fromTo(".eyebrow", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.5);
+      tl.fromTo(".plug-1", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(2)" }, 0.7);
+      tl.fromTo(".plug-2", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(2)" }, 0.9);
+      tl.fromTo(".plug-3", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(2)" }, 1.1);
+      tl.fromTo(".ring", { opacity: 0, scale: 0.5, rotation: -20 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.5)" }, 0.8);
+      tl.fromTo(".series-bar", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 1.3);
+      window.__timelines["root"] = tl;
+    </script>
+  </div>
+</body>
+</html>

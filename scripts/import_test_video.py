@@ -10,8 +10,8 @@ sys.path.insert(0, str(OMO_ROOT / "apps" / "auto-dub"))
 
 from batch.dedup_db import DedupDB
 
-VIDEO_ID = "Fu8NE9LU3ao"
-URL = "https://www.youtube.com/watch?v=Fu8NE9LU3ao"
+VIDEO_ID = "zxo2ogcGwng"
+URL = "https://www.youtube.com/watch?v=zxo2ogcGwng"
 
 # 1. yt-dlp 拉元数据
 cmd = [

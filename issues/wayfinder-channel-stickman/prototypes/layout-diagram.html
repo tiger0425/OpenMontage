@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>柴米场景布局分布图 · 9:16 契约</title>
+<style>
+  body { font-family:"Microsoft YaHei",sans-serif; background:#EEE; margin:0; padding:24px; display:flex; flex-direction:column; align-items:center; }
+  h1 { font-size:18px; margin-bottom:4px; }
+  .sub { color:#666; font-size:13px; margin-bottom:16px; }
+  .stage { position:relative; width:360px; height:640px; background:#F5F2EC; border:2px solid #999; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+  .zone { position:absolute; border:2px dashed; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; text-align:center; color:#555; }
+  #bg        { top:0; left:0; right:0; bottom:0; border-color:#AAA; color:#999; background:repeating-linear-gradient(45deg,#faf8f4,#faf8f4 12px,#f4f1ea 12px,#f4f1ea 24px); }
+  #subject   { top:60px; left:200px; width:133px; height:240px; border-color:#FF7A45; background:rgba(255,122,69,.10); color:#C0501F; }
+  #stickman  { top:207px; left:100px; width:87px; height:207px; border-color:#1A1A1A; background:rgba(26,26,26,.06); color:#1A1A1A; }
+  #caption   { bottom:70px; left:30px; right:30px; height:70px; border-color:#7A9E4E; background:rgba(122,158,78,.10); color:#4A6E28; }
+  #ai        { top:14px; right:14px; width:78px; height:26px; border-color:#8A5A9E; background:rgba(138,90,158,.12); color:#6B3D7E; font-size:10px; }
+  #ep        { top:14px; left:14px; width:64px; height:26px; border-color:#5A7A9E; background:rgba(90,122,158,.12); color:#2F5277; font-size:10px; }
+  #occl_top  { top:0; left:0; right:0; height:40px; background:rgba(120,120,120,.18); border-bottom:1px dashed #888; color:#555; font-size:10px; display:flex; align-items:center; justify-content:center; }
+  #occl_bot  { bottom:0; left:0; right:0; height:40px; background:rgba(120,120,120,.18); border-top:1px dashed #888; color:#555; font-size:10px; display:flex; align-items:center; justify-content:center; }
+  .legend { margin-top:14px; font-size:12px; line-height:1.9; color:#333; }
+  .legend b { margin-right:4px; }
+  .stickman-svg { position:absolute; top:220px; left:110px; width:70px; height:190px; }
+</style>
+</head>
+<body>
+<h1>柴米场景布局分布图 · 9:16（1080×1920 等比缩放）</h1>
+<div class="sub">坐标即契约：背景只填内容，位置全部按本图叠放（compose 阶段确定性执行，不依赖 AI 摆位）</div>
+
+<div class="stage">
+  <div class="zone" id="bg">AI 背景图（铺满全帧，内容倾向中上偏右）</div>
+  <div class="zone" id="occl_top">抖音/小红书 顶部 UI 遮挡安全区（约 40px）</div>
+  <div class="zone" id="ep">集数角标 EP.N/总集数</div>
+  <div class="zone" id="ai">AI 生成标识（强制）</div>
+  <div class="zone" id="subject">讲解对象位<br>（器官图/货架/图表）<br>中上偏右 · 高度≥1/3帧</div>
+  <div class="zone" id="stickman">柴米安全位<br>（站立/讲解）</div>
+  <svg class="stickman-svg" viewBox="0 0 240 320" stroke="#1A1A1A" stroke-width="10" fill="none">
+    <title>柴米火柴人占位</title>
+    <circle cx="120" cy="58" r="34" fill="#FFF"/>
+    <line x1="120" y1="96" x2="120" y2="172"/>
+    <line x1="120" y1="112" x2="80" y2="152"/>
+    <line x1="120" y1="112" x2="160" y2="152"/>
+    <line x1="120" y1="172" x2="98" y2="246"/>
+    <line x1="120" y1="172" x2="142" y2="246"/>
+  </svg>
+  <div class="zone" id="caption">字幕安全区（排版层叠字，2行内）</div>
+  <div class="zone" id="occl_bot">底部 UI 遮挡安全区（约 40px）</div>
+</div>
+
+<div class="legend">
+  <b style="color:#1A1A1A">■ 柴米安全位</b> 中左偏中：x=300–560（1080宽），y=620–1240（1920高），身高≈620px（约1/3帧）<br>
+  <b style="color:#C0501F">■ 讲解对象位</b> 中上偏右：x=600–1000，y=180–900；高度 ≥ 1/3 帧（≥640px）<br>
+  <b style="color:#4A6E28">■ 字幕安全区</b> 底部：x=90–990，y=1560–1750（避开底部 UI 遮挡）<br>
+  <b style="color:#6B3D7E">■ AI 标识</b> 右上角 78×26；<b style="color:#2F5277">■ 集数角标</b> 左上角 64×26<br>
+  <b style="color:#888">■ 遮挡安全区</b> 上下各 40px 不得放关键内容<br>
+  <b>执行规则</b>：AI 背景仅需「画面填满 + 主体内容偏中上」，不要求精确位置；柴米/字幕/角标按坐标硬叠（HTML/FFmpeg 排版层）。
+</div>
+</body>
+</html>

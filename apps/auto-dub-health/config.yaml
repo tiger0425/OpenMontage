@@ -1,0 +1,277 @@
+# ============================================================
+# Auto-Dub 健康短视频搬运实例（独立于 AI 教程管线）
+#
+# 用途：搬运 @Simran.selects 健康饮食/护肤类 YouTube Shorts
+#       中文配音 → 抖音 + 小红书（竖屏）
+#
+# 隔离说明：本配置拥有独立的数据库与输出目录，
+#           与 apps/auto-dub/config.yaml（AI 教程）互不影响。
+# 调用方式：python bin/auto_dub.py --config apps/auto-dub-health/config.yaml <子命令>
+# ============================================================
+
+# ============================================================
+# 频道订阅列表（只订阅健康频道）
+# ============================================================
+channels:
+  - name: "Simran Selects"
+    url: "https://www.youtube.com/@Simran.selects"
+    content_type: "shorts"     # Shorts-only 频道，无 videos 页
+    scan_mode: "flat"          # 快扫列表（几秒拿全部标题+播放量），避免逐条全量元数据超时
+    max_videos: 131            # 拉取全部 Shorts 历史（健康内容长青，便于挑爆款）
+
+# ============================================================
+# 搜索关键词（留空：本实例只做频道订阅搬运，不跑关键词搜索）
+# ============================================================
+keywords: []
+
+# ============================================================
+# 筛选规则（针对 30~60s 的 Shorts 调整）
+# ============================================================
+filters:
+  min_duration_seconds: 0      # 0=不设下限，纳入所有 Shorts
+  max_duration_seconds: 180    # 3 分钟（YouTube Shorts 上限）
+  max_age_days: 3650           # 10 年：健康内容是长青选题，不过滤旧片
+  exclude_languages: ["zh"]    # 排除已是中文的视频
+  # LLM 内容相关性判断 prompt（健康选题分类器）
+  relevance_prompt: |
+    你是一个视频内容分类器。请判断以下 YouTube 视频是否属于
+    「健康饮食 / 营养 / 护肤 / 养生」类选题，例如：
+    1. 食物对比与更健康的选择（好 vs 更好、平替、食物交换）
+    2. 减肥 / 增重饮食建议
+    3. 维生素、矿物质、营养素与补剂
+    4. 器官健康（肝、肾、肠道、甲状腺等）饮食
+    5. 皮肤 / 头发 / 护肤饮食
+    6. 食材挑选技巧（水果、蔬菜、种子、坚果等）
+
+    视频标题: {title}
+    视频描述: {description}
+
+    只回答 yes 或 no。
+
+# ============================================================
+# 管线参数（健康内容域）
+# ============================================================
+pipeline:
+  name: localization-dub
+  target_language: zh-CN
+  source_language: en-US
+  tts_engine: indextts
+  tts_emotion: calm
+  tts_model_version: "2.5"
+  tts_lang: ""
+  tts_use_qwen_emo: false
+  # 混音：replace=整轨替换（健康短片无游戏声，直接用中文配音替换原声）
+  mix_mode: replace
+  game_audio_volume: 1.05
+  # 字幕：bottom=烧在画面底部
+  subtitle_mode: bottom
+  subtitle_split_sentences: true   # 自动把一句里多个内容项拆成多条字幕（健康对比短内容防「两页同显」）
+  subtitle_driven: off
+  whisper_model: large-v3
+  min_char_budget: 15
+  subtitle_style: "中文+术语英文标注"
+  output_format: "9:16"        # 竖屏（注：该键当前未被编码读取，源竖屏自动保留）
+  render_runtime: ffmpeg
+  diarize: auto
+  human_review: single-auto     # 生成 speaker/translation 审校文档，单人自动通过、多人强制人审
+  synth_retry_max: 2
+  multi_synth_failure_review: true
+  translation_domain: health     # 健康域：口语化 + 医疗宣称合规改写（规则见 _build_translation_rules）
+  translation:
+    untranslated_check: true
+    untranslated_ratio: 0.5
+    cps_safety_factor: 0.7
+  segments:
+    enabled: true
+    merge_max_chars: 240
+    micro_duration_seconds: 1.0
+    micro_chars: 40
+    split_threshold_seconds: 15.0
+  voice_ref:
+    target_seconds: 30.0
+    min_seconds: 6.0
+    sweet_min: 1.5
+    sweet_max: 12.0
+    long_cap: 15.0
+  alignment:
+    merge_gap_seconds: 0.5
+    max_utterance_seconds: 15.0
+    chunk_max_chars: 40
+    tempo_budget: 0.05
+    tolerance: 0.15
+    inherently_long_seconds: 1.0
+    queue_gap_seconds: 0.10
+    block_gap_seconds: 1.0
+    block_max_pause_seconds: 0.8
+    retranslate: false
+
+# ============================================================
+# 自动审核
+# ============================================================
+auto_review:
+  max_fix_loops: 3
+  checks:
+    idea:
+      - brief_schema_valid
+      - target_language_set
+      - source_language_detected
+    script:
+      - transcript_not_empty
+      - translation_completeness
+      - glossary_terms_preserved
+      - no_untranslated_sentences
+    scene_plan:
+      - all_scenes_have_timing
+      - dub_mode_set
+      - subtitle_format_correct
+
+# ============================================================
+# 术语表（健康饮食/营养/护肤域，保证多视频翻译一致性）
+# ============================================================
+glossary:
+  user_glossary_path: "apps/auto-dub-health/user_glossary.json"
+  domains:
+    - name: "health"
+      triggers: ["vitamin", "food", "diet", "nutrition", "skin", "weight", "supplement", "organ", "liver", "kidney", "health", "fiber", "protein"]
+      terms:
+        "antioxidant": "抗氧化"
+        "antioxidants": "抗氧化剂"
+        "omega-3": "欧米伽-3"
+        "collagen": "胶原蛋白"
+        "probiotics": "益生菌"
+        "gut health": "肠道健康"
+  # 不翻译，保留英文原文（健康领域常见保留词）
+  keep_english:
+    - Omega-3
+    - Collagen
+    - Probiotics
+    - Chia
+    - Quinoa
+    - Kale
+    - Detox
+    - Keto
+  # 固定翻译映射
+  translations:
+    antioxidant: "抗氧化"
+    antioxidants: "抗氧化剂"
+    vitamin: "维生素"
+    vitamin C: "维生素C"
+    vitamin D: "维生素D"
+    vitamin B12: "维生素B12"
+    omega-3: "欧米伽-3"
+    omega-3 fatty acids: "欧米伽-3脂肪酸"
+    collagen: "胶原蛋白"
+    probiotics: "益生菌"
+    prebiotics: "益生元"
+    fiber: "膳食纤维"
+    protein: "蛋白质"
+    carbohydrates: "碳水化合物"
+    carbs: "碳水"
+    sugar: "糖"
+    calories: "卡路里"
+    metabolism: "新陈代谢"
+    immunity: "免疫力"
+    digestion: "消化"
+    gut health: "肠道健康"
+    bloating: "腹胀"
+    inflammation: "炎症"
+    blood sugar: "血糖"
+    cholesterol: "胆固醇"
+    weight loss: "减肥"
+    weight gain: "增重"
+    hydration: "补水"
+    skin: "皮肤"
+    skincare: "护肤"
+    hair: "头发"
+    hair loss: "脱发"
+    acne: "痘痘"
+    detox: "排毒"
+    diet: "饮食"
+    nutrition: "营养"
+    nutrient: "营养素"
+    nutrients: "营养素"
+    supplement: "补剂"
+    supplements: "补剂"
+    deficiency: "缺乏"
+    iron: "铁"
+    calcium: "钙"
+    zinc: "锌"
+    magnesium: "镁"
+    potassium: "钾"
+    electrolyte: "电解质"
+    heartburn: "烧心"
+    thyroid: "甲状腺"
+    liver: "肝脏"
+    kidney: "肾脏"
+    organs: "器官"
+    seeds: "种子"
+    nuts: "坚果"
+    millet: "小米"
+    chia seeds: "奇亚籽"
+    watermelon: "西瓜"
+    guava: "番石榴"
+    blueberry: "蓝莓"
+    serum: "精华"
+    serums: "精华"
+
+# ============================================================
+# 批量处理
+# ============================================================
+batch:
+  max_per_run: 15
+  download_quality: "best"
+  search_max_results: 10
+
+# ============================================================
+# 片尾配置
+# ============================================================
+outro:
+  engine: hyperframes
+  style: bilibili
+  min_duration_seconds: 1.5
+  max_duration_seconds: 5.0
+  drift_fail_threshold_seconds: 10.0
+  channel_name: ""
+  text:
+    thanks: "感谢观看"
+    cta: "觉得有用，欢迎点赞 · 收藏 · 关注"
+
+# ============================================================
+# 封面图配置（竖屏 9:16，抖音/小红书）
+# 注：合成阶段会自动生成 16:9 / 4:3 / 9:16 三种尺寸封面，
+#     其中 9:16 竖屏封面由 cover_vertical.html 自动产出。
+# ============================================================
+cover:
+  engine: hyperframes
+  template: cover_vertical.html
+  width: 1080
+  height: 1920
+  channel_templates: {}
+
+# ============================================================
+# 访谈类视频分类与调速配置（健康短片基本不触发，保留默认）
+# ============================================================
+interview:
+  enabled: true
+  classification:
+    min_duration_seconds: 180
+  atempo:
+    enabled: true
+    drift_budget: 1.5
+    max_drift_seconds: 10.0
+    min_speed_factor: 0.96
+    max_speed_factor: 1.05
+
+# ============================================================
+# 输出路径（独立目录，与 AI 教程管线隔离）
+# ============================================================
+output:
+  base_dir: "projects/auto-dub-health"
+  review_dir: "projects/auto-dub-health/review"
+  published_dir: "projects/auto-dub-health/published"
+
+# ============================================================
+# 数据库（独立，与 AI 教程管线隔离）
+# ============================================================
+database:
+  path: "projects/auto-dub-health/tracking.db"

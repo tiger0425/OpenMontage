@@ -85,13 +85,42 @@ Each chapter maps to a script section's `start_seconds`.
 
 ### Step 5: Package Export
 
-Use the `export_bundle` tool (capability `publish`) to do the packaging
-deterministically — pass it the final `video_path` (from `render_report`), the
-`title`, and the metadata you prepared (`description`, `tags`, `hashtags`,
-`chapters`, optional `subtitles_path` and `thumbnail_path`/`thumbnail_concept`).
-It lays out the export directory, writes the metadata files, and returns a
-schema-valid `publish_log` (`status: "exported"`) in `data["publish_log"]` that
-you persist as the stage artifact.
+> ⚠️ **必须先完成 Step 4b（封面/标题自动生成），再打包**——封面与标题是门面，禁止从成片抽帧当封面（见 `lessons-learned.md` 铁律 F）。
+
+### Step 4b: 封面与标题自动生成（MANDATORY）
+
+用仓库工具自动产出封面和标题，**不要**手搓或从成片抽帧：
+
+```bash
+# 1. 标题候选（B 站 hook 公式：反直觉/悬念/求知 三式）
+python bin/make_title.py --topic "<主题词>" --claim "<核心结论>" \
+    --duration "<时长承诺>" --partition "编程" \
+    [--file "<悬念对象>"] [--surprise "<意外>"] [--misconception "<误解>"]
+
+# 2. 设计封面（渲染模板 → hyperframes snapshot → PNG）
+python bin/make_cover.py --project <project> \
+    --series "<系列名>" --topic "<系列主题>" --episode "第 N 节" \
+    --title-main "<主标题前半>" --title-accent "<主标题 accent>" \
+    --duration "<时长>" --subtitle "<副标题>" \
+    [--plugs "A,B,C"] [--ring "能力"]
+
+# 3. 视觉审封面（必做）：minimax-m3-vision 确认文字清晰/无裁切/吸睛
+python .agents/skills/minimax-m3-vision/scripts/analyze_media.py \
+    projects/<project>/renders/cover_design.png -p "..."
+```
+
+产出：
+- `projects/<project>/renders/cover_design.png` —— 设计封面（export_bundle 的 `thumbnail_path`）
+- 标题候选 JSON（选一个/让用户挑，作为 `title`）
+
+工具位置：`bin/make_title.py`、`bin/make_cover.py`；模板：`templates/hyperframes-cover/index.template.html`。
+铁律与配方：`skills/pipelines/explainer/lessons-learned.md` → 铁律 F。
+
+### Step 5b: Package Export（原 Step 5）
+
+> ⚠️ **必须先完成 Step 4b（封面/标题自动生成），再打包**——封面与标题是门面，禁止从成片抽帧当封面（见 `lessons-learned.md` 铁律 F）。
+
+用 `export_bundle` 工具（capability `publish`）做确定性打包——把最终 `video_path`（来自 `render_report`）、定稿 `title`（Step 4b）和元数据（`description`、`tags`、`hashtags`、`chapters`、`thumbnail_path` = Step 4b 的设计封面）传给它。它布局导出目录、写元数据文件，返回 schema-valid 的 `publish_log`（`status: "exported"`）在 `data["publish_log"]`，直接持久化为阶段 artifact。
 
 It produces this structure:
 
@@ -136,6 +165,20 @@ provider.
   ]
 }
 ```
+
+### Step 5c: 生成交付包（MANDATORY — 用户只认这一个文件夹）
+
+用 `bin/make_deliverables.py` 产出 `projects/<name>/deliverables/`——**用户要求最终成品集中在一个文件夹、全部顶层、文案一份搞定**（铁律 G）：
+
+```bash
+python bin/make_deliverables.py --project <name> \
+    --title "<定稿标题>" --description "<简介>" \
+    --chapters "0:00 标题,0:10 标题,..." --tags "标签1,标签2,..." \
+    [--series "<系列>"] [--episode "第 N 节"] [--cost "0.00"] [--duration "101.5s"]
+```
+
+产出（4 件套，全顶层）：`final.mp4` + `cover.png` + `发布文案.txt`（标题/简介/章节/标签一份搞定）+ `README.md`。
+这是**用户侧唯一交付入口**——上传 B 站从这个文件夹取件，不要让他们去翻 renders/exports/artifacts。
 
 ### Step 7: Self-Evaluate
 

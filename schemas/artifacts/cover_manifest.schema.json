@@ -11,6 +11,18 @@
       "type": "object",
       "minProperties": 1,
       "properties": {
+        "douyin": {
+          "type": "object",
+          "required": ["path", "resolution"],
+          "properties": {
+            "path": { "type": "string", "description": "Relative path to cover image within renders/" },
+            "resolution": { "type": "string", "const": "1080x1440" },
+            "aspect_ratio": { "type": "string", "const": "3:4" },
+            "main_image_source": { "type": "string", "description": "Project-internal asset used as img2img init_image" },
+            "text_overlay_applied": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        },
         "bilibili": {
           "type": "object",
           "required": ["path", "resolution"],

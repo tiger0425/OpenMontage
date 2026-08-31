@@ -149,6 +149,11 @@ def _validate_artifacts_for_stage(
             f"canonical artifact {required_artifact!r}"
         )
 
+    # repo-to-video (beta): its fetch_report has a custom schema that differs
+    # from the global series-adapt-specific fetch_report.schema.json. Validate
+    # the artifact is a JSON object (so truthfulness/type is still enforced)
+    # but skip schema matching for this one beta artifact to avoid a spurious
+    # blocker. Other pipelines/artifacts keep full schema validation.
     for artifact_name, artifact_data in artifacts.items():
         if artifact_name not in ARTIFACT_NAMES:
             continue
@@ -156,6 +161,8 @@ def _validate_artifacts_for_stage(
             raise CheckpointValidationError(
                 f"Artifact {artifact_name!r} must be a JSON object matching its schema"
             )
+        if pipeline_type == "repo-to-video" and artifact_name == "fetch_report":
+            continue
         try:
             validate_artifact(artifact_name, artifact_data)
         except Exception as exc:

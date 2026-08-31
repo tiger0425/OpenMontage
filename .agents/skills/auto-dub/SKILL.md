@@ -243,6 +243,13 @@ IndexTTS2 短句真实 cps（3.1-4.2）远低于长文本校准值（~5.8），�
 - 渲染后输出 16:9 母图到 `review/` 与 `published/` 的 `{中文标题}_cover.png`
 - 更多排版/渲染避坑见 `skills/pipelines/localization-dub/lessons-learned.md` →「系列封面设计」章节
 
+**默认模板动态布局基线（2026-08-26 重构，三画幅统一）**：
+
+- 右侧原封面卡片：内容区严格 16:9（完整显示不裁切）+ 主题色渐变背板（与外框同色系）+ `rotate(-2.5deg)` 倾斜 + 保留 3D 透视
+- 9:16 竖屏（cover_vertical.html）：卡片在 `.content` flex 流内紧跟标题（`margin: 60px auto 0`），整体 `justify-content: center` 动态居中——**禁止**底部绝对定位
+- 16:9 / 4:3：`.footer-quote` 用固定 `margin-top`（60px/48px），**不要 `margin-top: auto`**（会把标题群组顶到左上角）
+- 详细经验见 `skills/pipelines/localization-dub/lessons-learned.md` →「封面模板动态布局」
+
 ### 方式 B：AI 生图工具直接生成标题党封面（推荐用于高流量选题）
 
 2026-08-03 验证可行，效果优于模板。流程：
@@ -373,6 +380,23 @@ pipeline:
 | "标记 {video_id} 已发布" | `python bin/auto_dub.py mark-done {video_id}` |
 | "有哪些视频还没完成" | 查询 `tracking.db` 中非 `published` 状态的视频 |
 | "添加频道/播放列表" | 修改 `config.yaml` 中的 `channels` 列表 |
+| "处理这个视频 {YouTube URL}"（单个 URL） | 见下方「单个视频 URL 入库流程」 |
+
+### 单个视频 URL 入库流程（CLI 无 add 命令，2026-08-26 验证）
+
+`scan` 只扫 config 里的频道，单个 URL 需手动入库：
+
+1. `yt-dlp --skip-download --print "%(id)s|%(title)s|%(channel)s|%(duration)s|%(language)s|%(upload_date)s" <URL>` 获取元数据
+2. 人工核对筛选规则（时长 180-1200s、非中文、时效），符合则插入 `tracking.db`：
+   ```sql
+   INSERT INTO videos (video_id,url,title,channel,channel_url,duration_seconds,published_at,language,status,discovered_at)
+   VALUES (<id>,<url>,<title>,<channel>,<channel_url>,<dur>,<date>,<lang>,'pending',datetime('now'))
+   ```
+3. **关键**：`process` 只取 `status='queued'` 的视频（不是 `pending`！）→ 手动 `UPDATE videos SET status='queued' WHERE video_id=<id>`
+4. `python bin/auto_dub.py process`（轻任务：下载→转录→翻译→script+scene_plan）
+5. 按输出提示派发 Compute Worker 执行 `run-heavy --video-id <id> --json`
+
+⚠️ 库中可能有历史遗留的 `processing` 状态视频（中断产物），`process` 不会碰它们，无需处理。
 
 ---
 

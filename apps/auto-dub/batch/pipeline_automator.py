@@ -35,8 +35,8 @@ if sys.platform == 'win32':
         except Exception:
             pass
 
-# 单调时钟（跨平台），用于心跳耗时/ETA 计算
-from time import monotonic as _monotonic
+# 单调时钟（跨平台），用于心跳耗时/ETA 计算；_sleep 用于失败重试退避
+from time import monotonic as _monotonic, sleep as _sleep
 
 # 添加 OpenMontage 根目录和 auto-dub 根目录到 Python 路径
 OMO_ROOT = Path(__file__).resolve().parents[3]
@@ -228,6 +228,12 @@ class PipelineAutomator:
         # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
         #           none=不烧字幕（只生成 SRT 字幕文件留档）
         self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
+        # 开头 disclaimer 横条（ticket #77）：仅 health_biology 域 + glossary 含 disclaimer_text 时启用；
+        # intro_disclaimer_seconds 缺省 3.0s，向后兼容 tech/interview 等其他域（保持零行为）。
+        self.intro_disclaimer_text = self._load_intro_disclaimer_text(config)
+        self.intro_disclaimer_seconds = float(
+            config.get("pipeline", {}).get("intro_disclaimer_seconds", 3.0)
+        )
         # 视频级 metadata 覆盖（DB videos.metadata JSON；PipelineAutomator 收到时可能是字符串）
         _vid_meta = video.get("metadata") or {}
         if isinstance(_vid_meta, str):
@@ -361,6 +367,104 @@ class PipelineAutomator:
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.audio_dir.mkdir(parents=True, exist_ok=True)
         self.renders_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_intro_disclaimer_text(self, config: dict) -> str:
+        """读取开头 disclaimer 文字（ticket #77）。
+
+        触发条件（双闸门）：
+        1. config.pipeline.translation_domain == "health_biology"
+        2. user_glossary.json 顶层 disclaimer_text 字段非空
+
+        两条件都满足时返回文字本身；任一不满足返回空串 → 调用方据此跳过叠加。
+        返回空串时是正常行为（非错），调用方不报警。
+
+        为什么不做"宽口径"判定：当 user_glossary_hb.json 有 disclaimer_text 时无条件启用？
+        → tech / interview 域如果未来挂了带 disclaimer_text 的 glossary，也不该误触发。
+        → 翻译域 = 真正的语义判断点（"这类视频是否需要健康警告"），更稳。
+        """
+        domain = str(config.get("pipeline", {}).get("translation_domain", "tech")).strip().lower()
+        if domain != "health_biology":
+            return ""
+        try:
+            user_data = self.glossary._load_user_glossary() or {}
+        except Exception:
+            return ""
+        text = user_data.get("disclaimer_text") if isinstance(user_data, dict) else ""
+        if not isinstance(text, str):
+            return ""
+        return text.strip()
+
+    def _build_intro_disclaimer_filter(self) -> str:
+        """构造开头 disclaimer 横条的 ffmpeg video filter（ticket #77）。
+
+        视觉设计（健康警告类样式）：
+        - 底部黑色 80% 半透明横条（drawbox，宽=iw，高=80px，固定像素便于阅读）
+        - 居中文字：白字 + 黄色边框（bordercolor=yellow, borderw=2）
+        - 仅前 intro_disclaimer_seconds 秒显示（enable=between(t,0,N)）
+
+        Returns:
+            "" 表示禁用；非空为可直接拼到 video_filter 后的 filter 串。
+
+        实现说明：
+        - 用 ih/iw 自适应视频分辨率（避免硬编码 1920x1080）
+        - 字号 36 适合 1080p；4K 屏 36 偏小但可读
+        - drawtext 必需 fontfile（中文字体）；fallback 链：msyh.ttc → simhei.ttf → simsun.ttc
+        - 文本需转义 `\\` `:` `'` `%`，避免 ffmpeg filter 解析错误
+        """
+        if not self.intro_disclaimer_text or self.intro_disclaimer_seconds <= 0:
+            return ""
+
+        # 字体 fallback（Windows 系统字体，中文支持）
+        font_path = ""
+        for candidate in (
+            r"C:/Windows/Fonts/msyh.ttc",       # 微软雅黑
+            r"C:/Windows/Fonts/simhei.ttf",      # 黑体
+            r"C:/Windows/Fonts/simsun.ttc",      # 宋体
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # Linux fallback（健康类部署常见）
+        ):
+            if Path(candidate).exists():
+                font_path = candidate
+                break
+        if not font_path:
+            logging.warning("[intro_disclaimer] 找不到中文字体，跳过 disclaimer 叠加")
+            return ""
+
+        # ffmpeg filter 转义：先把路径统一为正斜杠，再对 : 和 \ 转义
+        # （ffmpeg filter graph 中 `\:` 表示字面冒号；`\\` 表示字面反斜杠）
+        safe_font = font_path.replace("\\", "/").replace(":", "\\:")
+
+        # 文本转义（drawtext text='...' 内部）：反斜杠必须最早 escape，
+        # 否则后续 \\\\ 转义会被前面的反斜杠吃掉。
+        safe_text = (
+            self.intro_disclaimer_text
+            .replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "\\'")
+            .replace("%", "\\%")
+        )
+
+        bar_h = 80      # 横条高度（像素，drawbox 内 t=fill）
+        fontsize = 36   # 字号（px）
+        # drawbox 占满底部 bar_h 像素；drawtext 在条内垂直居中。
+        # 表达式要点：
+        #   1. drawtext 的 x/y 用 `av_expr` 解析，**只识别 w/h**（不带 i- 前缀），
+        #      drawbox 接受 iw/ih 但 drawtext 不接受 → 必须分开写。
+        #   2. av_expr 把 () 视为函数调用，只有 drawtext 内部已知"常量"才合法；
+        #      `(w-text_w)/2` 是常见写法。
+        #   3. drawbox **必须也加 enable**（ticket #77 语义是开头 N 秒出现），
+        #      否则全片都有黑底横条，破坏"开头 3 秒"的时效性。
+        #      注意：drawbox 的 enable 表达式里**逗号需转义**（filter graph 用 `,`
+        #      作分隔符，需写成 `\\,` 让 ffmpeg 解析器把它识别为表达式内字符）。
+        enable_expr = f"between(t\\,0\\,{self.intro_disclaimer_seconds:.2f})"
+        return (
+            f"drawbox=x=0:y=ih-{bar_h}:w=iw:h={bar_h}:color=black@0.8:t=fill:"
+            f"enable='{enable_expr}',"
+            f"drawtext=fontfile='{safe_font}':text='{safe_text}':"
+            f"fontcolor=white:fontsize={fontsize}:"
+            f"bordercolor=yellow:borderw=2:"
+            f"x=(w-text_w)/2:y=(h-{bar_h})+({bar_h}-text_h)/2:"
+            f"enable='{enable_expr}'"
+        )
 
     def _is_keep_original(self, block_id: str, speaker: str) -> bool:
         """判断句子是否保留英文原声：句子级列表优先，其次说话人级列表。"""
@@ -1240,8 +1344,23 @@ class PipelineAutomator:
             logging.warning(f"声源分离失败（回退整轨替换）: {e}")
             return False
 
+    @staticmethod
+    def _norm_caption_text(t: str) -> str:
+        """OCR 文本归一化：小写 + 去非字母数字，用于去噪比较/众数统计。"""
+        return "".join(ch for ch in (t or "").lower() if ch.isalnum())
+
+    @staticmethod
+    def _caption_text_sim(a: str, b: str) -> float:
+        """两条 OCR 文本的相似度（0~1），用于区分「同一条标注的 OCR 噪声」与「换了新标注」。"""
+        import difflib
+        na = PipelineAutomator._norm_caption_text(a)
+        nb = PipelineAutomator._norm_caption_text(b)
+        if not na or not nb:
+            return 0.0
+        return difflib.SequenceMatcher(None, na, nb).ratio()
+
     def _detect_caption_overlays(
-        self, video_path, fps: float = 1.0, min_duration: float = 0.8,
+        self, video_path, fps: float = 2.0, min_duration: float = 0.8,
     ) -> list:
         """检测画面内硬字幕条（caption overlay）：时间区间 + 位置 + 英文文本。
 
@@ -1250,12 +1369,13 @@ class PipelineAutomator:
           "id": "c0",
           "start": 秒,
           "end": 秒,
-          "x0"/"y0"/"x1"/"y1": 归一化位置（0~1，相对画面），
+          "x0"/"y0"/"x1"/"y1": 归一化位置（0~1，相对源画面），
           "text": 英文原文本,
           "zh": 中文翻译（由调用方填充）
         }
 
-        策略：抽帧 → easyocr 识别 → 按时间合并相同文本的帧为一条 → 位置取并集。
+        策略：抽帧（默认 2fps）→ easyocr 识别 → 按「行位置 + 时间连续」归并为
+        独立标注条，位置取并集、文本取众数（去 OCR 噪声）。
         只保留中下部（y 中心 0.40~0.62H）与底部（0.88~0.99H）条带内的文字，
         避开顶部标题卡与游戏内 HUD 赞助商标识（POLOR/QVOLO 等）。
         失败/无 easyocr → 返回 []（调用方回退标准字幕）。
@@ -1290,7 +1410,7 @@ class PipelineAutomator:
                     t = i / fps
                     res_ocr = reader.readtext(str(f), detail=1)
                     for (bb, txt, conf) in res_ocr:
-                        if float(conf) < 0.5:
+                        if float(conf) < 0.45:
                             continue
                         xs = [int(p[0]) for p in bb]; ys = [int(p[1]) for p in bb]
                         x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
@@ -1299,39 +1419,63 @@ class PipelineAutomator:
                         bottom = 0.88 * H <= cy <= 0.99 * H
                         if not (mid_low or bottom):
                             continue
+                        txt = " ".join(txt.split())
+                        # 过滤噪声：少于 2 个字母、或几乎无字母的文本（标点/数字碎片）
+                        n_alpha = sum(1 for ch in txt if ch.isalpha())
+                        if n_alpha < 2:
+                            continue
                         frame_records.append({
                             "t": round(t, 2),
-                            "text": txt.strip(),
+                            "text": txt,
                             "x0": x0 / W, "y0": y0 / H,
                             "x1": x1 / W, "y1": y1 / H,
                         })
 
-            # 聚合：基于位置 + 时间连续性。OCR 文本有错别字噪声（BRAKiG/BRAKING），
-            # 同一位置标注内容会随时间变化（如 BRAKING → BRAKING + GENTLY TURNING LEFT），
-            # 因此按"垂直位置重叠 + 时间连续"归并，文本记录时段内最常见的。
-            # 连续帧（间隙 <= 1.5/fps）且 y 中心接近（差异 < 8% 画面高）视为同一条。
-            frame_records.sort(key=lambda r: r["t"])
+            # 聚合：允许多条标注并存（同一时刻两行标注），因此不是只和 merged[-1]
+            # 比较，而是在「时间窗 + y 中心容差」内寻找最接近的已开标注条归并。
+            # 文本取该条时段内出现次数最多的归一化文本（OCR 噪声众数投票）。
+            # 连续帧（间隙 <= 1.5/fps）且 y 中心接近（差异 < 7% 画面高）视为同一条；
+            # 若文本相似度过低（<0.4）且该条已有 >=2 帧，视为换了新标注 → 另起一条。
+            frame_records.sort(key=lambda r: (r["t"], r["y0"]))
+            MAX_GAP = 1.5 / fps
+            ROW_TOL = 0.07
+            TEXT_SIM_SPLIT = 0.4
             merged = []
             for rec in frame_records:
                 cy_new = (rec["y0"] + rec["y1"]) / 2.0
-                if merged and (
-                    rec["t"] - merged[-1]["end"] <= 1.5 / fps
-                    and abs(cy_new - merged[-1]["_cy"]) <= 0.08 * 1.0
-                ):
-                    m = merged[-1]
-                    m["end"] = rec["t"]
+                ntext = self._norm_caption_text(rec["text"])
+                best = None
+                best_d = ROW_TOL
+                best_sim = 0.0
+                for m in merged:
+                    if rec["t"] - m["end"] > MAX_GAP:
+                        continue
+                    d = abs(m["_cy"] - cy_new)
+                    if d > best_d:
+                        continue
+                    # 文本变化检测：已有多帧的旧条遇到完全不同的文本 → 视为换条，不并入
+                    sim = self._caption_text_sim(m["_last_text"], rec["text"])
+                    if sim < TEXT_SIM_SPLIT and m["_frames"] >= 2:
+                        continue
+                    if d < best_d - 1e-9 or (abs(d - best_d) <= 1e-9 and sim > best_sim):
+                        best_d = d
+                        best = m
+                        best_sim = sim
+                if best is not None:
+                    m = best
+                    m["end"] = max(m["end"], rec["t"])
                     m["x0"] = min(m["x0"], rec["x0"])
                     m["y0"] = min(m["y0"], rec["y0"])
                     m["x1"] = max(m["x1"], rec["x1"])
                     m["y1"] = max(m["y1"], rec["y1"])
                     m["_cy"] = (m["_cy"] + cy_new) / 2.0
-                    m["frames"] += 1
-                    m["_texts"].append(rec["text"])
-                    # 记录 y 重叠面积最大（即该时段最常出现）的文本
-                    if rec["text"] and rec["text"] != m["_top_text"]:
-                        m["_top_count"][rec["text"]] = m["_top_count"].get(rec["text"], 0) + 1
-                        if m["_top_count"][rec["text"]] > m["_top_count"].get(m["_top_text"], 0):
-                            m["_top_text"] = rec["text"]
+                    m["_frames"] += 1
+                    m["_last_text"] = rec["text"]
+                    m["_counts"][ntext] = m["_counts"].get(ntext, 0) + 1
+                    # 同一归一化文本保留更长的样本（更完整的 OCR 识别结果）
+                    cur = m["_samples"].get(ntext)
+                    if cur is None or len(rec["text"]) > len(cur):
+                        m["_samples"][ntext] = rec["text"]
                 else:
                     merged.append({
                         "id": f"c{len(merged)}",
@@ -1341,26 +1485,29 @@ class PipelineAutomator:
                         "x1": rec["x1"], "y1": rec["y1"],
                         "text": rec["text"],
                         "zh": "",
-                        "frames": 1,
                         "_cy": cy_new,
-                        "_texts": [rec["text"]],
-                        "_top_text": rec["text"],
-                        "_top_count": {rec["text"]: 1},
+                        "_frames": 1,
+                        "_last_text": rec["text"],
+                        "_counts": {ntext: 1},
+                        "_samples": {ntext: rec["text"]},
                     })
 
-            # 收尾：把每条标注的 end 至少延长 1/fps（单帧出现也算 1 帧时长），
-            # 选时段最常出现的文本，移除内部字段，过滤过短（时长 < min_duration）。
+            # 收尾：end 至少延长 1/fps；选众数文本；移除内部字段；过滤过短。
             overlays = []
             for m in merged:
                 m["end"] = max(m["end"], m["start"] + 1.0 / fps)
-                if m["_top_text"] and m["_top_text"].strip():
-                    m["text"] = m["_top_text"]
+                if m["_counts"]:
+                    top_n = max(
+                        m["_counts"],
+                        key=lambda k: (m["_counts"][k], len(m["_samples"].get(k, ""))),
+                    )
+                    m["text"] = m["_samples"].get(top_n, m["text"]).strip()
                 m.pop("_cy", None)
-                m.pop("_texts", None)
-                m.pop("_top_text", None)
-                m.pop("_top_count", None)
-                m.pop("frames", None)
-                if (m["end"] - m["start"]) >= min_duration:
+                m.pop("_frames", None)
+                m.pop("_last_text", None)
+                m.pop("_counts", None)
+                m.pop("_samples", None)
+                if m["text"] and (m["end"] - m["start"]) >= min_duration:
                     overlays.append(m)
             overlays.sort(key=lambda o: o["start"])
             if overlays:
@@ -1391,12 +1538,14 @@ class PipelineAutomator:
         translated = {}
         try:
             system = (
-                "你是游戏教学视频的字幕翻译。把英文画面标注（教学步骤提示）翻译成"
-                "简洁的中文。要求：\n"
+                "你是健康科普/生物知识动画视频的画面标注翻译。把画面内英文教学"
+                "标注（要点提示、名词标注、情景台词）翻译成简洁的中文。要求：\n"
                 "1. 只翻译，不要解释、不要加标点之外的额外内容；\n"
-                "2. 保持简短（教学标注风格，每条约 4-12 个汉字）；\n"
-                "3. 保留车辆/操作专有名词原文（如档位、刹车、方向）；\n"
-                "4. 逐条输出 JSON 数组：[{\"en\": \"...\", \"zh\": \"...\"}]"
+                "2. 保持简短（教学标注风格，每条约 2-12 个汉字）；\n"
+                "3. 医学/生物专有名词用标准中文译法（如 eardrum→耳膜、vertebral→脊椎、"
+                "paralysis→瘫痪、cerebellar artery→小脑动脉）；口语/网络用语意译；\n"
+                "4. OCR 可能识别错单词（如 antery→artery），按最可能的正确词义翻译；\n"
+                "5. 逐条输出 JSON 数组：[{\"en\": \"...\", \"zh\": \"...\"}]"
             )
             prompt = json.dumps(
                 [{"id": i, "en": t} for i, t in enumerate(unique_texts)],
@@ -1424,20 +1573,48 @@ class PipelineAutomator:
             o["zh"] = translated.get(t, t)
         return overlays
 
+    def _caption_canvas_geometry(self) -> tuple:
+        """计算 caption_overlay 烧录时的画布几何（与 compose 阶段画面转换一致）。
+
+        返回 (canvas_w, canvas_h, fg_x0, fg_y0, fg_w, fg_h)：
+        - canvas：最终输出画布尺寸；
+        - fg：源画面内容在画布中的矩形（归一化字幕坐标映射到该矩形）。
+
+        - output_format=9:16 且源为横屏：画布 1080x1920，前景内容等比缩放到
+          宽 1080、高 fg_h（ffmpeg scale=1080:1920:force_original_aspect_ratio=decrease
+          的实际结果），垂直居中（上下模糊填充）。归一化坐标须映射到 fg 矩形，
+          否则烧录位置会整体上移/变形。
+        - 其余（source/auto 透传、源已竖屏）：画布 = 源分辨率，直接映射。
+        """
+        src_w, src_h = self._probe_resolution(self.source_video)
+        out_fmt = str(self.output_format or "source").lower()
+        if out_fmt == "9:16" and src_w >= src_h:
+            canvas_w, canvas_h = 1080, 1920
+            fg_w = canvas_w
+            fg_h = int(round(src_h * canvas_w / src_w))
+            fg_x0 = (canvas_w - fg_w) // 2
+            fg_y0 = (canvas_h - fg_h) // 2
+            return canvas_w, canvas_h, fg_x0, fg_y0, fg_w, fg_h
+        # 透传：画布即源
+        return src_w, src_h, 0, 0, src_w, src_h
+
     def _write_caption_ass(self, overlays: list[dict], output_path: Path, W: int, H: int):
         """把画面标注写成 ASS 字幕文件（带位置与半透明底框）。
 
         ASS 便于逐条定位到标注原位置；drawbox 由 compose 阶段负责画底框。
+        坐标使用与 compose 画面转换一致的画布几何（_caption_canvas_geometry），
+        修正 9:16 模糊填充下字幕整体错位的问题（此前 y 直接乘 1920）。
         """
         def fmt(t: float) -> str:
             cs = int(round(t * 100))
             return f"{cs // 360000}:{(cs // 6000) % 60:02d}:{(cs // 100) % 60:02d}.{cs % 100:02d}"
 
+        canvas_w, canvas_h, fg_x0, fg_y0, fg_w, fg_h = self._caption_canvas_geometry()
         lines = [
             "[Script Info]",
             "ScriptType: v4.00+",
-            "PlayResX: 1080",
-            "PlayResY: 1920",
+            f"PlayResX: {canvas_w}",
+            f"PlayResY: {canvas_h}",
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
@@ -1447,9 +1624,9 @@ class PipelineAutomator:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         ]
         for o in overlays:
-            # 位置：ASS 以 PlayRes 坐标，Alignment=5 表示居中
-            cx = int((o["x0"] + o["x1"]) / 2.0 * 1080)
-            cy = int((o["y0"] + o["y1"]) / 2.0 * 1920)
+            # 位置：归一化坐标映射到前景内容矩形，Alignment=5 表示居中
+            cx = fg_x0 + int((o["x0"] + o["x1"]) / 2.0 * fg_w)
+            cy = fg_y0 + int((o["y0"] + o["y1"]) / 2.0 * fg_h)
             # 用 \an5（居中） + \pos 精确定位
             txt = (o.get("zh") or o.get("text") or "").replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
             lines.append(
@@ -1475,23 +1652,33 @@ class PipelineAutomator:
 
         时间轴：drawbox 的 enable 表达式支持 between(t, s, e)。返回
         拼接后的 drawbox 链（追加到 [v] 输出链）。没有标注返回空字符串。
+        坐标使用与 compose 画面转换一致的画布几何（_caption_canvas_geometry），
+        修正 9:16 模糊填充下遮盖框整体错位的问题（此前 y 直接乘 1920）。
         """
         if not overlays:
             return ""
+        canvas_w, canvas_h, fg_x0, fg_y0, fg_w, fg_h = self._caption_canvas_geometry()
         filters = []
         for o in overlays:
             try:
                 s = float(o["start"]); e = float(o["end"])
                 if e - s < 0.2:
                     continue
-                x0 = int(o["x0"] * 1080); y0 = int(o["y0"] * 1920)
-                x1 = int(o["x1"] * 1080); y1 = int(o["y1"] * 1920)
+                x0 = fg_x0 + int(o["x0"] * fg_w)
+                y0 = fg_y0 + int(o["y0"] * fg_h)
+                x1 = fg_x0 + int(o["x1"] * fg_w)
+                y1 = fg_y0 + int(o["y1"] * fg_h)
                 w = max(1, x1 - x0); h = max(1, y1 - y0)
-                # 半透明黑底（alpha=0.55），留一点边距（上下各 6% 高度）
-                pad = max(2, int(h * 0.12))
-                y0p = max(0, y0 - pad); hh = min(1920 - y0p, h + 2 * pad)
+                # 全不透明黑框盖英文原字（alpha=1.0，避免半透明透出被 OCR/人眼捕捉）；
+                # easyocr 检测框通常只包文字主体、不含描边/阴影/字距，因此按检测框
+                # 中心等比放大 1.25 倍确保全部盖住。中文 ASS 烧在框之上不受影响。
+                scale = 1.25
+                cx = (x0 + x1) / 2.0; cy = (y0 + y1) / 2.0
+                w2 = max(4, int(w * scale)); h2 = max(4, int(h * scale))
+                x0p = max(0, int(cx - w2 / 2)); ww = min(canvas_w - x0p, w2)
+                y0p = max(0, int(cy - h2 / 2)); hh = min(canvas_h - y0p, h2)
                 filters.append(
-                    f"drawbox=x={x0}:y={y0p}:w={w}:h={hh}:color=black@0.55:t=fill"
+                    f"drawbox=x={x0p}:y={y0p}:w={ww}:h={hh}:color=black:t=fill"
                     f":enable='between(t,{s:.2f},{e:.2f})'"
                 )
             except Exception as ex:
@@ -4035,6 +4222,12 @@ class PipelineAutomator:
         adjusted.write_text("\n".join(out_lines), encoding="utf-8-sig")
         return adjusted
 
+    @staticmethod
+    def _sanitize_cmd_meta(text: str) -> str:
+        """把变量值里的 cmd.exe 元字符替换为全角近似符（竖线等经 npx.cmd
+        转发时会被 cmd.exe 当作管道符拆断命令，导致封面/片尾渲染失败）。"""
+        return text.translate(str.maketrans({"|": "｜", "&": "＆", "<": "＜", ">": "＞", "^": "＾"}))
+
     def _render_hyperframes_outro(self, duration: float, channel_name: str, output_path: Path) -> bool:
         """渲染 B站一键三连片尾。
 
@@ -4051,12 +4244,6 @@ class PipelineAutomator:
         outro_cfg = self.config.get("outro", {})
         thanks = outro_cfg.get("text", {}).get("thanks", "感谢观看")
         cta = outro_cfg.get("text", {}).get("cta", "觉得有用，欢迎点赞 · 收藏 · 关注")
-        variables = json.dumps({
-            "duration": round(float(duration), 2),
-            "thanks": thanks,
-            "cta": cta,
-            "channel_name": channel_name or "",
-        }, ensure_ascii=False)
         npx_exe = shutil.which("npx") or shutil.which("npx.cmd")
         if not npx_exe:
             print("    ❌ 未找到 npx，无法渲染片尾")
@@ -4064,12 +4251,18 @@ class PipelineAutomator:
         # 片尾模板为 1920x1080 横屏 composition（templates/index.html），
         # 始终以 landscape 渲染；竖屏输出时由拼接阶段的 scale+pad 适配到竖屏
         # （片尾背景为深色，上下填充视觉自然）。
+        variables_json = self._sanitize_cmd_meta(json.dumps({
+            "duration": round(float(duration), 2),
+            "thanks": thanks,
+            "cta": cta,
+            "channel_name": channel_name or "",
+        }, ensure_ascii=False))
         cmd = [
             npx_exe, "hyperframes", "render", str(template_dir),
             "--output", str(output_path),
             "--resolution", "landscape",
             "--quality", "standard",
-            "--variables", variables,
+            "--variables", variables_json,
         ]
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
@@ -4137,16 +4330,39 @@ class PipelineAutomator:
             safe = safe[:max_len].rstrip()
         return safe or "untitled"
 
-    def _get_original_description(self) -> str:
-        """用 yt-dlp 获取原视频简介。"""
-        try:
-            cmd = ["yt-dlp", "--print", "%(description)s", "--no-playlist", self.video["url"]]
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 text=True, encoding="utf-8", errors="replace")
-            if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip()
-        except Exception:
-            pass
+    def _get_original_description(self, max_retries: int = 3) -> str:
+        """用 yt-dlp 获取原视频简介（带重试与失败诊断，禁止静默吞错）。
+
+        历史教训（2026-08-26）：旧实现 stderr=DEVNULL + 失败静默返回 ""，
+        导致有简介的视频被按『无简介』骨架处理且无法排查。
+        """
+        cmd = ["yt-dlp", "--print", "%(description)s", "--no-playlist", self.video["url"]]
+        last_err = ""
+        for attempt in range(1, max_retries + 1):
+            try:
+                res = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    if attempt > 1:
+                        print(f"    ✅ 获取原视频简介成功（第 {attempt}/{max_retries} 次尝试）")
+                    return res.stdout.strip()
+                err_lines = [ln for ln in (res.stderr or "").strip().splitlines() if ln.strip()]
+                last_err = err_lines[-1] if err_lines else f"returncode={res.returncode} 且 stdout 为空"
+            except Exception as e:
+                last_err = f"{type(e).__name__}: {e}"
+            if attempt < max_retries:
+                wait_s = attempt * 5
+                print(f"    ⚠️ 获取原视频简介失败（第 {attempt}/{max_retries} 次）：{last_err}")
+                print(f"      ↳ {wait_s}s 后重试...")
+                _sleep(wait_s)
+        print(f"    ❌ 无法获取原视频简介（已重试 {max_retries} 次）：{last_err}")
+        print("      ↳ 将按『无简介』生成标题+标签骨架；建议人工核对并补充简介")
         return ""
 
     def _resolve_cover_template(self, channel: str) -> Path:
@@ -4212,7 +4428,7 @@ class PipelineAutomator:
                 thumb_var = "thumb.jpg"
 
             variables["thumb_path"] = thumb_var
-            var_json = json.dumps(variables, ensure_ascii=False)
+            var_json = self._sanitize_cmd_meta(json.dumps(variables, ensure_ascii=False))
 
             tmp_mp4 = tmp_dir / "out.mp4"
             cmd = [
@@ -4603,15 +4819,28 @@ class PipelineAutomator:
 
         # 字幕烧录策略：
         # - bottom（默认）：烧 SRT 到画面底部
-        # - caption_overlay：先 drawbox 盖英文标注再烧 ASS
+        # - caption_overlay：先 drawbox 盖英文标注再烧 ASS（顺序不可反，否则黑条盖住中文）
         # - none：不烧字幕（SRT 文件仍随 assets 产物保留，供外部字幕挂载/上传）
         video_filter = ""
         if self.subtitle_mode == "none":
             print("    🚫 subtitle_mode=none：不烧录字幕到画面（SRT 字幕文件已保留在 assets/）")
         else:
-            video_filter = f"subtitles='{srt_filter_path}'"
             if caption_drawbox:
-                video_filter += f",{caption_drawbox}"
+                # drawbox 在前（遮盖英文原文），subtitles 在后（中文烧在底框之上）
+                video_filter = f"{caption_drawbox},subtitles='{srt_filter_path}'"
+            else:
+                video_filter = f"subtitles='{srt_filter_path}'"
+
+        # 开头 disclaimer 横条（ticket #77）：仅 health_biology 域启用；
+        # 与字幕烧录链正交（追加在 video_filter 后），不破坏现有 caption_overlay 行为。
+        # 实现细节见 _build_intro_disclaimer_filter 注释。
+        intro_disclaimer_filter = self._build_intro_disclaimer_filter()
+        if intro_disclaimer_filter:
+            video_filter = (
+                f"{video_filter},{intro_disclaimer_filter}"
+                if video_filter else intro_disclaimer_filter
+            )
+            print(f"    ⚠️ intro_disclaimer：开头 {self.intro_disclaimer_seconds:.1f}s 显示健康免责声明")
 
         # 竖屏（9:16）画面转换：上下模糊填充，保留完整画面。
         # 背景：原画缩放到填满 1080x1920 后居中裁剪出整屏，再做 boxblur 模糊；
@@ -4951,7 +5180,7 @@ class PipelineAutomator:
                     "Keep code snippets, URLs, and key technical terms in English. "
                     "Add these two lines at the beginning, in this exact order:\n"
                     f"'中文标题: {translated_title}'\n"
-                    "'原视频: [original English title]'\n"
+                    f"'原视频: {original_title}'\n"
                     "Add a line at the end: '#AI #人工智能 #中文配音'\n"
                     "Output ONLY the translated description, no extra text:\n\n"
                     f"{original_desc}"

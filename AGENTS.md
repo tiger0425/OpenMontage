@@ -59,3 +59,48 @@ When the user's message contains ANY of the following triggers, you MUST read
 **CRITICAL**: For Auto-Dub tasks, the ONLY permitted execution entry point is
 `python bin/auto_dub.py <subcommand>`. Do NOT write ad-hoc Python scripts
 to call pipeline internals directly.
+
+## Chinese-Subtitle Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/chinese-subtitle/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 加中文字幕 / 中文字幕 / 加字幕 / 烧字幕
+- 字幕版 / 字幕搬运 / 中英字幕
+- subtitle only / chinese subtitle / burn subtitles
+- 给视频加字幕 / 只加字幕不配音
+- 原视频加中文字幕
+
+**What the skill teaches you:**
+- 只给原视频加中文字幕（不生成配音、不替换音轨）的完整流程
+- CLI 命令（`bin/auto_subtitle.py`）
+- 与 auto-dub 的区别：无 TTS、无 GPU、无数据库，单视频轻量处理
+- Natural-language → CLI command mapping
+
+**CRITICAL**: For Chinese-subtitle tasks, the ONLY permitted execution entry point is
+`python bin/auto_subtitle.py <subcommand>`. Do NOT write ad-hoc Python scripts
+to call pipeline internals directly.
+
+## WRC-Pipeline Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/wrc-pipeline/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 跑WRC管线 / wrc管线 / wrc.py / 跑拉力管线
+- 处理拉力视频 / 搬运WRC视频 / 拉力视频转中文 / 拉力视频转竖屏
+- WRC 视频转中文 / 拉力赛车视频中文配音 / 做拉力解说视频
+- 用 wrc 管线跑这个视频 / 发个 YouTube 拉力链接处理
+- **任何「YouTube URL + 中文/抖音/竖屏/搬运/拉力/赛车解说」组合意图**——用户给出 YouTube 链接并要求转中文/竖屏/配音/搬运时，若内容为 WRC/拉力题材即路由本管线（拿不准先读 SKILL.md 判断）
+
+**What the skill teaches you:**
+- 完整流程：下载 → 转录 → LLM 脚本（**脚本闸门人审**）→ IndexTTS 配音（情绪 0.325）→ 抽帧/截片 → hyperframes 合成渲染 → BGM 混音 → 成品包 → 人工上传抖音
+- CLI 命令（`bin/wrc.py`）与会话内执行流（轻/重拆分）
+- 各环节规格（`apps/wrc/specs/`）+ 分幕 schema（`schemas/artifacts/wrc_episode.schema.json`）+ 背景库（`background_library/wrc/`）
+- 实战经验（`apps/wrc/specs/LESSONS.md`，跑管线前必读）
+
+**CRITICAL**: For WRC pipeline tasks, the ONLY permitted execution entry point is
+`python bin/wrc.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
+pipeline internals directly. 重命令（render-assets / render-video / run-heavy）
+必须派 Compute Worker 执行并以 `--json` 单行回报；脚本闸门必须等用户确认后才放行。
