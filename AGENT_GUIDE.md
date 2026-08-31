@@ -739,6 +739,12 @@ Local GPU TTS (IndexTTS2 / VoxCPM) holds 8–16 GB VRAM. Multiple agents dispatc
 - While the lock is held, other agents' Workers queue and print a friendly waiting heartbeat (`[AutoDub] 等待 GPU 锁...`); on timeout (default 1800 s) they fail loudly rather than crash the host.
 - The lock file lives at `%LOCALAPPDATA%/openmontage/.gpu.lock` (override: `OPENMONTAGE_GPU_LOCK_PATH`), shared across engines and working directories.
 
+## Git Remote Discipline
+
+- **Canonical repository（唯一推送目标）：`origin` = `https://github.com/tiger0425/OpenMontage.git`。** 用户要求「git push」时一律推送到 `origin`（默认分支 `main`），不要询问、不要跳转其他 remote。
+- 上游社区仓库 `calesthio/OpenMontage` 只是本地定制基准，**永不作为推送目标**；仅在需要对齐上游时以 pull/fetch 形式参考。
+- 若出现多个 worktree（如 `OpenMontage-community1`），其 `origin` 同样指向 tiger0425/OpenMontage，推送规则一致。
+
 ## What Not To Do
 
 - **Do not bypass the pipeline.** Never write ad-hoc scripts to call tools directly. All production goes through pipeline stages with director skills. See Rule Zero.
