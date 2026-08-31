@@ -226,3 +226,8 @@ snap_*/
 /qa_*.json
 /qa_title_zoom.png
 /*_probe.jpg
+/snap_*.json
+
+# ref-remake pipeline official scripts (exempt from generic gen_*.py ignore)
+!apps/ref-remake/scripts/gen_frames.py
+!apps/ref-remake/scripts/gen_tts.py
