@@ -194,6 +194,7 @@ models/voxcpm/
 
 # npm cache (local package cache, never source)
 .npm-cache/
+.npmcache/
 
 # WRC / ref-remake background media library (runtime downloads, large binaries)
 background_library/
