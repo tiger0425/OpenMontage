@@ -2344,6 +2344,7 @@ class PipelineAutomator:
                 continue
 
             # 按说话人选择声纹；缺失 speaker 时回退单声纹/最长声纹
+            # 备注：未传音色兜底——默认音色 D:/index-tts/my_voice.wav（用户指定 rally_v7_chunk_01）
             voice_ref = None
             if multi_speaker:
                 voice_ref = speaker_refs.get(speaker)
@@ -2351,6 +2352,13 @@ class PipelineAutomator:
                     voice_ref = next(iter(speaker_refs.values()), None)
             elif use_external_ref:
                 voice_ref = external_voice_ref
+            # 未传音色兜底：无任何声纹时用默认音色
+            if voice_ref is None:
+                _default_voice = Path(r"D:\index-tts\my_voice.wav")
+                if _default_voice.exists() and _default_voice.stat().st_size > 1000:
+                    voice_ref = _default_voice
+                    if idx == 0:  # 仅首句打印，避免刷屏
+                        print(f"    🎤 未传音色，使用默认音色: {_default_voice.name}")
             if voice_ref is not None:
                 voice_ref = str(voice_ref)
 
@@ -3533,6 +3541,11 @@ class PipelineAutomator:
                     self._extract_voice_ref(voice_ref)
                 except Exception as e:
                     logging.warning(f"测速前提取声纹失败: {e}")
+            # 未传音色兜底：测速也用默认音色
+            if not (voice_ref.exists() and voice_ref.stat().st_size > 1000):
+                _def = Path(r"D:\index-tts\my_voice.wav")
+                if _def.exists() and _def.stat().st_size > 1000:
+                    voice_ref = _def
             vr = str(voice_ref) if (voice_ref.exists() and voice_ref.stat().st_size > 1000) else None
             ok = self._synthesize_indextts(ref_text, out, voice_ref=vr)
             if ok and out.exists():

@@ -266,6 +266,11 @@ class IndexTTSSession:
                 req["use_emo_text"] = False
                 req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
         eff_voice = voice_ref if voice_ref is not None else self.voice_ref
+        # 未传音色兜底：默认音色 D:/index-tts/my_voice.wav（用户指定 rally_v7_chunk_01）
+        if not eff_voice:
+            _def = Path(r"D:\index-tts\my_voice.wav")
+            if _def.exists() and _def.stat().st_size > 1000:
+                eff_voice = str(_def)
         if eff_voice:
             req["voice_ref"] = str(eff_voice)
         return req
