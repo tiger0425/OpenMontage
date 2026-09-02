@@ -2257,7 +2257,19 @@ class PipelineAutomator:
             # 注意：pyannote 可能把噪声/静音误判为第 2 位说话人（如 SPEAKER_01 仅 0.4s），
             # 该 label 会被 candidates 过滤，最终 refs 只剩 1 个 → 这里必须回退，
             # 否则 voice_ref=None 导致 IndexTTS2 缺 spk_audio_prompt 全量静音。
-            if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
+            # 备注：未传音色默认用 D:/index-tts/my_voice.wav（rally_v7_chunk_01），优先于原视频提取
+            _default_voice = Path(r"D:\index-tts\my_voice.wav")
+            if _default_voice.exists() and _default_voice.stat().st_size > 1000:
+                try:
+                    import shutil as _shutil2
+                    # 强制用默认音色覆盖项目 voice_ref.wav，确保 auto-dub 不再用原视频音色
+                    _shutil2.copy2(str(_default_voice), str(external_voice_ref))
+                    use_external_ref = True
+                    chk_ref = AudioSegment.from_wav(str(external_voice_ref))
+                    print(f"    🎤 使用默认音色: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s) <- {_default_voice.name}")
+                except Exception as e:
+                    logging.warning(f"默认音色拷贝失败，回退原视频提取: {e}")
+            if not use_external_ref and external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
                 try:
                     chk_ref = AudioSegment.from_wav(str(external_voice_ref))
                     if chk_ref.rms >= 100:
