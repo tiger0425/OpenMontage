@@ -1,7 +1,12 @@
-"""IndexTTS 统一客户端 —— 所有工作流的唯一调用入口。
+"""IndexTTS 统一客户端 —— 所有工作流的唯一调用入口（规范入口）。
 
 三个工作流（auto-dub / markhasara / repo-to-video / series-adapt / 独立包）
 统一通过本模块调用 IndexTTS 常驻服务，消除各自实现调用层的重复与踩坑。
+
+备注：双入口历史——本文件为规范入口，apps/auto-dub/batch/pipeline_automator.py
+曾自持一套 _get_indextts_server/_synthesize_indextts（双次合成含 duration_factor 对齐），
+与本模块重复（见 9fcbb9c, ADR-004 D3）。新代码一律走本模块，pipeline 侧方法已标注
+为兼容薄封装，后续将收敛为 delegating to IndexTTSSession。
 
 统一封装：
 - 桥位置：apps/indextts-bridge/indextts_server.py（勿用 D:/index-tts/indextts_server.py 旧桥）
@@ -72,6 +77,7 @@ class IndexTTSSession:
         lock_timeout: float = 1800.0,
         checkpoints: Optional[Path | str] = None,
         project_dir: Optional[Path] = None,
+        allow_slowdown: bool = True,
     ):
         self.voice_ref = str(voice_ref) if voice_ref else None
         self.model_version = model_version
@@ -81,6 +87,7 @@ class IndexTTSSession:
         self.timeout_seconds = timeout_seconds
         self.lock_timeout = lock_timeout
         self.project_dir = project_dir
+        self.allow_slowdown = allow_slowdown
 
         paths = engine_paths()
         self.venv_python = paths["venv"]
@@ -193,53 +200,14 @@ class IndexTTSSession:
         self.stop()
         return False
 
-    # ---------------- 合成 ----------------
+    # ---------------- 内部：单次合成 + 时长测量 ----------------
 
-    def synthesize(
-        self,
-        text: str,
-        output_path: Path | str,
-        seed: int = 42,
-        target_duration: Optional[float] = None,
-        lang: Optional[str] = None,
-    ) -> bool:
-        """合成单段音频。返回是否成功。
-
-        - 2.5 版本：透传 lang + duration_factor（target_duration 换算）。
-        - 情感纯净：固定 calm 不传 emo_vector（官方纯净克隆，保声纹）；
-          emotion=auto 时用 use_emo_text（需 --use-qwen-emo）。
-        """
-        if self._proc is None:
-            self.start()
-        assert self._proc is not None and self._proc.stdin and self._proc.stdout
-
-        req = {
-            "id": str(hash((text, str(output_path)))),
-            "text": text,
-            "output_path": str(output_path),
-            "seed": seed,
-        }
-        if self.model_version == "2.5":
-            req["lang"] = lang or self.lang
-            if target_duration and target_duration > 0:
-                req["duration_factor"] = float(target_duration)
-        # 情感纯净路径（2.5 关键：calm 不传 emo_vector，否则音色漂移/女声化）
-        if self.model_version == "2.5":
-            if self.emotion == "auto":
-                req["use_emo_text"] = True
-                req["emo_alpha"] = 0.6
-            # calm：不传任何情感参数 → 官方纯净克隆
-        else:
-            # 2 版本：沿用旧行为（calm 固定向量）
-            if self.emotion == "calm":
-                req["use_emo_text"] = False
-                req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-        if self.voice_ref:
-            req["voice_ref"] = self.voice_ref
-
+    def _single_synth(self, req: dict) -> bool:
+        """单次 JSON 桥接合成（供双次合成复用）。"""
         try:
             with self._io_lock:
-                self._proc.stdin.write(json.dumps(req) + "\n")
+                assert self._proc is not None and self._proc.stdin and self._proc.stdout
+                self._proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
                 self._proc.stdin.flush()
                 resp_line = self._proc.stdout.readline()
             if not resp_line:
@@ -253,6 +221,97 @@ class IndexTTSSession:
         except Exception as e:
             self._dump_stderr(f"服务异常: {e}")
             return False
+
+    @staticmethod
+    def _wav_duration(path: Path | str) -> float | None:
+        try:
+            from pydub import AudioSegment
+            return AudioSegment.from_wav(str(path)).duration_seconds
+        except Exception:
+            return None
+
+    def _build_base_req(self, text: str, output_path: Path | str, seed: int, lang: Optional[str], voice_ref: Optional[Path | str] = None) -> dict:
+        req: dict = {
+            "id": str(hash((text, str(output_path)))),
+            "text": text,
+            "output_path": str(output_path),
+            "seed": seed,
+        }
+        if self.model_version == "2.5":
+            req["lang"] = lang or self.lang
+        # 情感纯净路径（2.5 关键：calm 不传 emo_vector，否则音色漂移/女声化）
+        if self.model_version == "2.5":
+            if self.emotion == "auto":
+                req["use_emo_text"] = True
+                req["emo_alpha"] = 0.6
+        else:
+            if self.emotion == "calm":
+                req["use_emo_text"] = False
+                req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        eff_voice = voice_ref if voice_ref is not None else self.voice_ref
+        if eff_voice:
+            req["voice_ref"] = str(eff_voice)
+        return req
+
+    # ---------------- 合成 ----------------
+
+    def synthesize(
+        self,
+        text: str,
+        output_path: Path | str,
+        seed: int = 42,
+        target_duration: Optional[float] = None,
+        lang: Optional[str] = None,
+        allow_slowdown: Optional[bool] = None,
+        voice_ref: Optional[Path | str] = None,
+    ) -> bool:
+        """合成单段音频。返回是否成功。
+
+        - 2.5 版本：lang 必传；target_duration 通过双次合成换算 duration_factor（0.5-2.0）。
+        - 情感纯净：固定 calm 不传 emo_vector（官方纯净克隆，保声纹）；
+          emotion=auto 时用 use_emo_text（需 --use-qwen-emo）。
+        - 双次合成（ADR-004 D5）：先 factor=1.0 自然合成测时，再 factor=target/natural 重合成；
+          越界或禁放慢时保留自然版由上层 atempo 兜底。
+        """
+        if self._proc is None:
+            self.start()
+        assert self._proc is not None and self._proc.stdin and self._proc.stdout
+
+        is_v25 = self.model_version == "2.5"
+        if not is_v25 or not target_duration or target_duration <= 0:
+            req = self._build_base_req(text, output_path, seed, lang, voice_ref)
+            if is_v25:
+                req["duration_factor"] = 1.0
+            return self._single_synth(req)
+
+        # ---- 2.5 双次合成对齐 ----
+        import tempfile as _tf
+        import shutil as _shutil
+        eff_allow_slowdown = self.allow_slowdown if allow_slowdown is None else allow_slowdown
+        base_req = self._build_base_req(text, output_path, seed, lang, voice_ref)
+
+        with _tf.TemporaryDirectory(prefix="indextts_nat_") as td:
+            nat_path = Path(td) / "natural.wav"
+            nat_req = dict(base_req)
+            nat_req["id"] = nat_req["id"] + "_nat"
+            nat_req["output_path"] = str(nat_path)
+            nat_req["duration_factor"] = 1.0
+            if not self._single_synth(nat_req):
+                return False
+            nat_dur = self._wav_duration(nat_path)
+            if nat_dur is None or nat_dur <= 0:
+                base_req["duration_factor"] = 1.0
+                return self._single_synth(base_req)
+            factor = target_duration / nat_dur
+            if not eff_allow_slowdown and factor > 1.0:
+                _shutil.copy2(str(nat_path), str(output_path))
+                return True
+            if not (0.5 <= factor <= 2.0):
+                _shutil.copy2(str(nat_path), str(output_path))
+                return True
+            final_req = dict(base_req)
+            final_req["duration_factor"] = round(factor, 4)
+            return self._single_synth(final_req)
 
     def _dump_stderr(self, reason: str) -> None:
         """打印服务 stderr 日志尾部（诊断用）。"""

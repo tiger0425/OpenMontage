@@ -4,13 +4,16 @@
 > 调用本地 IndexTTS 合成语音时，必须按本文档执行。**
 > 违反本文档会导致：**生成内容为杂音**（权重错位）、**男声变女声**（情感混合）、**中文乱码**（编码问题）。
 
-## ✅ 统一入口（强烈推荐）
+## ✅ 统一入口（唯一规范入口）
 
 所有工作流（auto-dub / markhasara / repo-to-video / series-adapt）已统一到：
 
 ```
 apps/indextts-bridge/client.py  →  IndexTTSSession 类
 ```
+
+> 备注：双入口历史——`apps/auto-dub/batch/pipeline_automator.py` 曾自持 `_get_indextts_server/_synthesize_indextts` 与本客户端重复（双次合成含 `duration_factor` 对齐逻辑），
+> 已在 `9fcbb9c/ADR-004 D3` 后标注为兼容封装并指向本规范入口。新代码一律走本 `client`，`pipeline` 侧仅保留路径解析薄封装，后续收敛为委托调用。
 
 ```python
 # 推荐：用统一客户端（自动处理 UTF-8 / 情感纯净 / lang / duration_factor / GPU 锁）

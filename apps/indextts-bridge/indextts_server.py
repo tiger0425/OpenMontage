@@ -1,4 +1,8 @@
-"""IndexTTS 常驻服务进程 — 模型只加载一次，通过 stdin 接收 JSON 指令。
+"""IndexTTS 常驻服务进程 — 模型只加载一次，通过 stdin 接收 JSON 指令（唯一服务端）。
+
+备注：双入口历史——本文件为唯一服务端实现，客户端规范入口为 apps/indextts-bridge/client.py:IndexTTSSession，
+旧桥 D:/index-tts/indextts_server.py 已删除（见 CALLING.md 杂音陷阱），pipeline_automator 侧自持的
+_get/_synthesize 仅为兼容封装，新代码勿再自建 Popen。
 
 支持 IndexTTS-2.5 与 IndexTTS-2 双版本（--version 2.5|2）：
   - 2.5: indextts/infer_v2_5.py，use_bf16 默认，lang/duration_factor，use_qwen_emo

@@ -2832,6 +2832,10 @@ class PipelineAutomator:
     # ==========================================
 
     # IndexTTS 路径统一解析（apps/indextts-bridge/client.py 一处维护）
+    # 备注：历史存在“双入口”——本文件自持 _get_indextts_server/_synthesize_indextts，
+    # 与 apps/indextts-bridge/client.py:IndexTTSSession 重复。规范入口为 client.py，
+    # 本类仅保留 _engine_paths() 作路径解析薄封装，其余合成统一委托 client 会话，
+    # 避免 --version/--checkpoints/情感三态/GPU锁 双处分叉（见 ADR-004 D3, CALLING.md）。
     _ENGINE_PATHS = None
 
     @classmethod
@@ -2846,9 +2850,9 @@ class PipelineAutomator:
             cls._ENGINE_PATHS = _mod.engine_paths()
         return cls._ENGINE_PATHS
 
-    INDEXTTS_VENV_PYTHON = None  # 惰性：_engine_paths()["venv"]
-    INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"
-    INDEXTTS_SERVER = None  # 惰性：_engine_paths()["server"]
+    INDEXTTS_VENV_PYTHON = None  # 惰性：_engine_paths()["venv"]（已废弃，保留兼容，实际走 client.engine_paths()）
+    INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"  # 已废弃：旧桥 D:/index-tts 已删除，见 CALLING.md 杂音陷阱
+    INDEXTTS_SERVER = None  # 惰性：_engine_paths()["server"]（已废弃，同上）
 
     def _extract_voice_ref(self, external_voice_ref) -> bool:
         """提取更长的干净声纹片段并归一化音量。
@@ -3282,44 +3286,60 @@ class PipelineAutomator:
                 result[spk] = (round(start, 3), round(end, 3))
         return result
 
-    def _get_indextts_server(self):
-        """惰性启动 IndexTTS2 常驻服务进程（模型只加载一次）。
+    def _get_indextts_session(self):
+        """惰性获取统一 IndexTTSSession（规范入口，单源）。"""
+        if getattr(self, "_indextts_session", None) is not None:
+            return self._indextts_session
+        _spec = _importlib_util.spec_from_file_location(
+            "indextts_bridge_client",
+            Path(__file__).resolve().parents[3] / "apps" / "indextts-bridge" / "client.py",
+        )
+        assert _spec and _spec.loader
+        _mod = _importlib_util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        sess = _mod.IndexTTSSession(
+            voice_ref=None,  # voice_ref 按句透传，此处不固定
+            model_version=getattr(self, "tts_model_version", "2.5"),
+            lang=getattr(self, "tts_lang", "ZH"),
+            use_qwen_emo=bool(getattr(self, "tts_use_qwen_emo", False)),
+            emotion=getattr(self, "tts_emotion", "calm"),
+            checkpoints=getattr(self, "indextts_checkpoints", None),
+            project_dir=self.project_dir,
+            allow_slowdown=bool(getattr(self, "allow_slowdown", True)),
+        )
+        sess.start()
+        self._indextts_session = sess
+        # 兼容旧属性：让旧代码访问 _indextts_proc/_indextts_lock 不报错
+        self._indextts_proc = sess._proc
+        self._indextts_lock = sess._io_lock
+        self._indextts_stderr_log = sess._stderr_log
+        self._indextts_gpu_lock = sess._gpu_lock
+        return sess
 
-        启动即获取 GPU 物理互斥锁（GpuLockHandle），持有到 _stop_indextts_server()
-        释放 —— 覆盖 script 阶段测速校准与 assets 阶段合成全程，杜绝跨智能体并发 OOM。
+    def _get_indextts_server(self):
+        """兼容壳：历史自持 Popen 入口，已收敛至 IndexTTSSession。
+
+        保留此方法仅为兼容旧调用点，实际委托给 _get_indextts_session()。
         """
-        if getattr(self, "_indextts_proc", None) is not None:
-            return self._indextts_proc
-        from lib.gpu_lock import GpuLockHandle
-        self._indextts_gpu_lock = GpuLockHandle("indextts", timeout=1800, heartbeat=15)
-        self._indextts_gpu_lock.acquire()
-        try:
-            stderr_log = open(self.project_dir / "indextts_server.log", "w", encoding="utf-8", errors="replace")
-            self._indextts_stderr_log = stderr_log
-            _ep = self._engine_paths()
-            cmd = [_ep["venv"], _ep["server"]]
-            # 模型版本分支：2.5（默认）/ 2（回退），权重目录由桥内 --checkpoints 解析
-            tts_version = getattr(self, "tts_model_version", "2.5")
-            cmd += ["--version", tts_version]
-            if getattr(self, "tts_use_qwen_emo", False):
-                cmd += ["--use-qwen-emo"]
-            if getattr(self, "indextts_checkpoints", None):
-                cmd += ["--checkpoints", str(self.indextts_checkpoints)]
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log,
-                text=True, encoding="utf-8", errors="replace",
-            )
-        except Exception:
-            self._indextts_gpu_lock.release()
-            self._indextts_gpu_lock = None
-            raise
-        self._indextts_proc = proc
-        self._indextts_lock = threading.Lock()
-        return proc
+        sess = self._get_indextts_session()
+        return sess._proc
 
     def _stop_indextts_server(self):
-        """停止 IndexTTS2 常驻服务并释放 GPU 锁（幂等，可安全多次调用）。"""
+        """停止 IndexTTS2 常驻服务并释放 GPU 锁（幂等，已委托至 IndexTTSSession）。"""
+        sess = getattr(self, "_indextts_session", None)
+        if sess is not None:
+            try:
+                sess.stop()
+            except Exception:
+                pass
+            self._indextts_session = None
+            self._indextts_proc = None
+            # 同步清理旧属性
+            self._indextts_lock = None
+            self._indextts_stderr_log = None
+            self._indextts_gpu_lock = None
+            return
+        # 回退：无 session 时按旧逻辑幂等清理
         proc = getattr(self, "_indextts_proc", None)
         if proc is not None:
             try:
@@ -3344,112 +3364,38 @@ class PipelineAutomator:
         self, text: str, output_path, voice_ref: str | None = None, seed: int = 42,
         target_duration: float | None = None,
     ) -> bool:
-        """通过常驻 IndexTTS2 服务进程合成单句音频（模型只加载一次，GPU 加速）。
+        """通过常驻 IndexTTS2 服务合成单句（已收敛至统一客户端）。
 
-        2.5 双次合成对齐（ADR-004 阶段二）：duration_factor 是语速倍数（0.5-2.0，
-        1.0=自然语速，>1 更长/更慢，<1 更短/更快），**不是目标秒数**。
-        - 先以 factor=1.0 自然合成到临时文件，测量实际时长
-        - 有 target_duration 时：factor = 自然时长 / 目标时长（钳制 0.5-2.0），
-          用该 factor 重合成到最终路径，使音频时长贴合目标
-        - factor 越界（超出 2.5 支持范围）→ 保留自然合成版本，靠外层 atempo 兜底
-
-        情感：默认固定 calm（use_emo_text=False + calm 向量），贴合原版平淡语气；
-        tts_emotion=auto 时不传情感参数，服务端从文字自动判情感。
+        备注：已收敛至 apps/indextts-bridge/client.py:IndexTTSSession.synthesize()，
+        含双次合成（duration_factor）与情感纯净（calm不传emo_vector）单源逻辑。
+        本方法仅为兼容壳，委托至会话。
         """
-        def _do_synth(req_payload: dict, out_path) -> bool:
-            proc = self._get_indextts_server()
-            with self._indextts_lock:
-                proc.stdin.write(json.dumps(req_payload) + "\n")  # ensure_ascii 默认 True，Windows 管道安全
-                proc.stdin.flush()
-                resp_line = proc.stdout.readline()
-            if not resp_line:
-                print("      ❌ IndexTTS2 服务无响应")
-                self._dump_indextts_stderr()
-                return False
-            resp = json.loads(resp_line)
-            ok = bool(resp.get("ok"))
-            if not ok:
-                print(f"      ❌ IndexTTS2 服务返回失败: {resp.get('error')}")
-                self._dump_indextts_stderr()
-            return ok
-
         try:
-            import tempfile as _tf
-            is_v25 = getattr(self, "tts_model_version", "2.5") == "2.5"
-            base_req = {
-                "id": str(hash((text, str(output_path)))),
-                "text": text,
-                "output_path": str(output_path),
-                "seed": seed,
-            }
-            if is_v25:
-                base_req["lang"] = getattr(self, "tts_lang", "ZH")
-            # 情感：2.5 固定 calm 时【不传 emo_vector】（官方纯净路径，保声纹保真；
-            # 传 emo_vector 会触发情感-音色混合导致音色漂移/女声化）。auto 才用 use_emo_text。
-            if self.tts_model_version == "2.5":
-                if self.tts_emotion == "auto":
-                    base_req["use_emo_text"] = True
-                    base_req["emo_alpha"] = 0.6
-                # calm：不传任何情感参数 → 官方纯净克隆
-            else:
-                # 2 版本：沿用旧行为（calm 固定向量 / auto 自动判情感）
-                if self.tts_emotion == "calm":
-                    base_req["use_emo_text"] = False
-                    base_req["emo_vector"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # 平静
-            if voice_ref:
-                base_req["voice_ref"] = voice_ref
-
-            # 非 2.5：无 duration_factor 语义，单次合成即完成
-            if not is_v25:
-                return _do_synth(base_req, output_path)
-
-            # ---- 2.5 双次合成 ----
-            if not target_duration or target_duration <= 0:
-                # 无目标时长：单次自然合成（factor=1.0）
-                base_req["duration_factor"] = 1.0
-                return _do_synth(base_req, output_path)
-
-            # 第一次：自然合成（factor=1.0）到临时文件，测量实际时长
-            with _tf.TemporaryDirectory(prefix="indextts_nat_") as td:
-                nat_path = Path(td) / "natural.wav"
-                nat_req = dict(base_req)
-                nat_req["id"] = nat_req["id"] + "_nat"
-                nat_req["output_path"] = str(nat_path)
-                nat_req["duration_factor"] = 1.0
-                if not _do_synth(nat_req, nat_path):
-                    return False
-                nat_dur = self._wav_duration(nat_path)
-                if nat_dur is None or nat_dur <= 0:
-                    print("      ⚠️ 自然合成测时失败，回退 factor=1.0 单次合成")
-                    base_req["duration_factor"] = 1.0
-                    return _do_synth(base_req, output_path)
-
-                # factor = 目标时长 / 自然时长（>1 拉长减速，<1 压缩加速）
-                # duration_factor 与生成时长成正比（infer_v2_5: target_lengths = S*1.72*factor），
-                # 故要用 目标/自然 得到贴合目标的倍数。
-                factor = target_duration / nat_dur
-                if not self.allow_slowdown and factor > 1.0:
-                    # 禁放慢（allow_slowdown=false）：自然合成已快于目标，不重合成拉长。
-                    # 保留自然语速版本，富余时间由上层句间停顿/提前结束吸收。
-                    shutil.copy2(str(nat_path), str(output_path))
-                    return True
-                if not (0.5 <= factor <= 2.0):
-                    # 越界：保留自然合成版本（语速正常），对齐靠外层 atempo 兜底
-                    print(f"      ↪ duration_factor={factor:.2f} 越界，保留自然语速（atempo 兜底对齐）")
-                    shutil.copy2(str(nat_path), str(output_path))
-                    return True
-
-                # 第二次：按 factor 重合成到最终路径
-                final_req = dict(base_req)
-                final_req["duration_factor"] = round(factor, 4)
-                return _do_synth(final_req, output_path)
+            sess = self._get_indextts_session()
+            # 按句 voice_ref 覆盖会话默认（多音色场景每句不同 ref）
+            return sess.synthesize(
+                text=text,
+                output_path=output_path,
+                seed=seed,
+                target_duration=target_duration,
+                lang=getattr(self, "tts_lang", "ZH"),
+                allow_slowdown=bool(getattr(self, "allow_slowdown", True)),
+                voice_ref=voice_ref,
+            )
         except Exception as e:
             print(f"      ❌ IndexTTS2 服务异常: {e}")
             self._dump_indextts_stderr()
             return False
 
     def _dump_indextts_stderr(self):
-        """打印 IndexTTS2 服务 stderr 日志尾部（诊断用，最多 30 行）。"""
+        """打印 IndexTTS2 服务 stderr 尾部（委托至会话）。"""
+        sess = getattr(self, "_indextts_session", None)
+        if sess is not None:
+            try:
+                sess._dump_stderr("pipeline 透传")
+            except Exception:
+                pass
+            return
         try:
             log = getattr(self, "_indextts_stderr_log", None)
             if log is None:
