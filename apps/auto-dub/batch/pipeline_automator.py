@@ -219,6 +219,15 @@ class PipelineAutomator:
             or (config.get("pipeline", {}).get("indextts") or {}).get("checkpoints")
             or r"D:/index-tts/checkpoints"
         )
+        # 去AI优化（备注：22k声码器闷+韵律平，需采样稳态+母带链）
+        _tts_cfg = config.get("pipeline", {}).get("tts", {}) or {}
+        self.tts_temperature = float(_tts_cfg.get("temperature", 0.65))
+        self.tts_top_p = float(_tts_cfg.get("top_p", 0.75))
+        self.tts_top_k = int(_tts_cfg.get("top_k", 30))
+        self.tts_repetition_penalty = float(_tts_cfg.get("repetition_penalty", 5.0))
+        self.tts_max_mel_tokens = int(_tts_cfg.get("max_mel_tokens", 1000))
+        self.tts_mastering = bool(_tts_cfg.get("mastering", True))  # 去AI母带：EQ+压缩+loudnorm，默认开
+        self.tts_mastering_loudness = float(_tts_cfg.get("mastering_loudness", -14.0))  # LUFS
         # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
         self.subtitle_driven = config.get("pipeline", {}).get("subtitle_driven", "off")
         # 音轨混合模式：replace=整轨替换（默认）；game_audio=demucs 分离后保留游戏声/BGM 做底音轨
@@ -2572,11 +2581,15 @@ class PipelineAutomator:
                 
         dub_zh_wav = self.assets_dir / "dub_zh.wav"
         full_track.export(dub_zh_wav, format="wav")
-        print(f"    ✅ 主音轨已生成（立体声，{len(speaker_pans)} 位说话人声像分离，总长 {duration_sec:.2f}秒）: {dub_zh_wav}")
-                
-        dub_zh_wav = self.assets_dir / "dub_zh.wav"
-        full_track.export(dub_zh_wav, format="wav")
-        print(f"    ✅ 主音轨已生成 (零变速，总长 {duration_sec:.2f}秒): {dub_zh_wav}")
+        if len(speaker_pans) > 1:
+            print(f"    ✅ 主音轨已生成（立体声，{len(speaker_pans)} 位说话人声像分离，总长 {duration_sec:.2f}秒）: {dub_zh_wav}")
+        else:
+            print(f"    ✅ 主音轨已生成 (总长 {duration_sec:.2f}秒): {dub_zh_wav}")
+        # 去AI母带（备注：22k→48k 闷感/动态修复，默认开，可用 pipeline.tts.mastering=false 关闭）
+        if getattr(self, "tts_mastering", True):
+            mastered = self._master_de_ai(dub_zh_wav)
+            if mastered != dub_zh_wav:
+                dub_zh_wav = mastered
 
         # 3. 动态重同步生成 SRT 字幕文件
         print("    📝 字幕动态重同步生成中...")
@@ -3306,6 +3319,12 @@ class PipelineAutomator:
             checkpoints=getattr(self, "indextts_checkpoints", None),
             project_dir=self.project_dir,
             allow_slowdown=bool(getattr(self, "allow_slowdown", True)),
+            # 去AI稳态采样（备注：官方 0.8/0.8/10 易含糊，去AI改 0.65/0.75/5.0）
+            temperature=float(getattr(self, "tts_temperature", 0.65)),
+            top_p=float(getattr(self, "tts_top_p", 0.75)),
+            top_k=int(getattr(self, "tts_top_k", 30)),
+            repetition_penalty=float(getattr(self, "tts_repetition_penalty", 5.0)),
+            max_mel_tokens=int(getattr(self, "tts_max_mel_tokens", 1000)),
         )
         sess.start()
         self._indextts_session = sess
@@ -3789,6 +3808,39 @@ class PipelineAutomator:
             return AudioSegment.from_wav(str(path)).duration_seconds
         except Exception:
             return 0.0
+
+    def _master_de_ai(self, path: Path) -> Path:
+        """去AI母带：22k→48k 闷感修复（备注：BigVGAN 22k 声码器偏闷，需母带去AI）。
+
+        链路：highpass 80Hz + 3kHz 提亮2dB + 120Hz 补暖1.5dB + 轻激励 + 轻压缩 + loudnorm(-14 LUFS)。
+        失败回退原文件，不阻断管线。
+        """
+        if not getattr(self, "tts_mastering", True):
+            return path
+        mastered = path.with_name(f"{path.stem}_master.wav")
+        if mastered.exists() and mastered.stat().st_size > 1000:
+            return mastered
+        try:
+            loud = float(getattr(self, "tts_mastering_loudness", -14.0))
+            # 去AI母带滤镜：去低频嗡鸣、提中高频清晰度、轻压缩收动态、响度标准化
+            af = (
+                "highpass=f=80,"
+                "equalizer=f=3000:width_type=o:width=1:g=1.8,"
+                "equalizer=f=120:width_type=o:width=1:g=1.2,"
+                "aexciter=level_in=1:level_out=1:amount=0.45,"
+                "acompressor=threshold=-18dB:ratio=2:attack=10:release=100,"
+                f"loudnorm=I={loud}:TP=-1.5:LRA=7"
+            )
+            cmd = ["ffmpeg", "-y", "-i", str(path), "-filter:a", af, "-ar", "48000", "-c:a", "pcm_s16le", str(mastered)]
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+            if res.returncode != 0 or not mastered.exists() or mastered.stat().st_size < 1000:
+                logging.warning(f"去AI母带失败 {path.name}: {res.stderr[:300] if res else ''}，保留原文件")
+                return path
+            print(f"    ✨ 去AI母带已应用: {mastered.name} (loudnorm {loud} LUFS)")
+            return mastered
+        except Exception as e:
+            logging.warning(f"去AI母带异常 {path.name}: {e}，保留原文件")
+            return path
 
     def _atempo_wav(self, path: Path, factor: float) -> Path:
         """对单个 WAV 应用 atempo 变速（保音高），返回新路径。"""

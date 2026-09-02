@@ -147,6 +147,14 @@ def main():
                 emo_alpha = float(item.get("emo_alpha", 0.6))
                 lang = item.get("lang") or "ZH"
                 duration_factor = float(item.get("duration_factor", 1.0))
+                # 去AI合成参数（可由客户端透传，无则用管线级去AI默认值）
+                # 备注：temperature/top_p/top_k/repetition_penalty 为人耳听感“去AI”关键，
+                # 默认走稳态（0.65/0.75/30/5.0）比官方 0.8/0.8/30/10 更少含糊与吃字。
+                gen_temperature = float(item.get("temperature", 0.65))
+                gen_top_p = float(item.get("top_p", 0.75))
+                gen_top_k = int(item.get("top_k", 30))
+                gen_repetition_penalty = float(item.get("repetition_penalty", 5.0))
+                gen_max_mel_tokens = int(item.get("max_mel_tokens", 1000))
 
                 # 三态情感语义：
                 #   1) use_emo_text 显式 True  -> 自动判情感，覆盖 emo_vector
@@ -191,6 +199,12 @@ def main():
                     infer_kwargs["emo_vector"] = emo_vector
                 if voice_ref:
                     infer_kwargs["spk_audio_prompt"] = voice_ref
+                # 去AI采样参数透传（温度/核采样/重复惩罚），无则用上文去AI默认值
+                infer_kwargs["temperature"] = gen_temperature
+                infer_kwargs["top_p"] = gen_top_p
+                infer_kwargs["top_k"] = gen_top_k
+                infer_kwargs["repetition_penalty"] = gen_repetition_penalty
+                infer_kwargs["max_mel_tokens"] = gen_max_mel_tokens
 
                 gen = model.infer(**infer_kwargs)
                 for _ in gen:

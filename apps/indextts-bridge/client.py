@@ -78,6 +78,12 @@ class IndexTTSSession:
         checkpoints: Optional[Path | str] = None,
         project_dir: Optional[Path] = None,
         allow_slowdown: bool = True,
+        # 去AI合成参数（稳态默认值，覆盖官方 0.8/0.8/10）
+        temperature: float = 0.65,
+        top_p: float = 0.75,
+        top_k: int = 30,
+        repetition_penalty: float = 5.0,
+        max_mel_tokens: int = 1000,
     ):
         self.voice_ref = str(voice_ref) if voice_ref else None
         self.model_version = model_version
@@ -88,6 +94,11 @@ class IndexTTSSession:
         self.lock_timeout = lock_timeout
         self.project_dir = project_dir
         self.allow_slowdown = allow_slowdown
+        self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
+        self.repetition_penalty = repetition_penalty
+        self.max_mel_tokens = max_mel_tokens
 
         paths = engine_paths()
         self.venv_python = paths["venv"]
@@ -236,6 +247,12 @@ class IndexTTSSession:
             "text": text,
             "output_path": str(output_path),
             "seed": seed,
+            # 去AI采样参数透传（覆盖官方默认值，稳态更少含糊）
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "repetition_penalty": self.repetition_penalty,
+            "max_mel_tokens": self.max_mel_tokens,
         }
         if self.model_version == "2.5":
             req["lang"] = lang or self.lang
