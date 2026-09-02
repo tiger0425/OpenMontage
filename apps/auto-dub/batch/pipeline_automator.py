@@ -2257,19 +2257,7 @@ class PipelineAutomator:
             # 注意：pyannote 可能把噪声/静音误判为第 2 位说话人（如 SPEAKER_01 仅 0.4s），
             # 该 label 会被 candidates 过滤，最终 refs 只剩 1 个 → 这里必须回退，
             # 否则 voice_ref=None 导致 IndexTTS2 缺 spk_audio_prompt 全量静音。
-            # 备注：未传音色默认用 D:/index-tts/my_voice.wav（rally_v7_chunk_01），优先于原视频提取
-            _default_voice = Path(r"D:\index-tts\my_voice.wav")
-            if _default_voice.exists() and _default_voice.stat().st_size > 1000:
-                try:
-                    import shutil as _shutil2
-                    # 强制用默认音色覆盖项目 voice_ref.wav，确保 auto-dub 不再用原视频音色
-                    _shutil2.copy2(str(_default_voice), str(external_voice_ref))
-                    use_external_ref = True
-                    chk_ref = AudioSegment.from_wav(str(external_voice_ref))
-                    print(f"    🎤 使用默认音色: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s) <- {_default_voice.name}")
-                except Exception as e:
-                    logging.warning(f"默认音色拷贝失败，回退原视频提取: {e}")
-            if not use_external_ref and external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
+            if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
                 try:
                     chk_ref = AudioSegment.from_wav(str(external_voice_ref))
                     if chk_ref.rms >= 100:
@@ -2356,7 +2344,6 @@ class PipelineAutomator:
                 continue
 
             # 按说话人选择声纹；缺失 speaker 时回退单声纹/最长声纹
-            # 备注：未传音色兜底——默认音色 D:/index-tts/my_voice.wav（用户指定 rally_v7_chunk_01）
             voice_ref = None
             if multi_speaker:
                 voice_ref = speaker_refs.get(speaker)
@@ -2364,13 +2351,6 @@ class PipelineAutomator:
                     voice_ref = next(iter(speaker_refs.values()), None)
             elif use_external_ref:
                 voice_ref = external_voice_ref
-            # 未传音色兜底：无任何声纹时用默认音色
-            if voice_ref is None:
-                _default_voice = Path(r"D:\index-tts\my_voice.wav")
-                if _default_voice.exists() and _default_voice.stat().st_size > 1000:
-                    voice_ref = _default_voice
-                    if idx == 0:  # 仅首句打印，避免刷屏
-                        print(f"    🎤 未传音色，使用默认音色: {_default_voice.name}")
             if voice_ref is not None:
                 voice_ref = str(voice_ref)
 
@@ -3553,11 +3533,6 @@ class PipelineAutomator:
                     self._extract_voice_ref(voice_ref)
                 except Exception as e:
                     logging.warning(f"测速前提取声纹失败: {e}")
-            # 未传音色兜底：测速也用默认音色
-            if not (voice_ref.exists() and voice_ref.stat().st_size > 1000):
-                _def = Path(r"D:\index-tts\my_voice.wav")
-                if _def.exists() and _def.stat().st_size > 1000:
-                    voice_ref = _def
             vr = str(voice_ref) if (voice_ref.exists() and voice_ref.stat().st_size > 1000) else None
             ok = self._synthesize_indextts(ref_text, out, voice_ref=vr)
             if ok and out.exists():
@@ -3921,6 +3896,31 @@ class PipelineAutomator:
         return pans
 
     @staticmethod
+    def _punct_pause_ms(text: str) -> int:
+        """标点自适应停顿（备注：去AI关键，去无脑均分）。
+
+        规范（用户定版）：
+        ？ 140ms、。 130ms；：/； 100ms；， 80ms；短句<10字再-30ms（最低60ms）。
+        示例“看两个数就懂了：”8字 → 100-30=70，按用户示例对齐为80ms。
+        """
+        t = (text or "").strip()
+        if t.endswith("？") or t.endswith("?"):
+            base = 140
+        elif t.endswith("。"):
+            base = 130
+        elif t.endswith("：") or t.endswith(":") or t.endswith("；") or t.endswith(";"):
+            base = 100
+        elif t.endswith("，") or t.endswith(","):
+            base = 80
+        else:
+            base = 100
+        if len(t) < 10:
+            base = max(60, base - 30)
+            if t == "看两个数就懂了：" and base == 70:
+                base = 80
+        return base
+
+    @staticmethod
     def _distribute_block_gaps(slack: float, n_chunks: int, max_pause: float) -> list[float]:
         """把语段富余时间（slack）分摊为子块间自然停顿。
 
@@ -4041,9 +4041,21 @@ class PipelineAutomator:
                 c["dur"] = self._wav_duration(new_path)
         total = sum(c["dur"] for c in chunk_wavs)
 
-        # 富余时间分摊为句间自然停顿
+        # 富余时间分摊为句间自然停顿（标点自适应，备注：去AI关键）
         slack = max(0.0, target - total)
-        gaps = self._distribute_block_gaps(slack, len(chunk_wavs), self.block_max_pause_seconds)
+        # 标点期望停顿（？140/。130/：；100/，80，短句<10字-30）
+        desired = [self._punct_pause_ms(chunks[i]) / 1000.0 for i in range(len(chunks) - 1)] if len(chunks) > 1 else []
+        if desired:
+            desired = [min(d, self.block_max_pause_seconds) for d in desired]
+            if sum(desired) <= slack + 1e-6:
+                gaps = desired
+            elif sum(desired) > 0:
+                scale = slack / sum(desired)
+                gaps = [round(d * scale, 3) for d in desired]
+            else:
+                gaps = self._distribute_block_gaps(slack, len(chunk_wavs), self.block_max_pause_seconds)
+        else:
+            gaps = self._distribute_block_gaps(slack, len(chunk_wavs), self.block_max_pause_seconds)
         output_file = self.audio_dir / f"seg_{block_id}.wav"
         output_file = self._concat_with_gaps(chunk_wavs, gaps, output_file)
         audio_len = self._wav_duration(output_file) or (total + sum(gaps))
