@@ -134,6 +134,8 @@ _clipboard_analysis.png
 
 # Downloaded music files (Pixabay, Freesound — not source code)
 pixabay_music_*
+freesound_*.mp3
+freesound_*.wav.mp3
 
 # Global asset library (external assets, not source code)
 assets/shared_library/
@@ -189,8 +191,9 @@ downloads/
 tools/_comfyui/workflows/_tmp_*.json
 tools/_comfyui/workflows/*.bak.json
 
-# Local model weights (VoxCPM/IndexTTS — downloaded, not source)
+# Local model weights (VoxCPM/IndexTTS/MusicGen — downloaded, not source)
 models/voxcpm/
+models/musicgen/
 
 # npm cache (local package cache, never source)
 .npm-cache/
@@ -228,6 +231,9 @@ snap_*/
 /qa_title_zoom.png
 /*_probe.jpg
 /snap_*.json
+/tmp_*.json
+/tmp_*.py
+/p1_*.txt
 
 # ref-remake pipeline official scripts (exempt from generic gen_*.py ignore)
 !apps/ref-remake/scripts/gen_frames.py

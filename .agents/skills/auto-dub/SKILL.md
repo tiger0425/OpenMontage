@@ -525,6 +525,14 @@ ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 f
 `renders/final.mp4` → 校验时长 = 原视频 + 片尾、零跳变 →
 同步覆盖 `review/` 与 `published/` 下的 `{中文标题}.mp4`（删除旧错误文件）。
 
+### 6. 片尾末句没说完（最后一句截断）
+
+**症状**：成品最后一句只说一半，或根本没声音
+**排查**：按 `skills/pipelines/localization-dub/lessons-learned.md → 片尾末句防截断三层核验`
+逐层查：转录丢尾（末词无标点/end 与片尾差 > 0.5s）→ 译文半句收尾 →
+末句 WAV 静音（rms < 100，删文件重跑 `run-heavy` 补合成）→ 成品时长/片尾音频峰值/SRT 末条。
+派 Worker 时把末句中英文原文 + 时间戳写死在 prompt 里当比对基准，核验数值进 JSON `checks` 字段。
+
 ---
 
 ## 🔗 相关技能文档

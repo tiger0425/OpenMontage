@@ -273,4 +273,33 @@ LLM 对"贴近 X 字"的软约束遵守度不稳定。三层保障：
 - 「原片 · 频道」标签默认左下角，会压住原封面自带的角标（如 The Code Report logo）→ 竖屏模板移到右下角；横屏模板默认已在右下
 - 重渲单张封面：复刻 `_render_single_cover_image`（临时目录放 index.html + thumb.jpg → `npx hyperframes render --quality high --variables <json>` → ffmpeg 抽首帧），变量与流水线一致（title/channel/cover_style/thumb_path）
 
+## 🔊 片尾末句防截断三层核验 (End-Sentence Guard, 2026-09-04)
+
+> 来源：`auto-dub-JQfA5WzRKN8`（Cloud Codes，21 分钟 216 句）。用户连续多期反馈"最后一句没说完"，本期交付前做三层核验，一次通过。
+> 铁律 A 已有"禁止截断超长音频尾部"，但那是针对**句中截断**；这里补的是**片尾末句**的专项验收（转录丢尾 / 译文丢尾 / 合成静音 / 压制提前收尾四种死法各查一层）。
+
+### 第 1 层：转录没丢尾（script 阶段完成后查）
+
+- 末 utterance 的最后一个词必须带**完整词尾标点**（如 `out.`），且 `utt.end` 与原片时长差 < 0.5s
+- 本期实测：末词 `out.` 1264.62→1264.82s，原片 1265.0s，仅差 0.18s → 通过
+- 若末词无标点或 end 明显早于片尾（如差 > 2s），说明 Whisper 丢了尾巴 → 检查 `segments` 最后一块，或换大模型重转该尾段，不要直接进翻译
+
+### 第 2 层：译文完整收尾（script.json 里查）
+
+- 末 section 的 `delivery_cues.provider_text` 必须以**完整句号/问号/感叹号**结尾，禁止逗号、半句收尾
+- 本期实测：u215 译文"这周把现有模型换个外围跑一遍，看看结果。"句号收尾 → 通过
+- 若译文半句收尾，优先在 `translation_review.md` 里人工补全该句再 `approve-review`，不要指望 TTS/压制环节兜底
+
+### 第 3 层：合成与压制没切尾（run-heavy 完成后查，Worker 执行）
+
+1. **末句 WAV 非静音**：`scipy.io.wavfile` 读末句 WAV，`rms = sqrt(mean(data²))`，`rms < 100` = 静音伪文件 → 删除该文件重跑 `run-heavy`（TTS 自动补合成）再复查。本期实测 u215 rms=3574 → 通过
+2. **成品时长对得上**：`final.mp4` 时长 ≈ 原片 + 片尾（本期 1267.97s ≈ 1265 + 3s）→ 通过；若明显偏短，说明压制阶段丢了尾部
+3. **片尾有声**：成品最后 5s 音频峰值应在正常范围（本期 -2.9dB）；SRT 最后一条应覆盖到片尾（本期 `00:21:01→00:21:04`）→ 通过
+4. 任一不通过都要在回报 JSON 的 `warnings/error` 里如实写明，**禁止隐瞒带病交付**
+
+### 派 Worker 时的写法（已验证有效）
+
+- 把末句中英文原文 + 时间戳**写死在派发 prompt 里**作为比对基准，不要只说"注意最后一句"——模糊指令 Worker 无法校验
+- 要求 Worker 只回单行 JSON，但把三层核验数值（rms/时长/分贝/SRT 区间）塞进 JSON 的 `checks` 字段，主 Agent 直接看数验收，不用重听全片
+
 

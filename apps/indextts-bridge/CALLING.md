@@ -93,7 +93,8 @@ E:\YifuAIForge\OpenMontage\apps\indextts-bridge\indextts_server.py
 | `duration_factor` | 可选 | 语速 0.5-2.0，默认 1.0 |
 | `seed` | 可选 | 复现种子，默认 42 |
 | `use_emo_text` | 可选 | **默认 false**（纯净克隆） |
-| `emo_vector` | 可选 | 8 维情感向量 |
+| `emo_audio_prompt` | 可选 | 参考音频情感（原片句情绪，2.5 专用）：传入即用该音频的情绪驱动合成，**优先于** `emo_vector`/`emo_alpha`；配 `voice_ref`（音色）分离。二创管线逐句克隆原片情感用 |
+| `emo_alpha` | 可选 | 情感强度，默认 0.6（0.35=弱档） |
 
 ### 4. 关键：编码必须 UTF-8（防中文乱码）
 

@@ -143,6 +143,7 @@ def main():
                 voice_ref = item.get("voice_ref")
                 seed = item.get("seed", 42)
                 emo = item.get("emo_vector")  # None = 未指定
+                emo_audio = item.get("emo_audio_prompt")  # 参考音频情感（原片句情绪），None=未指定
                 explicit_use_emo_text = item.get("use_emo_text")
                 emo_alpha = float(item.get("emo_alpha", 0.6))
                 lang = item.get("lang") or "ZH"
@@ -177,6 +178,9 @@ def main():
                     else:
                         # 2.5：未指定 → 纯净克隆（不注入情感，声纹保真）
                         use_emo_text, emo_vector = False, None
+                # emo_audio_prompt 参考音频情感优先：同时传了 emo_vector 时以 audio 为准
+                if emo_audio is not None:
+                    use_emo_text, emo_vector = False, None
 
                 torch.manual_seed(seed)
                 if torch.cuda.is_available():
@@ -197,6 +201,9 @@ def main():
                     infer_kwargs["emo_alpha"] = emo_alpha
                 else:
                     infer_kwargs["emo_vector"] = emo_vector
+                    if emo_audio is not None:
+                        infer_kwargs["emo_audio_prompt"] = emo_audio
+                        infer_kwargs["emo_alpha"] = emo_alpha
                 if voice_ref:
                     infer_kwargs["spk_audio_prompt"] = voice_ref
                 # 去AI采样参数透传（温度/核采样/重复惩罚），无则用上文去AI默认值

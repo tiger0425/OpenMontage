@@ -241,7 +241,7 @@ class IndexTTSSession:
         except Exception:
             return None
 
-    def _build_base_req(self, text: str, output_path: Path | str, seed: int, lang: Optional[str], voice_ref: Optional[Path | str] = None) -> dict:
+    def _build_base_req(self, text: str, output_path: Path | str, seed: int, lang: Optional[str], voice_ref: Optional[Path | str] = None, emo_audio_prompt: Optional[Path | str] = None, emo_alpha: float = 0.6) -> dict:
         req: dict = {
             "id": str(hash((text, str(output_path)))),
             "text": text,
@@ -256,9 +256,15 @@ class IndexTTSSession:
         }
         if self.model_version == "2.5":
             req["lang"] = lang or self.lang
-        # 情感纯净路径（2.5 关键：calm 不传 emo_vector，否则音色漂移/女声化）
+        # 情感路径（2.5）：
+        #   auto → QwenEmotion 自动判情感；emo_audio_prompt → 参考音频情感（优先，覆盖 auto）
+        #   calm/未指定 → 纯净克隆（不传 emo_vector，保声纹）
         if self.model_version == "2.5":
-            if self.emotion == "auto":
+            if emo_audio_prompt is not None:
+                req["use_emo_text"] = False
+                req["emo_audio_prompt"] = str(emo_audio_prompt)
+                req["emo_alpha"] = emo_alpha
+            elif self.emotion == "auto":
                 req["use_emo_text"] = True
                 req["emo_alpha"] = 0.6
         else:
@@ -281,6 +287,8 @@ class IndexTTSSession:
         lang: Optional[str] = None,
         allow_slowdown: Optional[bool] = None,
         voice_ref: Optional[Path | str] = None,
+        emo_audio_prompt: Optional[Path | str] = None,
+        emo_alpha: float = 0.6,
     ) -> bool:
         """合成单段音频。返回是否成功。
 
@@ -296,7 +304,7 @@ class IndexTTSSession:
 
         is_v25 = self.model_version == "2.5"
         if not is_v25 or not target_duration or target_duration <= 0:
-            req = self._build_base_req(text, output_path, seed, lang, voice_ref)
+            req = self._build_base_req(text, output_path, seed, lang, voice_ref, emo_audio_prompt, emo_alpha)
             if is_v25:
                 req["duration_factor"] = 1.0
             return self._single_synth(req)
@@ -305,7 +313,7 @@ class IndexTTSSession:
         import tempfile as _tf
         import shutil as _shutil
         eff_allow_slowdown = self.allow_slowdown if allow_slowdown is None else allow_slowdown
-        base_req = self._build_base_req(text, output_path, seed, lang, voice_ref)
+        base_req = self._build_base_req(text, output_path, seed, lang, voice_ref, emo_audio_prompt, emo_alpha)
 
         with _tf.TemporaryDirectory(prefix="indextts_nat_") as td:
             nat_path = Path(td) / "natural.wav"

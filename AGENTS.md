@@ -82,6 +82,25 @@ When the user's message contains ANY of the following triggers, you MUST read
 `python bin/auto_subtitle.py <subcommand>`. Do NOT write ad-hoc Python scripts
 to call pipeline internals directly.
 
+## ErChuang（抖音二创）Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/erchuang/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 二创 / 抖音二创 / 做成抖音版 / erchuang / 复用二创管线
+- 去原作头像和广告 / 拆集连载 / 换我的音色做解说
+- 把这条 auto-dub 视频做成抖音节奏片 / 日产那种二创
+- **任何「已有中文成品/原片 + 抖音横屏 + 重写文案 + 换音色」的二创意图**
+
+**What the skill teaches you:**
+- 六步流程：zones 禁区 → 拆集文案(humanizer-bilibili) → synth 逐句原片情感配音 → montage 干净素材 → overlay(hyperframes) → mux → auto-dub 成品包确认归档
+- CLI 命令（`bin/erchuang.py` zones/synth/montage/mux）、manifest 示例、桥协议 emo_audio_prompt
+- 规格（音色/情感 0.6/两集 96-100s/禁区 SFace）与已踩坑速查
+
+**CRITICAL**: For ErChuang tasks, use `bin/erchuang.py` + `apps/indextts-bridge` client（emo_audio_prompt 已入协议）。
+GPU TTS / hyperframes render 须派 Compute Worker 以 `--json` 单行回报。文案须过 humanizer-bilibili。
+
 ## WRC-Pipeline Skill Routing
 
 When the user's message contains ANY of the following triggers, you MUST read
@@ -104,3 +123,21 @@ When the user's message contains ANY of the following triggers, you MUST read
 `python bin/wrc.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
 pipeline internals directly. 重命令（render-assets / render-video / run-heavy）
 必须派 Compute Worker 执行并以 `--json` 单行回报；脚本闸门必须等用户确认后才放行。
+
+## Lofi-Tiger Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/lofi-tiger/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 做条lofi / 做一条lofi / 做小老虎视频 / 做小老虎音乐 / lofi-tiger
+- Tiger & Tea / lofi tiger / 生成lofi / lofi视频 / 森林木屋 / 雨夜咖啡馆
+- **任何「小老虎 / Tora + lofi / 音乐 / 放松 / 学习 / YouTube」意图**——用户要求制作治愈系小老虎电台内容时即路由本技能
+
+**What the skill teaches you:**
+- 频道全景与凭证（Tiger & Tea / Channel ID / 已授权的专用 OAuth Token）
+- 角色圣经铁律（小圆耳、严禁耳机、宽松绿卫衣、角落复古收音机、35mm 胶片电影质感）
+- 5×5×5 内容组合矩阵与单集装配
+- 四步生产闭环：主图（视觉人审）→ 微动母本（Mid-Crossfade 闭环）→ 音频自回环混音（-14 LUFS）→ 秒级极速混流成片（1~3h）→ YouTube 全自动发布
+- 自然语言指令映射与执行规范
+
