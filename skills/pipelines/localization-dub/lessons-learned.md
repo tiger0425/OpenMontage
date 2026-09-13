@@ -246,6 +246,25 @@ LLM 对"贴近 X 字"的软约束遵守度不稳定。三层保障：
 - `_meta.json` 与 `_简介.txt` 中的**赞助商链接**（如 bluedot.org）→ 不清会被 B站判定营销内容
 - ⚠️ 已知 bug：`pipeline_automator.py` 简介翻译 prompt 中 `原视频: [original English title]` 是字面占位符，LLM 会原样输出 → 已修复为嵌入真实标题；旧产物需人工修正
 
+### 前置剪辑：广告后面还有正文/outro 时必须在 heavy 之前动手 (Pre-Render Surgery, 2026-09-05)
+
+> 来源：`auto-dub-tp29Fl0EK1w`（Alex Finn，片尾 712–738s newsletter 推广，后面还有 u86–u89 感言 outro）。成品后处理切不动（中间挖洞），只能重跑前做手术。本次三跑 heavy 才收敛，教训如下。
+
+**选型**：纯片尾广告 → 成品后处理（见上）；广告段后面还有正文或 outro → 前置剪辑。先定界到 utterance 边界（本例 u83 起、u85 止），范围给用户三选一确认（整段剪/只剪硬广/不剪）再动手。
+
+**五文件一致性（缺一即错轴）**：`transcript.json` + `script.json` + `scene_plan.json` + `checkpoint_script.json` + `checkpoint_scene_plan.json` 必须同步删段+后移。血泪：
+- checkpoint 才是 heavy 的 source of truth（`_run_script_stage` completed 直接读 checkpoint）。只改工作文件不改 checkpoint → 第一跑 assets 用了旧 90 句时间轴，配音 771s vs 视频 745s 全错位。
+- `_retranslate_shorter` 漂移重翻会**回写** `script.json`（连带 checkpoint），曾把已修好的 87 句写回 90 句。修完工作文件后要复验，凡是 heavy 跑过一遍的工作文件都视为可疑，重跑前重验数量。
+- 手术后**必须删除下游 checkpoint**（`checkpoint_assets/edit/compose.json`）并清空 `assets/audio/`，否则断点续跑静默复用旧轴 seg 音频，输出"成功"但内容是旧的。
+- **术后禁止跑 `approve-review`**：它会从 `translation_review.md`/`speaker_review.md`（仍是 90 句）把删掉的段落写回 JSON。如需改译文，先改 md、跑 approve，通过后再做剪辑手术，顺序不可反。
+- 手术脚本加防呆：`assert` 改前数量（如 90），已 shift 的时间二次跑变换会误删——脚本设计为**不可重跑**，重跑前必须从 `.bak` 恢复。
+
+**game_audio bed 超长坑**：`vocals.wav`/`no_vocals.wav` 在 script 阶段从**原片**分离，长度 = 原片。切片后 bed 比视频长 25.8s → master 尾部多出静音段，final 被撑大（本例 774s vs 应有 749s）。两种修法：① 重分离（删 script checkpoint 重跑转录，又贵又险，不推荐）；② 后处理 trim（前提：用 `segment_timings.json` 确认 87 句配音位置正确、末句 end ≈ 视频末端，本例 746.04s ≈ 745.97s），切 `[0,末句end+0.3]` + `[原outro起点,原终点]` 两段 concat。修完做包级 pts 跳变扫描（阈值 1.5s）。
+
+**交付前三数对齐**：视频流时长 ≈ `script.total_duration_seconds`；`dub_zh_master` 语音末端 ≈ 视频末端；SRT 末条 ≈ 视频末端。三者任一对不上（本例曾出现 745 / 771 / 746 三个版本），禁止交付，必须先定位是 bed、checkpoint 还是 seg 复用问题。
+
+**简介兜底**：原简介被 bot 拦截抓不到时管线只出标题骨架。用户要简介就按转录全文手写一版（开头两行+要点+标签），同步写 `_简介.txt` 与 `_meta.json`，且**不得把已剪掉的推广写进去**。
+
 ## 🖼️ 封面模板动态布局 — 实战经验 (Cover Dynamic Layout, 2026-08-26)
 
 > 来源：`auto-dub-xBByvFrqmWU` 封面重构（默认模板 cover.html / cover_4_3.html / cover_vertical.html）。

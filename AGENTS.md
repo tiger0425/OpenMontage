@@ -141,3 +141,26 @@ When the user's message contains ANY of the following triggers, you MUST read
 - 四步生产闭环：主图（视觉人审）→ 微动母本（Mid-Crossfade 闭环）→ 音频自回环混音（-14 LUFS）→ 秒级极速混流成片（1~3h）→ YouTube 全自动发布
 - 自然语言指令映射与执行规范
 
+## VOX-Course Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/vox-course/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 生成课程视频 / 做课程视频 / 录课程视频 / 做个课程
+- vox-course / course.py / 课程管线 / 跑课程管线
+- 硬核技术视频 / 技术课程视频 / VOX科技视频 / 科技解说视频
+- 把这段技术文档做成视频 / 课程内容生成视频 / 把课程大纲转成视频
+- **任何「课程内容/技术文档/大纲 + 视频/VOX/中文配音/字幕」意图**——用户要求制作专业技术或课程视频时即路由本管线
+
+**What the skill teaches you:**
+- 完整流程：创建项目（`new`）→ 去AI化剧本（`script`，**脚本闸门人审**）→ 剧本校验放行（`approve-script`）→ IndexTTS2 纯净克隆配音与毫秒级字幕对齐（`synth`）→ HyperFrames 纸张剪贴风装配（`compose`）→ 1080P/4K HEVC 渲染（`render`）→ 发布成品包（`package`）
+- 四大铁律：文案 38 条彻底去AI化与年份汉字化、IndexTTS2 纯净克隆与稳态采样参数锁死、画面卡片与台词 100% 咬合、全屏毫秒级高对比度同步字幕条 + 片尾 4.0 秒视觉与音乐优雅留白
+- CLI 入口：`python bin/course.py <subcommand>`（轻量 `run` 直达闸门，重量 `run-heavy` 算力压制）
+- 规范与模板：`apps/vox-course/specs/`（`LESSONS.md`, `course_episode.schema.json`）与 `apps/vox-course/template/`
+
+**CRITICAL**: For VOX-Course tasks, the ONLY permitted execution entry point is
+`python bin/course.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
+pipeline internals directly. 涉及重任务（synth / render / run-heavy）可派 Compute Worker 执行并以 `--json` 单行回报；脚本闸门必须经用户或规范审查后方可放行。
+
+

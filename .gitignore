@@ -223,6 +223,19 @@ snap_*/
 # Stray rally/scratch media in repo root
 /temp_rally_video*
 /Takamoto*.mp4
+/*.mp4
+/Champion*.mp4
+/vatanen*.mp4
+
+# Agent frame-scan scratch output (WRC/ref analysis — regenerable)
+/crashes_scan/
+
+# Stray temp metadata / transcript JSON in repo root
+/temp_yt_meta.json
+/test_bgm_30_transcript.json
+
+# Python backup files
+*.py.bak
 
 # Root scratch JSON / probe outputs
 /out.json

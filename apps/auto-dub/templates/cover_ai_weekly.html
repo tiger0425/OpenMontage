@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN" data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"视频标题"},
+  {"id":"channel","type":"string","label":"Channel","default":""},
+  {"id":"thumb_path","type":"string","label":"Thumbnail","default":""},
+  {"id":"cover_style","type":"string","label":"CoverStyle","default":"ai_weekly"},
+  {"id":"year","type":"string","label":"Year","default":"2026"},
+  {"id":"week","type":"string","label":"Week","default":"36"},
+  {"id":"week_label","type":"string","label":"WeekLabel","default":"2026年第36周"},
+  {"id":"week_range","type":"string","label":"WeekRange","default":"08.31-09.06"}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>AI周报专属封面模板 (16:9)</title>
+    <style>
+      @font-face {
+        font-family: 'NotoSansSC';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/NotoSansSC-Black.ttf') format('truetype');
+        font-weight: 900;
+      }
+      @font-face {
+        font-family: 'Oswald';
+        src: url('/e:/YifuAIForge/OpenMontage/assets/shared_library/fonts/Oswald-Bold.ttf') format('truetype');
+        font-weight: 700;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'NotoSansSC', system-ui, -apple-system, sans-serif;
+        background-color: #020610;
+        overflow: hidden;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+
+      /* ==================== 氛围底色模糊 ==================== */
+      .bg-blur {
+        position: absolute;
+        top: -80px;
+        left: -80px;
+        width: 2080px;
+        height: 1240px;
+        object-fit: cover;
+        filter: blur(55px) brightness(0.25);
+        z-index: 1;
+      }
+
+      .bg-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at 18% 45%, rgba(8, 40, 70, 0.55) 0%, rgba(2, 10, 28, 0.85) 60%, #020610 100%);
+        z-index: 2;
+      }
+
+      #root::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: linear-gradient(rgba(0, 240, 255, 0.02) 1px, transparent 1px),
+                          linear-gradient(90deg, rgba(0, 240, 255, 0.02) 1px, transparent 1px);
+        background-size: 60px 60px;
+        z-index: 3;
+        pointer-events: none;
+      }
+
+      /* ==================== 右侧 3D 原片卡片 ==================== */
+      .poster-3d-wrapper {
+        position: absolute;
+        right: 80px;
+        top: 250px;
+        width: 1040px;
+        height: 603px;
+        border-radius: 24px;
+        box-sizing: border-box;
+        padding: 16px;
+        overflow: hidden;
+        transform-origin: center center;
+        transform: perspective(1400px) rotateY(-10deg) rotateX(2deg) rotate(-2.5deg);
+        transform-style: preserve-3d;
+        box-shadow:
+          -15px 25px 50px rgba(0, 0, 0, 0.75),
+          0px 0px 60px rgba(0, 240, 255, 0.12);
+        border: 4px solid rgba(0, 240, 255, 0.5);
+        background: linear-gradient(145deg, #06303e, #03141b);
+        z-index: 5;
+      }
+
+      .poster-frame {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      .poster-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .poster-frame .panel-label {
+        position: absolute;
+        right: 40px;
+        bottom: 40px;
+        padding: 10px 22px;
+        background: rgba(0, 0, 0, 0.82);
+        border: 2px solid rgba(0, 240, 255, 0.35);
+        border-radius: 10px;
+        color: #ffffff;
+        font-size: 20px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        transform: translateZ(30px);
+      }
+
+      /* ==================== 左侧周报区 ==================== */
+      .content {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1920px;
+        height: 1080px;
+        display: flex;
+        align-items: center;
+        padding-left: 100px;
+        box-sizing: border-box;
+        z-index: 10;
+      }
+
+      .left-section {
+        width: 700px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        height: 860px;
+      }
+
+      /* 系列刊头 */
+      .masthead {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .masthead-pill {
+        background: linear-gradient(135deg, #00f0ff 0%, #0077ff 100%);
+        color: #02131f;
+        font-size: 30px;
+        font-weight: 900;
+        letter-spacing: 4px;
+        padding: 10px 30px;
+        border-radius: 14px;
+        box-shadow: 0 0 30px rgba(0, 240, 255, 0.35);
+      }
+      .masthead-sub {
+        color: #7dd3fc;
+        font-family: 'Oswald', sans-serif;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 3px;
+      }
+
+      /* 年份周数徽章 */
+      .week-badge {
+        display: flex;
+        align-items: baseline;
+        gap: 24px;
+        margin-bottom: 8px;
+      }
+      .week-year {
+        font-family: 'Oswald', sans-serif;
+        font-size: 76px;
+        font-weight: 700;
+        color: #00f0ff;
+        text-shadow: 0 0 30px rgba(0, 240, 255, 0.45);
+        line-height: 1;
+      }
+      .week-num {
+        font-size: 110px;
+        font-weight: 900;
+        line-height: 1;
+        color: #ffffff;
+        -webkit-text-stroke: 2px #021a36;
+        text-shadow:
+          1px 1px 0px #00ffcc,
+          2px 2px 0px #00e6b8,
+          3px 3px 0px #00cc9f,
+          4px 4px 0px #00b38b,
+          5px 5px 0px #009977,
+          6px 6px 18px rgba(0, 255, 204, 0.4);
+      }
+      .week-range {
+        color: #bae6fd;
+        font-size: 26px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        margin-bottom: 30px;
+      }
+
+      /* 本期标题 */
+      .title-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .title-line {
+        font-size: 80px;
+        font-weight: 900;
+        line-height: 1.15;
+        margin: 0;
+        paint-order: stroke fill;
+        color: #ffffff;
+        -webkit-text-stroke: 2px #021a36;
+        text-shadow:
+          1px 1px 0px #00ffcc,
+          2px 2px 0px #00e6b8,
+          3px 3px 0px #00cc9f,
+          4px 4px 0px #00b38b,
+          5px 5px 0px #009977,
+          6px 6px 15px rgba(0, 255, 204, 0.35);
+      }
+      .title-line.gold-text {
+        background: linear-gradient(to bottom, #00f0ff 20%, #0077ff 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* 底部订阅条 */
+      .footer-quote {
+        margin-top: 60px;
+        color: #facc15;
+        font-size: 22px;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer-quote::before {
+        content: "💬";
+      }
+
+      .bottom-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background: linear-gradient(90deg, #00f0ff, #0077ff);
+        z-index: 100;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="cover_ai_weekly" data-no-timeline data-width="1920" data-height="1080" data-start="0" data-duration="0.1">
+
+      <img id="bg-blur" class="bg-blur" alt="背景模糊" />
+      <div class="bg-overlay"></div>
+
+      <div class="poster-3d-wrapper">
+        <div class="poster-frame">
+          <img id="thumb-img" class="poster-img" alt="原视频封面" />
+          <div class="panel-label" id="panel-label"></div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="left-section">
+
+          <div class="masthead">
+            <div class="masthead-pill">AI 周报</div>
+            <div class="masthead-sub">WEEKLY</div>
+          </div>
+
+          <div class="week-badge">
+            <div class="week-year" id="week-year">2026</div>
+            <div class="week-num" id="week-num">第36周</div>
+          </div>
+          <div class="week-range" id="week-range">08.31 — 09.06 · 本周AI大事件</div>
+
+          <div class="title-container" id="title-lines"></div>
+
+          <div class="footer-quote" id="footer-text">
+            每周更新 · 中文AI配音 · 一键追番
+          </div>
+
+        </div>
+      </div>
+
+      <div class="bottom-bar"></div>
+
+    </div>
+
+    <script>
+      const v = window.__hyperframes.getVariables();
+
+      const thumbImg = document.getElementById("thumb-img");
+      const bgBlur = document.getElementById("bg-blur");
+      if (v.thumb_path) {
+        thumbImg.src = v.thumb_path;
+        bgBlur.src = v.thumb_path;
+      }
+
+      const panelLabel = document.getElementById("panel-label");
+      panelLabel.textContent = v.channel ? `原片 · ${v.channel}` : "原片速递";
+
+      if (v.year) document.getElementById("week-year").textContent = v.year;
+      if (v.week) document.getElementById("week-num").textContent = `第${v.week}周`;
+      if (v.week_range) document.getElementById("week-range").textContent = `${v.week_range} · 本周AI大事件`;
+
+      const titleLinesContainer = document.getElementById("title-lines");
+      titleLinesContainer.innerHTML = "";
+      let rawTitle = v.title || "视频标题";
+      let lines = rawTitle.split("\n");
+      lines.forEach((lineText, idx) => {
+        if (!lineText.trim()) return;
+        const h1 = document.createElement("h1");
+        h1.className = "title-line";
+        h1.textContent = lineText.trim();
+        if (idx > 0 || lineText.startsWith("/")) h1.classList.add("gold-text");
+        titleLinesContainer.appendChild(h1);
+      });
+    </script>
+  </body>
+</html>

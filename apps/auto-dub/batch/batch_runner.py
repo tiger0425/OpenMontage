@@ -187,6 +187,9 @@ class BatchRunner:
         
         db_path = OMO_ROOT / self.config['database']['path']
         self.db = DedupDB(db_path)
+        # erchuang 二创管线独立账本（2026-09-05 起与 auto-dub 物理隔离；
+        # 二创行不再写入 auto-dub 库，避免 status 看板混账）
+        self.edb = DedupDB(OMO_ROOT / 'projects' / 'erchuang' / 'tracking.db')
         
         self.glossary = Glossary.from_config(self.config.get('glossary', {}))
         self.channel_monitor = ChannelMonitor(self.config.get('channels', []))
@@ -582,6 +585,11 @@ class BatchRunner:
         - 旧结构：review/<频道>/ 下散文件（按 meta.json 前缀匹配）
         """
         video = self.db.get_by_id(video_id)
+        db = self.db
+        if not video:
+            # erchuang 二创行住在独立账本（projects/erchuang/tracking.db）
+            video = self.edb.get_by_id(video_id)
+            db = self.edb
         if not video:
             raise ValueError(f"视频 {video_id} 不存在于数据库")
 

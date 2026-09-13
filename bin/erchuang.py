@@ -32,9 +32,17 @@ from __future__ import annotations
 import argparse, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
 AUTODUB_DIR = ROOT / "projects" / "auto-dub"
 FACE_MODELS = ROOT / "apps" / "erchuang" / "models"
 FACE_ZONES_KEYS = {"yunet", "sface"}
@@ -54,6 +62,7 @@ def _ff(args: list[str]) -> None:
 # ---------------------------------------------------------------- zones
 def cmd_zones(a: argparse.Namespace) -> None:
     import cv2  # 延迟导入：无 GPU/opencv 时该命令报清晰错误，不影响其它子命令
+    import numpy as np
     ad = _ad_dir(a.video_id)
     src = ad / "source.mp4"
     yunet = FACE_MODELS / "yunet.onnx"
@@ -62,39 +71,70 @@ def cmd_zones(a: argparse.Namespace) -> None:
         if not m.exists():
             sys.exit(f"[erchuang] 缺人脸模型 {m}（拷贝 opencv_zoo yunet/sface onnx 到 apps/erchuang/models/）")
     out_dir = Path(a.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    det = cv2.FaceDetectorYN_create(str(yunet), "", (320, 320))
+    det = cv2.FaceDetectorYN_create(str(yunet), "", (640, 360), score_threshold=0.3)
     rec = cv2.FaceRecognizerSF_create(str(sface), "")
     def feat(frame, f):
         return rec.feature(rec.alignCrop(frame, f)).flatten()
     def cos(a, b):
-        import numpy as np
         return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
     cap = cv2.VideoCapture(str(src))
     fps = cap.get(cv2.CAP_PROP_FPS); dur = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / fps
     def frame_at(t):
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000); ok, f = cap.read(); return f if ok else None
-    ref = frame_at(a.ref_sec)
-    h, w = ref.shape[:2]; det.setInputSize((w, h))
-    _, fs = det.detect(ref)
-    fs = sorted(fs, key=lambda x: x[2] * x[3], reverse=True)
-    if fs is None or len(fs) == 0:
-        sys.exit(f"[erchuang] {a.ref_sec}s 未检出人脸（换 --ref-sec 或该画面无原作头像）")
-    ref_feat = feat(ref, fs[0])
-    print(f"[erchuang] 基准人脸 @ {a.ref_sec}s box={[round(v) for v in fs[0][:4]]}")
+    SW, SH = 640, 360
+    det.setInputSize((SW, SH))
+
+    # 1. 尝试加载频道人脸特征库（Channel Host Profile）
+    ref_feat = None
+    profile_used = None
+    prof_path = Path(a.profile) if getattr(a, "profile", None) else None
+    if not prof_path and getattr(a, "channel", None):
+        candidate = ROOT / "apps" / "erchuang" / "profiles" / f"{a.channel}.npy"
+        if candidate.exists():
+            prof_path = candidate
+
+    if prof_path and prof_path.exists():
+        ref_feat = np.load(prof_path).flatten()
+        profile_used = str(prof_path)
+        print(f"[erchuang] 成功加载频道人脸特征库: {prof_path.name}（免人工指认）")
+    else:
+        # 回退至从视频中提取基准人脸
+        ref = frame_at(a.ref_sec)
+        if ref is None:
+            sys.exit(f"[erchuang] 无法读取视频 @ {a.ref_sec}s")
+        ref_small = cv2.resize(ref, (SW, SH))
+        _, fs = det.detect(ref_small)
+        if fs is None or len(fs) == 0:
+            sys.exit(f"[erchuang] {a.ref_sec}s 未检出人脸（换 --ref-sec 或该画面无原作头像）")
+        fs = sorted(fs, key=lambda x: x[2] * x[3], reverse=True)
+        ref_feat = feat(ref_small, fs[0])
+        print(f"[erchuang] 基准人脸 @ {a.ref_sec}s box={[round(v) for v in fs[0][:4]]}")
+
+        # 若要求保存特征到频道库
+        save_target = getattr(a, "save_profile", None) or getattr(a, "channel", None)
+        if save_target:
+            p_dir = ROOT / "apps" / "erchuang" / "profiles"
+            p_dir.mkdir(parents=True, exist_ok=True)
+            saved_file = p_dir / f"{save_target}.npy"
+            np.save(saved_file, ref_feat)
+            profile_used = str(saved_file)
+            print(f"[erchuang] 已将主持人特征固化保存为频道指纹: {saved_file}")
+
     hits, t = [], 0.0
     while t < dur:
         f = frame_at(t)
         if f is not None:
-            h, w = f.shape[:2]; det.setInputSize((w, h))
-            _, ffs = det.detect(f)
+            f_small = cv2.resize(f, (SW, SH))
+            _, ffs = det.detect(f_small)
             if ffs is not None:
                 for ff in ffs:
-                    if ff[2] * ff[3] < 80 * 80:
+                    if ff[2] * ff[3] < 20 * 20:
                         continue
-                    if cos(ref_feat, feat(f, ff)) >= a.threshold:
+                    if cos(ref_feat, feat(f_small, ff)) >= a.threshold:
                         hits.append(round(t))
         t += a.step
     cap.release()
+
     hits = sorted(set(hits))
     # ±pad 并簇
     raw = sorted(set(x for x in hits))
@@ -106,9 +146,17 @@ def cmd_zones(a: argparse.Namespace) -> None:
             merged.append([max(0, x - a.pad), x + a.pad])
     zones = [{"start": m[0], "end": m[1]} for m in merged]
     out = out_dir / "zones.json"
-    out.write_text(json.dumps({"video_id": a.video_id, "ref_sec": a.ref_sec,
-                               "zones": zones, "hits": raw}, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_data = {
+        "video_id": a.video_id,
+        "channel": getattr(a, "channel", None),
+        "profile": profile_used,
+        "ref_sec": a.ref_sec if not profile_used else None,
+        "zones": zones,
+        "hits": raw
+    }
+    out.write_text(json.dumps(out_data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[erchuang] {len(raw)} 处命中 → {len(zones)} 个禁区簇（±{a.pad}s 并簇）→ {out}")
+
 
 
 # ---------------------------------------------------------------- synth
@@ -252,17 +300,38 @@ def cmd_mux(a: argparse.Namespace) -> None:
     print(f"[erchuang] → {a.out} ({dur}s)")
 
 
+# ---------------------------------------------------------------- check-manifest
+def cmd_check_manifest(a: argparse.Namespace) -> None:
+    from apps.erchuang.validator import validate_manifest_script
+    m_path = Path(a.manifest)
+    if not m_path.exists():
+        sys.exit(f"[erchuang] manifest 文件不存在: {m_path}")
+    data = json.loads(m_path.read_text(encoding="utf-8"))
+    report = validate_manifest_script(data, str(m_path))
+    print(report.summary())
+    if not report.is_valid and not a.ignore_errors:
+        sys.exit(1)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="erchuang.py", description="抖音横屏二创编排 CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("zones", help="标注原作出镜禁区")
+    p = sub.add_parser("check-manifest", help="校验 manifest 剧作规范与开篇爆点 (STORYTELLING 门禁)")
+    p.add_argument("--manifest", required=True, help="待校验的 manifest.json 路径")
+    p.add_argument("--ignore-errors", action="store_true", help="有错误时不退出系统")
+    p.set_defaults(fn=cmd_check_manifest)
+
+    p = sub.add_parser("zones", help="标注原作出镜禁区（支持频道人脸库免审）")
     p.add_argument("--video-id", required=True)
-    p.add_argument("--ref-sec", type=float, default=35.0, help="原作头像基准秒点（用户指认处）")
+    p.add_argument("--channel", help="所属频道名（如 automobilistic），自动加载/保存 profiles/<channel>.npy")
+    p.add_argument("--profile", help="指定人脸特征 .npy 文件路径（若存在直接跳过人工指认）")
+    p.add_argument("--save-profile", help="将当前提取的基准特征保存为此频道名")
+    p.add_argument("--ref-sec", type=float, default=35.0, help="原作头像基准秒点（仅在未建档时使用）")
     p.add_argument("--out-dir", required=True)
     p.add_argument("--threshold", type=float, default=0.35, help="SFace 余弦相似度阈值")
-    p.add_argument("--step", type=float, default=5.0, help="扫描步长（秒）")
-    p.add_argument("--pad", type=float, default=5.0, help="每命中前后扩 pad 秒再并簇")
+    p.add_argument("--step", type=float, default=2.0, help="扫描步长（秒，默认 2.0s 兼顾精度）")
+    p.add_argument("--pad", type=float, default=4.0, help="每命中前后扩 pad 秒再并簇（默认 4.0s）")
     p.set_defaults(fn=cmd_zones)
 
     p = sub.add_parser("synth", help="逐段合成配音（音色 + 逐句 emo 参考）")
@@ -295,3 +364,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

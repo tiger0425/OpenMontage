@@ -1,0 +1,50 @@
+name: vox-course
+version: '1.0'
+description: >
+  VOX 科技与硬核课程自动化生产独立管线。
+  从课程主题/文档大纲输入，一键生成去AI化口播文案、IndexTTS2 纯净克隆语音、
+  100% 咬合的工业纸张卡片视觉、毫秒级高对比度动态同步字幕条、1080P/4K UHD HEVC 视频与发布成品包。
+category: custom
+stability: production
+default_checkpoint_policy: manual_all
+extensions:
+  custom_scripts: false
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+required_skills:
+- vox-course
+- humanizer-bilibili
+- hyperframes-core
+- hyperframes-animation
+stages:
+- name: new
+  checkpoint_required: false
+  human_approval_default: false
+  description: 创建课程项目目录并复制公共物理音效与 BGM 库
+- name: script
+  checkpoint_required: true
+  human_approval_default: true
+  description: 生成/转换去AI化 7 幕 VOX 工业科技叙事剧本，并进入人审闸门
+  review_focus:
+  - 严格执行 38 条去AI文案规则 + 口播 3 条
+  - 彻底粉碎长句（≤25字短句，逗号预留 300ms 呼吸气口）
+  - 年份与数字必须纯汉字化（二零二五年、三百亿美金、百分之九十五）
+  - 台词核心词汇与 display 视觉卡片/印章 100% 咬合
+  - 最后一幕末尾必须包含明确的下集预告钩子
+- name: synth
+  checkpoint_required: false
+  human_approval_default: false
+  description: 调用 IndexTTS2 纯净克隆模式合成音频并计算毫秒级字幕时间轴
+- name: compose
+  checkpoint_required: false
+  human_approval_default: false
+  description: 调用 apps/vox-course/template/generate_composition.py 装配 HyperFrames
+- name: render
+  checkpoint_required: false
+  human_approval_default: false
+  description: 调用 hyperframes render 产出 1080P FHD，并使用 Lanczos 算法压制 4K HEVC
+- name: package
+  checkpoint_required: true
+  human_approval_default: false
+  description: 提取高清封面、生成专业陈述式与高点击率双标题、B站/微信视频号发布文案

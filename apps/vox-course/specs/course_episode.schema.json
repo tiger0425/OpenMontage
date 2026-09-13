@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VoxCourseEpisode",
+  "description": "VOX 风格科技/硬核课程单集数据契约",
+  "type": "object",
+  "required": [
+    "course_id",
+    "episode_index",
+    "title",
+    "scenes",
+    "next_episode_hook"
+  ],
+  "properties": {
+    "course_id": {
+      "type": "string",
+      "description": "课程项目唯一标识，如 agent-harness"
+    },
+    "episode_index": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "第几集，如 1"
+    },
+    "title": {
+      "type": "string",
+      "description": "本集主标题，如 绝大多数大模型项目回报率为零？"
+    },
+    "title_hook": {
+      "type": "string",
+      "description": "悬念/高吸引力备选标题"
+    },
+    "description": {
+      "type": "string",
+      "description": "本集课程概要简介"
+    },
+    "voice_config": {
+      "type": "object",
+      "properties": {
+        "voice_ref": {
+          "type": "string",
+          "default": "D:/index-tts/my_voice.wav"
+        },
+        "model_version": {
+          "type": "string",
+          "default": "2.5"
+        },
+        "use_emo_text": {
+          "type": "boolean",
+          "default": false
+        },
+        "emo_vector": {
+          "type": ["array", "null"],
+          "default": null
+        },
+        "temperature": {
+          "type": "number",
+          "default": 0.65
+        },
+        "top_p": {
+          "type": "number",
+          "default": 0.75
+        },
+        "top_k": {
+          "type": "integer",
+          "default": 30
+        },
+        "repetition_penalty": {
+          "type": "number",
+          "default": 5.0
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "required": ["id", "narration", "display"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "场景ID，如 s01, s02"
+          },
+          "topic_tag": {
+            "type": "string",
+            "description": "VOX 顶部英文章节标签，如 REALITY CHECK / THE HARNESS"
+          },
+          "narration": {
+            "type": "string",
+            "description": "去AI化口播文案（数字纯汉字，短句，留呼吸口）"
+          },
+          "audio_file": {
+            "type": "string",
+            "description": "生成或引用的音频相对路径，如 assets/audio/sec_01.wav"
+          },
+          "duration": {
+            "type": "number",
+            "description": "该幕实际时长（秒）"
+          },
+          "display": {
+            "type": "object",
+            "description": "画面视觉排版与展示元素，必须与 narration 100% 咬合",
+            "properties": {
+              "headline": {
+                "type": "object",
+                "properties": {
+                  "en": { "type": "string" },
+                  "zh": { "type": "string" }
+                }
+              },
+              "cards": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["title"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "theme": { "type": "string", "enum": ["cream", "dark", "manila", "white"], "default": "cream" },
+                    "title": { "type": "string" },
+                    "subtitle": { "type": "string" },
+                    "badge": { "type": "string" },
+                    "torn": { "type": "boolean", "default": false },
+                    "pin": { "type": "string", "enum": ["none", "brass", "red"], "default": "none" },
+                    "tape": { "type": "boolean", "default": false },
+                    "list_items": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "metrics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": { "type": "string" },
+                          "value": { "type": "string" },
+                          "color": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "stamps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": {
+                    "text": { "type": "string" },
+                    "color": { "type": "string", "enum": ["red", "green", "orange"], "default": "red" },
+                    "rotate": { "type": "number", "default": -8 }
+                  }
+                }
+              },
+              "terminal": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "logs": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "status_badge": { "type": "string" }
+                }
+              },
+              "chart": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "enum": ["line", "bar"] },
+                  "title": { "type": "string" },
+                  "series": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "color": { "type": "string" },
+                        "values": { "type": "array", "items": { "type": "number" } }
+                      }
+                    }
+                  }
+                }
+              },
+              "progress_bars": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "percent": { "type": "integer" },
+                    "color": { "type": "string" },
+                    "tag": { "type": "string" }
+                  }
+                }
+              },
+              "flashes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "badge": { "type": "string" },
+                    "core_feature": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "subtitles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["start", "end", "text"],
+              "properties": {
+                "start": { "type": "number" },
+                "end": { "type": "number" },
+                "text": { "type": "string" },
+                "hl": { "type": "boolean", "default": false }
+              }
+            }
+          }
+        }
+      }
+    },
+    "next_episode_hook": {
+      "type": "object",
+      "required": ["headline", "narration", "stamp"],
+      "properties": {
+        "headline": { "type": "string" },
+        "narration": { "type": "string" },
+        "stamp": { "type": "string" }
+      }
+    }
+  }
+}

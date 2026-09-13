@@ -316,10 +316,17 @@ cover:
   width: 1200
   height: 900
   # 注释掉专属模板，统一走自适应通用 3D 景深封面模板
-  channel_templates: {}
+  channel_templates:
+    # AI Search 周报系列：三画幅专属模板（dict 按尺寸指定；str 则只覆盖 16:9）
+    "AI Search":
+      "16:9": "cover_ai_weekly.html"
+      "4:3": "cover_ai_weekly_4_3.html"
+      "9:16": "cover_ai_weekly_vertical.html"
     # "Chris Moran": "covers/chris-moran/cover.html"
     # "Mark Ai Guy": "covers/mark-ai-guy/cover.html"
     # "Matthew Berman": "covers/matthew-berman/cover.html"
+  # 周报徽章频道：封面自动注入 year/week/week_label/week_range（按视频发布日期算 ISO 周）
+  weekly_channels: ["AI Search"]
 
 # ============================================================
 # 访谈类视频分类与调速配置

@@ -2393,18 +2393,34 @@ class PipelineAutomator:
                 # 累积成整片漂移。retranslate_enabled 仅控制全局"温和重翻"（漂移兜底），
                 # 不控制此处单句强制重译。
                 if align_status == "out_of_budget":
-                    new_text = self._retranslate_utterance(line)
-                    if new_text and new_text.strip() and new_text.strip() != text.strip():
-                        retranslated_any = True
-                        print(f"      ↻ 语段 {block_id} 严重超长，定向缩短重翻后重新合成...")
-                        line["delivery_cues"]["provider_text"] = new_text
-                        new_file, new_len, new_status, _, _ = self._build_block_audio(
-                            block_id, new_text, voice_ref, tts_engine, tts, block_dur,
-                            force_resynthesize=True,
-                        )
-                        if new_status in ("aligned", "inherently_long", "overflow") or new_len < audio_len:
-                            output_file, audio_len, align_status = new_file, new_len, new_status
-                            text = new_text
+                    if os.environ.get("AUTO_DUB_NO_FORCED_REWRITE") == "1":
+                        # 用户审定译文保护模式（默认关闭，不影响其他视频）：
+                        # 严重超长句不改写、不截断，接受 1.15x 钳制变速播放，
+                        # 由串行排队自然顺延吸收。保意思优先于保时槽。
+                        print(f"      ↻ 语段 {block_id} 超长（保护模式）：保留审定译文，1.15x 播放，不改写。")
+                        for _c in _cw:
+                            try:
+                                _np = self._atempo_wav(_c["path"], 1.15)
+                                _c["path"] = _np
+                                _c["dur"] = self._wav_duration(_np)
+                            except Exception:
+                                pass
+                        output_file = self._concat_with_gaps(_cw, _gaps, output_file)
+                        audio_len = self._wav_duration(output_file) or audio_len
+                        align_status = "overflow"
+                    else:
+                        new_text = self._retranslate_utterance(line)
+                        if new_text and new_text.strip() and new_text.strip() != text.strip():
+                            retranslated_any = True
+                            print(f"      ↻ 语段 {block_id} 严重超长，定向缩短重翻后重新合成...")
+                            line["delivery_cues"]["provider_text"] = new_text
+                            new_file, new_len, new_status, _, _ = self._build_block_audio(
+                                block_id, new_text, voice_ref, tts_engine, tts, block_dur,
+                                force_resynthesize=True,
+                            )
+                            if new_status in ("aligned", "inherently_long", "overflow") or new_len < audio_len:
+                                output_file, audio_len, align_status = new_file, new_len, new_status
+                                text = new_text
 
             temp_segments.append({
                 "line": line,
@@ -3818,7 +3834,8 @@ class PipelineAutomator:
         if not getattr(self, "tts_mastering", True):
             return path
         mastered = path.with_name(f"{path.stem}_master.wav")
-        if mastered.exists() and mastered.stat().st_size > 1000:
+        if (mastered.exists() and mastered.stat().st_size > 1000
+                and mastered.stat().st_mtime >= path.stat().st_mtime):
             return mastered
         try:
             loud = float(getattr(self, "tts_mastering_loudness", -14.0))
@@ -4400,22 +4417,52 @@ class PipelineAutomator:
         print("      ↳ 将按『无简介』生成标题+标签骨架；建议人工核对并补充简介")
         return ""
 
-    def _resolve_cover_template(self, channel: str) -> Path:
-        """按频道解析专属封面模板，未配置/缺失时回退默认模板。
+    def _resolve_cover_template(self, channel: str, size: str = "16:9") -> Path:
+        """按频道+尺寸解析专属封面模板，未配置/缺失时回退默认模板。
 
         查找顺序：
-        1. config.cover.channel_templates[channel] → 相对 templates/ 的路径
-        2. 默认 cover.template（相对 templates/）
+        1. config.cover.channel_templates[channel] 为 dict 时取其[size] → 相对 templates/ 的路径
+        2. 为 str 时仅覆盖 16:9（向后兼容），其他尺寸走默认
+        3. 默认：16:9 → cover.template；4:3 → cover_4_3.html；9:16 → cover_vertical.html
         """
         cover_cfg = self.config.get("cover", {}) or {}
         channel_map = cover_cfg.get("channel_templates", {}) or {}
-        rel = channel_map.get(channel or "")
+        entry = channel_map.get(channel or "")
+        rel = entry.get(size) if isinstance(entry, dict) else (entry if size == "16:9" else None)
         if rel:
             cand = APPS_ROOT / "templates" / rel
             if cand.exists():
                 return cand
+        if size == "4:3":
+            return APPS_ROOT / "templates" / "cover_4_3.html"
+        if size == "9:16":
+            return APPS_ROOT / "templates" / "cover_vertical.html"
         default_rel = cover_cfg.get("template", "cover.html")
         return APPS_ROOT / "templates" / default_rel
+
+    def _weekly_badge_variables(self) -> dict:
+        """周报徽章变量：按视频发布日期算 ISO 年/周 + 周一到周日日期区间。"""
+        import datetime as _dt
+        raw = (self.video.get("published_at") or self.video.get("upload_date") or "")
+        d = None
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                d = _dt.datetime.strptime(str(raw).strip(), fmt).date()
+                break
+            except Exception:
+                continue
+        if d is None:
+            d = _dt.date.today()
+        iso = d.isocalendar()
+        mon = d - _dt.timedelta(days=d.weekday())
+        sun = mon + _dt.timedelta(days=6)
+        week_range = "%s-%s" % (mon.strftime("%m.%d"), sun.strftime("%m.%d"))
+        return {
+            "year": str(iso.year),
+            "week": str(iso.week),
+            "week_label": "%d年第%d周" % (iso.year, iso.week),
+            "week_range": week_range,
+        }
 
     def _extract_cover_title(self, long_title: str) -> str:
         """调用 LLM 从长标题中提炼出适合作为封面大字的短标题（≤8个字，可用 \n 分行）"""
@@ -4585,17 +4632,26 @@ class PipelineAutomator:
             "cover_style": cover_style,
         }
 
+        # 周报徽章频道：注入年/周变量（模板用 year/week/week_label/week_range 渲染徽章）
+        try:
+            weekly_channels = (self.config.get("cover", {}) or {}).get("weekly_channels", []) or []
+            if channel in weekly_channels:
+                variables.update(self._weekly_badge_variables())
+                print(f"    📅 周报徽章: {variables.get('week_label')} ({variables.get('week_range')})")
+        except Exception as e:
+            print(f"      ⚠️ 周报徽章变量注入失败（封面降级为无徽章）: {e}")
+
         # 5. 分别渲染 16:9, 4:3, 9:16 三种封面
         out_16_9 = output_dir / f"{base_name}_cover_16_9.png"
         out_4_3 = output_dir / f"{base_name}_cover_4_3.png"
         out_9_16 = output_dir / f"{base_name}_cover_9_16.png"
 
         # 16:9 横屏封面模板解析
-        tmpl_16_9 = self._resolve_cover_template(channel)
+        tmpl_16_9 = self._resolve_cover_template(channel, "16:9")
 
-        # 4:3 与 9:16 的通用模板路径
-        tmpl_4_3 = APPS_ROOT / "templates" / "cover_4_3.html"
-        tmpl_9_16 = APPS_ROOT / "templates" / "cover_vertical.html"
+        # 4:3 与 9:16 的通用模板路径（支持频道专属覆盖）
+        tmpl_4_3 = self._resolve_cover_template(channel, "4:3")
+        tmpl_9_16 = self._resolve_cover_template(channel, "9:16")
 
         # 执行渲染
         success_16_9 = self._render_single_cover_image(tmpl_16_9, thumb_file, variables.copy(), out_16_9, npx_exe)

@@ -2,7 +2,8 @@
 name: erchuang
 description: >
   Auto-Dub 下游的抖音横屏二创编排（ErChuang）：把 auto-dub 中文成品/原片 二次创作成
-  抖音节奏片——去原作头像与广告、按你的音色配音、逐句克隆原片情感、拆集连载、重点提示 overlay、
+  抖音节奏片——去原作头像与广告、按你的音色配音、逐句克隆原片情感、以车辆性能和设计思路为纲、
+  完整单集（不拆集不限长）、重点提示 overlay、
   出抖音成品包（封面/简介/meta）并按 auto-dub 协议确认归档。首批 Nissan B_PnlpsVtnw 验证通过。
   触发词：二创、抖音二创、erchuang、把视频做成抖音版、去原作头像配音、拆集连载、换我的音色做解说、
   复用二创管线、日产那种二创。
@@ -43,10 +44,14 @@ metadata:
 
 1. **禁区标注**：`python bin/erchuang.py zones --video-id <id> --ref-sec <原作头像秒> --out-dir <proj>`
    → `zones.json`（SFace 余弦≥0.35，±5s 并簇；片尾引流段另记）。ref-sec 先抽帧 contact sheet 让用户指认原作头像。
-2. **拆集 + 文案**：10 分钟原片拆 2 集（各 96–110s），断点取叙事转折（日产=守江山 u50）。
-   文案过 `.agents/skills/humanizer-bilibili/SKILL.md`（38 条去 AI；单句≤28 字；事实不增不减）。
-   钩子=结果前置+价值承诺（#84：0–2s 爆点+关键词）。**每集结尾必留钩子**（连载中间集=下集悬念；
-   单集/终集=关注钩子或反常识反问，禁无钩子收尾）。每段文本→ `manifest.json`。
+2. **文案（爆款剧作与深度下潜）**：严禁说明书式参数罗列与编年史流水账！必须严格遵守
+   `apps/erchuang/specs/STORYTELLING.md` 剧作规范：
+   - **黄金 2 秒爆点**：前 2 秒强制三选一（荒谬漏洞 / 生理极限代价 / 降维反杀）；严禁圈内黑话/赛事缩写（IMSA/WSC）、严禁年份时代起手、严禁报菜名、严禁前 3 秒提前报车名自毁悬念。
+   - **五步戏剧弧线**：0~5s 悬念核爆 → 5~25s 资本/规则绝境高墙 → 25~60s 致命工程代偿（三层下潜） → 60~90s 赛道命运过山车 → 90s+ 哲学反思与评论区争议。
+   - **三层下潜深度剖析**：拒绝报参数（What），讲透工程上的致命代偿与技术赌博（Trade-off），揭露背后的资本与权力围剿真相（Why & Power）。
+   - **未闭合悬念链（Open Loops）**：全片主悬念贯穿，每 25~30 秒埋入推翻预期的次级危机，消灭注意力断崖。
+   - **质检门禁**：文案写成 `manifest.json` 后，必须运行 `python bin/erchuang.py check-manifest --manifest <path>`，PASS 清零 error 方可进入下一步；同时过 `humanizer-bilibili`（单句≤28字，年份一律汉字）。
+
 3. **合成配音**：`synth` 逐段 IndexTTSSession（voice_ref=my_voice + emo_audio_prompt=原片对位句切片），
    emo_alpha 0.6；manifest `emo_audio` 用 `"vocal@<startSec>:<lenSec>"` 自动切 vocals。
    呼吸 gap：hook 后 300–350ms、段间 150–250ms、收尾 400–700ms；tempo 局部 1.0–1.07。
@@ -83,23 +88,31 @@ metadata:
 
 | 项 | 值 |
 |---|---|
-| 时长/集 | 原片 10 分钟拆 2 集，各约 96–100s（抖音横屏 16:9） |
+| 时长 | **不限**，内容说清为主（2026-09-05 起不拆集；范例 268.6s 完整单集） |
 | 音色 | `D:/index-tts/my_voice.wav` |
 | 情感 | 逐句原片 emo_audio_prompt（0.6；0.35 弱档）——calm 太淡、auto(use_emo_text) 太演 |
 | 禁区 | SFace 指纹≥0.35 命中 ±5s 并簇 + 片尾引流；全部素材绕行 |
-| 文案 | humanizer-bilibili 38 条；单句≤28字；拆 2 集连载、断点=叙事转折 |
+| 文案 | 严格遵循 STORYTELLING.md；黄金2秒爆点3选1；五步戏剧弧线；三层深度下潜；check-manifest 门禁 PASS |
 | overlay | 底部数据条/居中 hero/右侧语录卡；卡点=配音时间轴 |
-| 完播目标 | 整体≥20%、5 秒完播≥50%、降 2 秒跳出（#84）——待抖音实测 |
+| 完播目标 | 整体≥20%、5 秒完播≥50%、2秒跳出率从40%压降至20%以下（#84） |
+| 开局核爆 | 0~2秒：第一视角/近距离“濒死级疯狂驾驶” + 战歌0秒重拍炸响（禁淡入） + 纯净引擎高转声浪 + 原声惊呼 |
+| 语音生成 | 严格以标点（。！？）为边界单句生成，禁复合长段；单句一气呵成不乱喘，句间 gap_ms 控制换气 |
+| 字幕规范 | 单句即说即显（单行居中，说到哪句显示哪句，禁多行剧透整段）；关键词 `<span class="highlight">` 金黄高亮 |
+| 封面规范 | 必须取自无字幕无卡片纯净母本；顶部独立渐变安全区通栏大字，严禁遮挡车辆主体 |
+| 片尾收口 | A 阵营 vs B 阵营争议投票强钩子（评论区点火，禁鸡汤平淡收尾） |
+
 
 ## 成品包（抖音规格）
 
-- 标题 ≤55 字、钩子+关键词且与内容相符；封面大字短句 + 角标"上下集"。
-- 封面 16:9：抽禁区外干净帧 → ffmpeg drawtext 压字（字体 `C\:/Windows/Fonts/msyhbd.ttc`；
-  drawtext 用 `main_h/main_w`，textfile 需正斜杠+`C\:` 转义+单引号）。
-- 简介 txt 首行 `中文标题: <抖音标题>`、次行 `原视频: <英文原题>`、中段 2–3 句梗概、末行话题标签。
+- 标题 ≤55 字、钩子+关键词且与内容相符；封面大字短句（单集不再加"上下集"角标）。
+- 封面 16:9：**必须截取纯净原片母本（严禁从带字幕/带HUD卡片的成片中截取）**；标题收束在顶部渐变区，不遮挡主体。
+- 简介 txt 首行 `中文标题: <抖音标题>`、次行 `原视频: <英文原题>`、中段 2–3 句梗概、互动投票话题、末行话题标签。
 
 ## 已踩坑速查
 
+- **语音断句碎断乱喘**：把复合长段塞给 TTS 会导致模型在内部 token 截断或逗号处随机降调换气。**铁律：严格按标点符号分割单句生成**。
+- **字幕多行剧透**：偷懒复用长 chunk 时间轴会导致 2~3 行文本同屏挂 15 秒，剧透后文破坏悬念。**铁律：说到哪句显示哪句，单行聚焦**。
+- **封面被字幕/卡片污染**：误从成片压制后的 mp4 截帧会导致片中字幕与 HUD 卡片和封面文字打架。**铁律：封面只从 visuals_clean_base.mp4 纯净母本截帧**。
 - drawtext 中文：filter 内 Windows 路径必须 `C\:/...`（正斜杠）+ 整值单引号；坐标用 `main_h`（无 `ih`）。
 - hyperframes index.html 中文字体：`@font-face { font-family:"Microsoft YaHei"; src:local("Microsoft YaHei") }`
   （否则 lint `font_family_without_font_face`）。卡片内每类规则前缀 `.card[data-card-id=...]`；禁 `<script>`/外部URL。
@@ -107,18 +120,18 @@ metadata:
 - `confirm-video` 只认 DB 行 + `review/<channel>/<标题>/` 目录与标题一致。
 - 原片下载失败/机器人验证：过会儿重试或用 `--cookies-from-browser`。
 
-## 当前状态（2026-09-03）
+## 当前状态（2026-09-05）
 
-- 已完成并 published：`automobilistic/日产买菜车干翻保时捷王朝（上）`(B_PnlpsVtnw_P1)、
-  `日产王朝崩塌前夜（下）`(B_PnlpsVtnw_P2)。 2026-09-04 重做版 P1R(73.2s)/P2R(67.5s)已 published（新ID，老片保留；丰田未动）。
-- 待办：#83 map → #88 另 3 条 automobilistic 首批标注、#87 文案规则收尾、#90 抖音实测数据门槛、
-  其余 19 条复用。`RixZZNV2NxE` 原片曾因机器人验证未下载。
-- 二次复跑新视频时：先跑第 1 步 zones（需用户指认 ref-sec），再走 2–6。CLI 整体尚未在第二条视频复验。
+- 首批 4 条全部 published：日产 P1/P2、日产重做 P1R/P2R、Eagle E1、mEYU E1、H-vvv P1/P2、
+  mEYU E1R（TS010 车辆详解 85.6s）、H-vvv E1R（Dauer 完整单集 268.6s）。
+- 重大转向（2026-09-05）：不再分集、不限时长、车辆性能+设计思路为纲、30 秒一钩、句子写全。
+- 待办：#83 map → #88 另 3 条标注、#90 抖音实测数据门槛、其余 19 条复用。`RixZZNV2NxE` 原片曾机器人验证。
+- 二次复跑新视频时：先跑第 1 步 zones（需用户指认 ref-sec），再走 2–6。
 
 ## 新会话 Quick Start
 
 1. 读本 SKILL（+ auto-dub SKILL、humanizer-bilibili）。
 2. `python bin/auto_dub.py status` 看库存；确认目标 `auto-dub-<id>/` 资产齐。
 3. 问用户：做哪条视频 / 抖音还是 B 站；原作头像在几秒（或抽 contact sheet 让用户指）。
-4. 按"六步流程"跑，每步产出行注释；TTS/渲染重活派 Worker。
+4. 按"六步流程"跑（不再拆集、不限时长，性能+设计思路为纲），每步产出行注释；TTS/渲染重活派 Worker。
 5. 出片后走 review→confirm→published，更新 #83/#90 落账。

@@ -398,6 +398,8 @@ pipeline:
 
 ⚠️ 库中可能有历史遗留的 `processing` 状态视频（中断产物），`process` 不会碰它们，无需处理。
 
+> 📌 用户要求"去推广/广告"时：转录后关键词扫 utterances 定位 → 定界到 utterance 边界 → 三选一让用户确认范围 → 按 `skills/pipelines/localization-dub/lessons-learned.md → 前置剪辑 Pre-Render Surgery` 执行（五文件一致+删下游 checkpoint，术后禁跑 approve-review）。纯片尾广告才可用成品后处理。实战：`auto-dub-tp29Fl0EK1w`。
+
 ---
 
 ## 🤝 子 Agent 汇报契约（Log Barrier）
