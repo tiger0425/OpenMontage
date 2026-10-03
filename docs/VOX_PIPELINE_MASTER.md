@@ -224,7 +224,7 @@ EP（executive-producer）串行驱动：`idea → proposal → script → scene
 
 ### 4.4 scene_plan（产物 `scene_plan`）
 
-- **语义 scene/beat**：scene = 段落（paragraph_label），beat = 段落内语义单元（简单 3-5s / 标准 5-8s / 复杂 8-10s）；**硬上限：每 beat ≤10s**（一个 beat = 一个生成片段，超 10s 视频生成失败；超长语义单元在句子边界拆连续 beats）。
+- **语义 scene/beat**：scene = 段落（paragraph_label），beat = 段落内语义单元（= 一个生成片段 / 一次画面切换）；**节奏口径（常规 7-10s、快闪 3-5s 例外、≤10s 硬上限、≈6 个/分钟）以 `bilingual-spec.md §2` 为单一事实源**（含术语表、档位与数量快照）。
 - **每 beat 五件套**：Sentence / Core Idea / Editorial Title / Visual Metaphor / **Image Prompt**（Playbook 级完整画面描述：背景材质+氛围词 / 主体位置大小材质 / 叙事关联细节 / 排版叠压 / 负空间 / 完整负向词）。
 - **每 scene 4 层**：L1 背景纹理 / L2 hero 透明抠图 / L3 语音同步元素 / L4 CSS 装饰。
 - **元素规格**：`layer / kind / data_class / box / rot / z / family / micro / sfx / sync_sentence / semantic_family`。
@@ -344,6 +344,7 @@ EP（executive-producer）串行驱动：`idea → proposal → script → scene
 - **生图全线切 Qwen-Image 2.1**：新增 `Qwen21-edit.json`（单参考净化版，实测 1664×928/36s 全链路通过）；`Qwen21-txt2img.json` 入 git；Klein/「中文绝不进图」旧口径全部废除。
 - **中文文字新规**：内容驱动不限数量；辅助元素显式填充（中文短标/英文/图标）；全文字逐张质检（`bilingual-spec §10`）。
 - **分镜机制口径统一 + 10s 上限（2026-10）**：yaml scene_plan 审查块改回语义分镜（ADR-002 D7），清除 VOICE-LED 遗文与 2.5wps 常数残留；新增「每 beat ≤10s」硬红线（一个 beat = 一个生成片段，超长语义单元按句子边界拆分）。
+- **节奏参数收敛为单一事实源（2026-10）**：`bilingual-spec §2` 重写为节奏唯一事实源（术语表 scene/beat/clip/拍/幕 + 常规 7-10s/快闪 3-5s 例外/≤10s + ≈6 个每分钟 + 数量快照）；yaml / directors / styles / EP 全部改为引用；`playbook.schema.json` 新增 `max_beat_seconds` 字段（修复校验）。
 - **同步文件**：`skills/pipelines/vox-paper-collage/*`（5 件）、`pipeline_defs/vox-paper-collage.yaml`、`styles/vox-paper-collage.yaml`、`styles/vox-paper-collage-guofeng.yaml`、`.agents/skills/comfyui/SKILL.md`、`docs/VOX_PAPER_COLLAGE_SESSION_GUIDE.md`。
 - **提交**：`0a72aca` feat(vox-paper-collage,comfyui)（分支 `research/douyin-retention-rules`）。
 

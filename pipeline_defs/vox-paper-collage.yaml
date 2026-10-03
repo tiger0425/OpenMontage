@@ -122,7 +122,7 @@ stages:
   human_approval_default: true
   review_focus:
   - 'SEMANTIC SCENES (ADR-002 D7, 2026-10 口径统一): scene boundaries follow semantics - scene = script paragraph_label section, beat = semantic unit within it; NOT voice-segment boundaries, NOT fixed 10s; total stays within target ±5%'
-  - 'BEAT/CLIP HARD CAP (2026-10): every beat = one generated clip; duration must be <= 10 seconds - video generation fails beyond 10s; split any semantic unit longer than 10s into consecutive beats at sentence boundaries'
+  - 'BEAT/CLIP HARD CAP (see bilingual-spec section 2, single source): every beat = one generated clip and must stay within the section 2 hard cap - video generation fails beyond it; split longer semantic units into consecutive beats at sentence boundaries'
   - 'TTS CALIBRATION (two-pass): scene_plan v1 uses estimated timing per bilingual-spec section 1; assets runs TTS + whisper first, then calibrates vs scene_plan (<=5% update in place to tts_actual with boundaries unchanged; >5% rewind to script); edit only accepts timing_source: tts_actual'
   - Element list extracted from narration text keywords (2.4万亿, TOP2, 7%, 未来已来...)
   - 'Element sync (shared): every element carries sync_sentence + semantic_family; entrance = sentence timestamp + 0.2s, duration = sentence_len × 0.8'
@@ -130,9 +130,9 @@ stages:
   - Text decorations (stamps/labels/tape/pins) rendered as CSS, zero cost — never AI-generated (multi-element failure)
   - 'MULTI-LAYER STRUCTURE (2026-08): every scene designs 4 layers - L1 bg texture image (per-scene theme), L2 hero transparent cutout (largest, earliest 0.3s, content outline = shape), L3 elements (voice-synced), L4 CSS decor; every element declares layer field'
   - 'DATA AUTHENTICITY per element (2026-08): each element inherits data_class (real_data / real_content / creative / css); real_data elements lock data_source plus key data_points (e.g. K-line +7.01 pct 125.20 vs 117.00); hero and cutout images planned as transparent PNG (solid tan bg then PIL cutout)'
-  - 'Beat lengths by semantics (scene-plan-director v3): simple 3-5s / standard 5-8s / complex 8-10s; one visual idea per beat; cut at semantic completeness, not by word count; never exceed the 10s hard cap'
+  - 'Beat lengths per bilingual-spec section 2 (single source of truth): regular beats use the default cadence, flash beats are exception-only, never exceed the hard cap; one visual idea per beat; cut at semantic completeness, not by word count'
   - 'Timecodes and word targets by narration_language (bilingual-spec section 1): zh about 4.7 chars/s, en about 2.5 wps, tolerance ±5%'
-  - Beat count sanity ranges (30s about 12-15, 1 min about 22-30, 2 min about 45-60, 3 min about 70-90, 5 min about 115-150)
+  - Beat count within the bilingual-spec section 2 snapshot ranges (QC)
   - Beat table shows beat number, timecode start, exact narration words covered
   success_criteria:
   - Schema-valid scene_plan artifact
@@ -141,7 +141,7 @@ stages:
   - Every element declares layer (bg/hero/element/decor) and data_class
   - Every scene has a bg texture layer designed
   - Beat count within engine sanity range for the selected duration
-  - Every beat duration <= 10s (hard cap - one beat = one generated clip)
+  - Every beat duration satisfies the bilingual-spec section 2 cadence (default tier, flash exception, hard cap)
 - name: assets
   skill: pipelines/vox-paper-collage/assets-director
   required_artifacts_in:

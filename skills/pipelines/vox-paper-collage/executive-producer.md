@@ -83,9 +83,9 @@ EP_STATE:
 - 缺失 → SEND_BACK script
 
 ### scene_plan 后
-- 每节拍 3-10s（simple 3-5 / standard 5-8 / complex 8-10；**硬上限 10s**——一个 beat = 一个生成片段），一个视觉想法
-- 时间码/字数按 narration_language 累计（bilingual-spec §1：zh ~4.7 字/秒，en ~2.5 wps）；校准后为 tts_actual
-- 节拍数在引擎 sanity 范围（30s≈12-15，1min≈22-30，2min≈45-60，3min≈70-90，5min≈115-150）
+- 每节拍符合 `bilingual-spec.md §2` 节奏档位（常规用默认档、快闪仅作例外、不得超硬上限），一个视觉想法
+- 时间码/字数按 narration_language 累计（语速常数见 `bilingual-spec.md §1`）；校准后为 tts_actual
+- 节拍数符合 `bilingual-spec.md §2` 快照范围
 - 缺失 → SEND_BACK scene_plan
 
 ### assets 后
@@ -139,7 +139,7 @@ EP_STATE:
 - **提示词质量是风格成败关键**：模型能力足够，差在提示词没有约束单一元素 + 材质 + 负空间
 
 ### 分镜与节奏
-- **每拍 ≥7s，6 拍/分钟**（21 拍×2-3s 观众看不完就被切走）
+- **常规画面按 `bilingual-spec.md §2` 默认档节奏**（交子教训：21 个镜头 × 2-3s 的快切版，观众看不完就划走；快闪仅作例外，不作常规叙事）
 - **每拍 8-10 个元素**：1-2 hero（占 ~60% 视觉权重）+ 2-3 支持 + 2-4 CSS 装饰（胶带/图钉/红绳/标签/印章/下划线）
 - 元素必须**叠压**（图章盖在图上、胶带跨接），不能平铺在中间
 - 财经内容讲涨跌用**真实走势图**（matplotlib 折线，浅色纸面主题），不是装饰曲线

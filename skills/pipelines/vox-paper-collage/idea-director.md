@@ -95,7 +95,7 @@
   - `lighting_style`: 柔和漫射、无硬阴影，如 "soft flat diffused light, no dramatic shadows"
   - `global_mood`: 如 "old-newspaper archival paper collage, documentary gravitas"
 - `beat_plan`: 前期构图意图数组（每幕至少 `scene_name` + `composition_rule`）
-  - 条目数与预期节拍数一致（例如 30s 约 12-15 个节拍）
+  - 条目数与预期节拍数一致（快照见 `bilingual-spec.md §2.3`）
   - `composition_rule` 用一句话描述，如 "Hero cutout centered on newspaper texture, headline stamp upper-left, red string connects to small map pin"
 - `angle_options`: 候选选题数组（每个含 `name`, `description`, `hook`, `style`）
 - `selected_angle`: 用户选中的选题名称

@@ -24,11 +24,7 @@
    - 3–5min：5 段式（Hook → Intro → Story → Turning → Ending）
    - 8min+：6 段式（Viral Hook → Quick Introduction → Main Story → Turning Point → Big Picture → Powerful Ending）
    - 在 `proposal_packet` 中记录 `paragraph_structure`。
-6. **语义分镜策略**：`segment_timing.mode = semantic`。记录 beat 时长范围：
-   - 简单 beat：3-5s
-   - 标准 beat：5-8s
-   - 复杂 beat：8-10s
-   - **硬上限：每个 beat ≤10s**（一个 beat = 一个生成片段，超 10s 视频生成失败；超长语义单元按句子边界拆分）
+6. **语义分镜策略**：`segment_timing.mode = semantic`。beat 时长档位、快闪例外与硬上限一律引用 `bilingual-spec.md §2`（单一事实源，本节不再重复数字）。
    - 总时长约束：所有 beat 之和 ≈ target_duration ±5%。
 7. **视觉方向**：
    - 默认按 `niche` 推荐：

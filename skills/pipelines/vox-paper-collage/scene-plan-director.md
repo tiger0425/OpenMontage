@@ -17,11 +17,7 @@
 
 ### Beat = 段落内的语义单元
 
-一个 scene 内可包含 1-N 个 beats。每个 beat 表达一个完整小意思：
-- 简单 beat：3-5s（1-2 个短句）
-- 标准 beat：5-8s（2-4 个短句）
-- 复杂 beat：8-10s（长句、数据解释、对比；关键 reveal 也在这一档）
-- **硬上限（2026-10）：每个 beat ≤ 10s**——一个 beat = 一个生成片段，超过 10s 视频生成会失败；超过 10s 的语义单元必须在句子边界继续拆分为连续 beats
+一个 scene 内可包含 1-N 个 beats。每个 beat 表达一个完整小意思；**时长档位、快闪例外与硬上限一律以 `bilingual-spec.md §2` 为准（单一事实源，本节不再重复数字）**：常规叙事用默认档，快闪仅限特例，任何 beat 不得超过硬上限；超限的语义单元必须在句子边界继续拆分为连续 beats。
 
 ### Beat 切分规则
 
@@ -143,7 +139,7 @@
 
 ```
 script 定稿（估算 timing）
-  → scene_plan v1（timing_source: estimated，基于 4.7 字/秒或 2.5 wps）
+  → scene_plan v1（timing_source: estimated，语速常数见 `bilingual-spec.md §1`）
   → assets 阶段：TTS 合成 → whisper 提取真实时间戳
   → 计算偏差：|tts_actual - estimated| / estimated
   → 若偏差 ≤5%：更新 scene_plan v2（timing_source: tts_actual）
