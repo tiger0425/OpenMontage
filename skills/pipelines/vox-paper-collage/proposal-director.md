@@ -27,8 +27,8 @@
 6. **语义分镜策略**：`segment_timing.mode = semantic`。记录 beat 时长范围：
    - 简单 beat：3-5s
    - 标准 beat：5-8s
-   - 复杂 beat：8-12s
-   - 关键 reveal：可达 15s
+   - 复杂 beat：8-10s
+   - **硬上限：每个 beat ≤10s**（一个 beat = 一个生成片段，超 10s 视频生成失败；超长语义单元按句子边界拆分）
    - 总时长约束：所有 beat 之和 ≈ target_duration ±5%。
 7. **视觉方向**：
    - 默认按 `niche` 推荐：

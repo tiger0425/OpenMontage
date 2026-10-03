@@ -83,8 +83,8 @@ EP_STATE:
 - 缺失 → SEND_BACK script
 
 ### scene_plan 后
-- 每节拍 2-3 秒旁白（5-8 词 @2.5wps），一个视觉想法
-- 时间码累计 2.5wps
+- 每节拍 3-10s（simple 3-5 / standard 5-8 / complex 8-10；**硬上限 10s**——一个 beat = 一个生成片段），一个视觉想法
+- 时间码/字数按 narration_language 累计（bilingual-spec §1：zh ~4.7 字/秒，en ~2.5 wps）；校准后为 tts_actual
 - 节拍数在引擎 sanity 范围（30s≈12-15，1min≈22-30，2min≈45-60，3min≈70-90，5min≈115-150）
 - 缺失 → SEND_BACK scene_plan
 

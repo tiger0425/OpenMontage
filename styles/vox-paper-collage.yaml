@@ -39,8 +39,8 @@ motion:
   pacing_rules:
     simple_beat_seconds: "3-5"
     standard_beat_seconds: "5-8"
-    complex_beat_seconds: "8-12"
-    reveal_beat_seconds: "up to 15"
+    complex_beat_seconds: "8-10"
+    max_beat_seconds: "10 (hard cap: one beat = one generated clip; video generation fails beyond 10s)"
     total_tolerance_percent: 5
   entrance: "Paper drag with small settle and tiny handcrafted bounce, casts a real layered shadow"
   exit: "No exit: no element leaves after landing (FINAL RULE)"
