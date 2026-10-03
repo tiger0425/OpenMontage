@@ -76,7 +76,7 @@ stages:
   - 'BUDGET FORMULA (2026-08 用户优化): multi_grid_refs x $0.05 + (bg_count + hero_count + element_count) x $0.05 + thumbnail_count x $0.05 + 30% retry buffer. Old formula "image count x $0.05" is deprecated and underestimates by ~80% (multi-layer structure is 4-5 images per scene, not 1)'
   - narration_language decided (default en, switchable to zh)
   - Cost estimate itemized and honest
-  - 'DATA AUTHENTICITY PLAN (2026-08): every beat''s visual elements classified as real_data / real_content / creative / css; real_data elements carry source (yfinance/official/verified) + key data points; real_data and real_content planned for Klein-img2image restyle (real chart / real photo -> VOX restyle) — NEVER AI-invented numbers/names/dates'
+  - 'DATA AUTHENTICITY PLAN (2026-08): every beat''s visual elements classified as real_data / real_content / creative / css; real_data elements carry source (yfinance/official/verified) + key data points; real_data and real_content planned for Qwen21-edit restyle (real chart / real photo -> VOX restyle) — NEVER AI-invented numbers/names/dates'
   - 'Multi-layer structure budgeted: L1 bg texture + L2 hero transparent cutout + L3 elements + L4 CSS decor (bg + cutout images counted in image budget)'
   success_criteria:
   - Schema-valid proposal_packet artifact
@@ -172,16 +172,16 @@ stages:
   - 'TTS per-segment duration hard-checked (ffprobe): each segment <= its beat duration cap; over-length = trim text and regenerate, NEVER force-fit timecodes (overlap = broken audio)'
   - whisper word/sentence timestamps saved to assets/audio/timestamps_*.json for compose
   - 'ASSET LIBRARY (2026-08): asset_library search MUST run before any generation; hits reused with touch; external-source assets archived with add; AI-generated content NOT archived'
-  - 'THREE-LAYER PRODUCTION (2026-08 方案3): multi-grid reference (user-confirmed) -> visual blueprint per beat (Klein-txt2image, position-driven by scene_plan box, Editorial Title mandatory) -> independent element PNGs (standalone Klein-txt2image, NOT extracted from collage — img2img extraction was unreliable)'
+  - 'THREE-LAYER PRODUCTION (2026-08 方案3): multi-grid reference (user-confirmed) -> visual blueprint per beat (Qwen21-txt2img, position-driven by scene_plan box, Editorial Title mandatory) -> independent element PNGs (standalone Qwen21-txt2img, NOT extracted from collage — img2img extraction was unreliable)'
   - 'EDITORIAL TITLE (2026-08 Playbook): every beat full collage carries a mandatory 1-4 word magazine-cover headline integrated into composition, not optional'
   - 'NEGATIVE PROMPT (2026-08 Playbook): every image prompt includes playbook image_negative_prompt verbatim, never omitted'
-  - 'IMAGE GENERATION (2026-08 用户确认): ALL image generation via local comfyui_image + Klein workflows ONLY (Klein-txt2image.json for text2img, Klein-img2image.json for img2img/restyle). No other ComfyUI workflows, no cloud image services. image_selector used ONLY for real-photo search (search_image -> pixabay/pexels)'
-  - 'KLEIN WORKFLOW PARAMS: txt2image output_node=78 prompt=115:111; img2image output_node=9 prompt=114:113 reference=76 <UPLOADED_IMAGE>; model flux-2-klein-9b'
-  - 'REAL PHOTO CASCADE (2026-08 决策 C4): real_content elements sourced via user upload -> asset library -> Wikimedia -> image_selector search_image -> Bing/Google (reference only) -> user-approved stylized generation; restyle via Klein-img2image'
+  - 'IMAGE GENERATION (2026-10 用户确认：全面 Qwen): ALL image generation via local comfyui_image + Qwen-Image 2.1 workflows ONLY (Qwen21-txt2img.json for text2img, Qwen21-edit.json for single-ref edit/restyle; dual-ref spare: apps/vox-collage/template/comfyui/wf_edit.json). No other ComfyUI workflows, no cloud image services. image_selector used ONLY for real-photo search (search_image -> pixabay/pexels)'
+  - 'QWEN WORKFLOW PARAMS: txt2img output_node=10 prompt=5 negative=6 seed=8 size=7; edit output_node=461 prompt=459:474 ref=470 <UPLOADED_IMAGE> seed=459:458 size=459:456; model stack qwen_image_2.1_int8_convrot + qwen3vl_8b_int8_convrot + qwen_image_2.1_vae_bf16'
+  - 'REAL PHOTO CASCADE (2026-08 决策 C4): real_content elements sourced via user upload -> asset library -> Wikimedia -> image_selector search_image -> Bing/Google (reference only) -> user-approved stylized generation; restyle via Qwen21-edit'
   - 'MISSING PHOTOS (2026-08 决策 C7): real_content photos not found anywhere are collected in asset_manifest.missing_photos[] and submitted to user decision; NEVER silently pure-generate'
-  - 'REAL-DATA elements via Klein-img2image (2026-08): real_data = matplotlib real-data reference chart -> comfyui_image Klein-img2image (reference_image_path) with SOLID FLAT TAN background constraint in prompt -> PIL cutout; NEVER AI-invented numbers/names/dates'
+  - 'REAL-DATA elements via Qwen21-edit (2026-08): real_data = matplotlib real-data reference chart -> comfyui_image Qwen21-edit (reference_image_path) with SOLID FLAT TAN background constraint in prompt -> PIL cutout; NEVER AI-invented numbers/names/dates'
   - Text decorations (stamps/labels/tape/pins/headlines) rendered as CSS or from asset library decals, zero-cost
-  - 'BILINGUAL image rules (bilingual-spec sections 9-10): image prompts ALWAYS in English; Chinese characters NEVER in image prompts (zh labels go CSS only); Recurring Subject Rule across beats'
+  - 'BILINGUAL image rules (bilingual-spec sections 9-10, 2026-10 Qwen): image prompt structure ALWAYS English with Chinese label text allowed inline, content-driven count with no per-image cap (Qwen renders CJK directly; ALL generated text must pass glyph QC; critical small text may fall back to CSS/PIL); scraps/tape carry explicit Chinese labels, short English words, or icons - never left unspecified; Recurring Subject Rule across beats'
   - Every image prompt = SCENE + Editorial Title + style_block.md verbatim + closer.md verbatim + negative prompt (template red line)
   - Narration via tts_selector (calm deadpan male, zh ~4.7 chars/s, en ~155 wpm, emo_vector calm locked, 20-25 second batches)
   - Music from pixabay_music or asset library; Paper ASMR SFX from freesound_music or asset library

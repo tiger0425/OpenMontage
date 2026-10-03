@@ -53,7 +53,7 @@
 
 ## 质量要求
 
-- 工具绑定来自注册表实测：`comfyui_image`（本地 Klein 工作流，仅此一种图像生成）、`image_selector`（仅真实照片搜索）、`tts_selector`（indextts_tts）、`pixabay_music`、`freesound_music`、`video_compose`（hyperframes）。
+- 工具绑定来自注册表实测：`comfyui_image`（本地 Qwen-Image 2.1 工作流：`Qwen21-txt2img.json` / `Qwen21-edit.json`，仅此两种图像生成）、`image_selector`（仅真实照片搜索）、`tts_selector`（indextts_tts）、`pixabay_music`、`freesound_music`、`video_compose`（hyperframes）。
 - 段落结构、语义分镜、视觉方向必须在 proposal 阶段显式锁定，并写入 `decision_log`。
 - 数据真实性规划必须在 proposal 阶段完成，不能在 assets 阶段临时决定。
 - 无 approval 前不进入任何付费生成。

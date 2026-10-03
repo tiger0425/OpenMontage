@@ -8,7 +8,7 @@
 
 1. 与视频相同的新闻纸拼贴世界，但更响亮：更大的字、更热的红、更硬的对比，设计为 200 像素宽仍可读。
 2. 构图：一个主导半色调主体剪贴（**人物一律用黑色审查条遮眼**——当暗示真实人物时；物体或地点），一到两个撕裂标签文字块，一个强调装置（粗糙记号笔圈 / 红下划线 / 图章框 / 黄高亮条——**四选一，不堆叠**），老报纸底，撕裂边缘出血出框。
-3. 图中文字：最多 2 个文字元素。**文字规则按 narration_language 分语言（`bilingual-spec.md §11`）**：en = 每元素 ≤3 词、condensed 全大写、金额带美分；zh = 每元素 ≤4-6 字、粗黑体紧凑字形、金额用万/亿单位。词选自视频钩子（EXPOSED / VANISHED / FOUND / 曝光 / 消失 / 年份 / 金额）。**中文字符绝不进生图 prompt——缩略图文字走 CSS/后期叠加**。
+3. 图中文字：最多 2 个文字元素。**文字规则按 narration_language 分语言（`bilingual-spec.md §11`）**：en = 每元素 ≤3 词、condensed 全大写、金额带美分；zh = 每元素 ≤4-6 字、粗黑体紧凑字形、金额用万/亿单位。词选自视频钩子（EXPOSED / VANISHED / FOUND / 曝光 / 消失 / 年份 / 金额）。**缩略图文字推荐 CSS/后期叠加**（可编辑、可 A/B、零错字）；走 Qwen 直出时必须逐张字形质检。
 4. 16:9、超详细、高对比、无缩略图尺寸下消失的小细节、无 watermark、无 logos。
 
 每个提示词以 STATE 7 的同一 CLOSER 结尾，其中 "no text beyond the specified label" 调整为 "no text beyond the specified thumbnail words"。
@@ -17,7 +17,7 @@
 
 1. 从 video hook 选 2-3 个短词（EXPOSED / VANISHED / FOUND / 年份 / 金额）
 2. 写 3 个完整自足缩略图提示词：THUMBNAIL DNA 构图 + 调整版 CLOSER
-3. 经 `comfyui_image` + `Klein-txt2image.json` 生成 3 张图（本管线图像生成仅用 Klein 工作流，见 assets-director §0.5；调用前读 Layer 3 技能）
+3. 经 `comfyui_image` + `Qwen21-txt2img.json` 生成 3 张图（本管线图像生成仅用 Qwen 工作流，见 assets-director §0.5；调用前读 Layer 3 技能）
 4. 组装发布包：成片 + 3 张缩略图 + 元数据（标题、描述、标签）
 
 ## 质量要求

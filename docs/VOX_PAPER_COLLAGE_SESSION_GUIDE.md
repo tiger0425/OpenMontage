@@ -1,5 +1,10 @@
 # vox-paper-collage 新会话复现指南（2026-08）
 
+> ⚠️ **2026-10 口径更新**：图像生成已统一切换到本地 ComfyUI + Qwen-Image 2.1
+> （`Qwen21-txt2img.json` / `Qwen21-edit.json`，见 `skills/pipelines/vox-paper-collage/assets-director.md §0.5`）；
+> 中文文字规则以 `bilingual-spec.md §10` 为准（Qwen 直出中文、内容驱动不限数量、逐张质检）。
+> 本文档其余 Klein 相关内容为 2026-08 快照，工作流参数以 assets-director §0.5 为准。
+
 > 面向 agent 的复现手册：在新会话中重建/续跑 vox-paper-collage 测试案例时，
 > 按本文档执行即可复用已验证的流程、工具和素材。核心场景 = 每个 beat 的
 > 画面（蓝图）生成 + 元素提取 + HTML 组合。
@@ -24,9 +29,9 @@
 
 | 工具 | 用途 | 关键参数 |
 |---|---|---|
-| `comfyui_image` | 图像生成（本地 ComfyUI）| workflow_path + output_node + workflow_overrides |
-| `Klein-txt2image.json` | **文生图**（蓝图/元素）| output_node=78, prompt 节点=115:111, seed=115:108 |
-| `Klein-img2image.json` | 图生图（参考图重绘）| output_node=9, prompt=114:113, ref=76 `<UPLOADED_IMAGE>` |
+| `comfyui_image` | 图像生成（本地 ComfyUI）| workflow_path + output_node + workflow_overrides（顶层 `prompt` 必填） |
+| `Qwen21-txt2img.json` | **文生图**（蓝图/元素）| output_node=10, prompt=5, negative=6, seed=8, size=7（1664×928） |
+| `Qwen21-edit.json` | 图生图（单参考重绘/风格化）| output_node=461, prompt=459:474, ref=470 `<UPLOADED_IMAGE>`, seed=459:458 |
 | `Klein-sam3-extract.json` | **SAM3 抠图提取**（从蓝图提元素）| output_node=200, prompt=99:78, **alpha 必须 InvertMask** |
 | `asset_library` | 素材库 search/add/touch | operation=search/add/touch |
 | `minimax-m3-vision` | 视觉验证（看图评估）| `.agents/skills/minimax-m3-vision/scripts/analyze_media.py` |
@@ -35,10 +40,10 @@
 ### 关键约定（实测教训）
 
 - **SAM3 提取**：`JoinImageWithAlpha` 的 alpha 语义是"白色=透明"，必须接 `InvertMask`（SAM3 mask 白色=主体）。否则提取反了。
-- **Klein 图生图"提取"不可靠**（楼变 4 层/线稿化）——不要用 img2img 做元素提取，用 SAM3。
+- **图生图"提取"不可靠**（编辑模型是重绘不是抠图，提取楼变 4 层/线稿化）——元素提取用 SAM3。
 - **元素缩放**：元素图要先 PIL 裁剪到主体 bbox（+2% 留白），否则放进 HTML 后主体太小。
-- **蓝图尺寸**：`Klein-txt2image.json` 的 ResolutionSelector（节点 115:114）控制比例，B 站横屏 = `"16:9 (Widescreen)"`（1360×768）。已改好。
-- **中文红线**：生图 prompt 一律英文，中文字符绝不进 prompt（中文走 CSS）。
+- **蓝图尺寸（2026-10 Qwen）**：`Qwen21-txt2img.json` 无 ResolutionSelector，直接覆盖节点 `7` 的 width/height；Qwen 原生 16:9 = `1664×928`（勿用 1280×720 等非原生尺寸，背景会出伪影）。
+- **中文红线（2026-10 修订）**：生图 prompt 结构英文、引号内中文原文由 Qwen 直出；中文数量内容驱动、不设上限；所有生成文字逐张质检（详见 `bilingual-spec.md §10`）。
 
 ## 3. 核心流程（每 beat 的画面生产）
 
@@ -61,15 +66,17 @@ Image Prompt 必须包含:
 ```python
 tool.execute({
     "prompt": beat["image_prompt"],          # 直接用导演写的完整画面
-    "workflow_path": "tools/_comfyui/workflows/Klein-txt2image.json",
-    "output_node": "78",
+    "workflow_path": "tools/_comfyui/workflows/Qwen21-txt2img.json",
+    "output_node": "10",
     "workflow_overrides": {
-        "115:111": {"text": beat["image_prompt"]},
-        "115:108": {"noise_seed": <seed>}
+        "5": {"text": beat["image_prompt"]},
+        "6": {"text": "<playbook 负向提示词>"},
+        "7": {"width": 1664, "height": 928},
+        "8": {"seed": <seed>}
     },
     "output_path": f"assets/blueprints/{beat_id}.png",
-    "workflow_name": "klein-txt2image",
-    "workflow_model": "flux-2-klein-9b",
+    "workflow_name": "qwen21-txt2img",
+    "workflow_model": "qwen-image-2.1",
 })
 ```
 
@@ -124,7 +131,7 @@ python .agents/skills/minimax-m3-vision/scripts/analyze_media.py 图.png -p "评
 
 1. 读本指南 + `CONTEXT.md` + `scene-plan-director.md`
 2. 检查 ComfyUI 在线：`python -c "from tools._comfyui.client import ComfyUIClient; print(ComfyUIClient().is_available())"`
-3. 确认模型：Klein（flux-2-klein-9b）和 SAM3（sam3.1_multiplex_fp16）在服务器
+3. 确认模型：Qwen-Image 2.1（qwen_image_2.1_int8_convrot）和 SAM3（sam3.1_multiplex_fp16）在服务器
 4. 续跑：从 scene_plan 取 beat → 写 image_prompt（若缺）→ 生成蓝图 → SAM3 提取 → 抠图裁剪 → HTML 组合 → 视觉验证 → 用户确认
 
 ## 6. 当前已知待办（下一步）

@@ -48,82 +48,90 @@ script 定稿
 
 **禁止**：不许用 speed 变速硬凑时长，不许硬塞时间码。超长先精简文本重生成。
 
-## 0.5 图像生成工具绑定（2026-08 用户确认：仅 Klein 工作流）
+## 0.5 图像生成工具绑定（2026-10 用户确认：仅 Qwen-Image 2.1 工作流）
 
-**本管线图像生成只用本地 ComfyUI + Klein 工作流，不使用其他任何工作流或云图像服务。**
+**本管线图像生成只用本地 ComfyUI + Qwen-Image 2.1 系列工作流，不使用其他任何工作流或云图像服务。**
 
 工具：`comfyui_image`（本地 ComfyUI，capability: image_generation，需服务器运行 + COMFYUI_SERVER_URL 配置）
 
 | 用途 | 工作流文件 | output_node | 提示词节点 | 参考图 |
 |---|---|---|---|---|
-| 文生图（多宫格 / beat 完整图 / 独立元素纯生成） | `tools/_comfyui/workflows/Klein-txt2image.json` | `78` | `115:111` text | 无 |
-| 图生图（元素重绘 B3 / real_content 风格化） | `tools/_comfyui/workflows/Klein-img2image.json` | `9` | `114:113` text | `76` image（`<UPLOADED_IMAGE>` 占位） |
-| 双参考图生图（完整蓝图 + 当前状态） | `tools/_comfyui/workflows/Klein-img2image-dual-reference.json` | `9` | `114:113` text | `76` 锚点（`<UPLOADED_IMAGE_1>`）+ `77` 状态（`<UPLOADED_IMAGE_2>`） |
+| 文生图（多宫格 / beat 完整图 / 独立元素纯生成） | `tools/_comfyui/workflows/Qwen21-txt2img.json` | `10` | `5` 正向 / `6` 负向（`8` seed/steps/cfg；`7` 宽高） | 无 |
+| 图生图（单参考：real_content 照片 / real_data 参考图风格化） | `tools/_comfyui/workflows/Qwen21-edit.json` | `461` | `459:474` prompt/negative（`459:458` seed；`459:456` 宽高） | `470`（`<UPLOADED_IMAGE>` 占位） |
+| 双参考图编辑（完整蓝图 + 当前状态；备用，首次使用先实测） | `apps/vox-collage/template/comfyui/wf_edit.json` | `461` | `459:474` prompt | `470` 锚点（`<UPLOADED_IMAGE_1>`）+ `475` 状态（`<UPLOADED_IMAGE_2>`） |
 
-**调用约定**：
+**调用约定**（⚠️ 自定义工作流调用也必须带顶层 `"prompt"` 字段——`comfyui_image` 在构建返回结果时直接取用，缺省会在生成完成后报 KeyError）：
 
 ```python
 # 文生图
 tool.execute({
-    "workflow_path": "tools/_comfyui/workflows/Klein-txt2image.json",
-    "output_node": "78",
+    "prompt": "<SCENE + STYLE BLOCK + CLOSER 摘要>",   # 顶层必填（工具契约）
+    "workflow_path": "tools/_comfyui/workflows/Qwen21-txt2img.json",
+    "output_node": "10",
     "workflow_overrides": {
-        "115:111": {"text": "<SCENE + STYLE BLOCK + CLOSER + negative>"},
-        "115:108": {"noise_seed": <seed>}
+        "5": {"text": "<SCENE + STYLE BLOCK + CLOSER>"},
+        "6": {"text": "<negative prompt>"},
+        "7": {"width": 1664, "height": 928},   # 9:16 用 928x1664
+        "8": {"seed": <seed>}
     },
     "output_path": "assets/...png",
-    "workflow_name": "klein-txt2image",
-    "workflow_model": "flux-2-klein-9b"
+    "workflow_name": "qwen21-txt2img",
+    "workflow_model": "qwen-image-2.1"
 })
 
-# 图生图（参考图重绘）
+# 图生图（单参考重绘/风格化：真实照片 / matplotlib 参考图）
 tool.execute({
-    "workflow_path": "tools/_comfyui/workflows/Klein-img2image.json",
-    "output_node": "9",
-    "reference_image_path": "assets/collages/sc1_b1.1.png",   # 参考图（beat 完整图 / 真实照片）
+    "prompt": "<重绘提示词摘要>",              # 顶层必填（工具契约）
+    "workflow_path": "tools/_comfyui/workflows/Qwen21-edit.json",
+    "output_node": "461",
+    "reference_image_path": "assets/photos/xxx.jpg",   # 参考图（真实照片 / 数据图）
     "workflow_overrides": {
-        "114:113": {"text": "<元素提示词>"},
-        "76": {"image": "<UPLOADED_IMAGE>"},   # 必须！否则参考图不会注入 LoadImage 节点（实测失败）
-        "114:112": {"noise_seed": <seed>}
+        "459:474": {"prompt": "<重绘提示词，可含中文大标题原文>", "negative_prompt": "<negative prompt>"},
+        "470": {"image": "<UPLOADED_IMAGE>"},   # 必须！否则 LoadImage 加载模板旧图 / 报 Invalid image file（实测失败）
+        "459:458": {"seed": <seed>},
+        "459:456": {"width": 1664, "height": 928},
+        "461": {"filename_prefix": "VOX/edit"}
     },
-    "output_path": "assets/elements/...png",
-    "workflow_name": "klein-img2image",
-    "workflow_model": "flux-2-klein-9b"
+    "output_path": "assets/...png",
+    "workflow_name": "qwen21-edit",
+    "workflow_model": "qwen-image-2.1-edit"
 })
 
-# 双参考图生图（完整蓝图 + 当前状态）
+# 双参考图编辑（备用：蓝图锚点 + 当前状态，首次使用先实测）
 tool.execute({
-    "workflow_path": "tools/_comfyui/workflows/Klein-img2image-dual-reference.json",
-    "output_node": "9",
+    "prompt": "<FULL PROMPT + STATE DELTA 摘要>",   # 顶层必填（工具契约）
+    "workflow_path": "apps/vox-collage/template/comfyui/wf_edit.json",
+    "output_node": "461",
     "reference_image_path": "assets/blueprints/b1.1_anchor.png",
     "reference_image_path_2": "assets/states/b1.1_state_0.png",
     "workflow_overrides": {
-        "114:113": {"text": "<FULL PROMPT + STATE DELTA>"},
-        "76": {"image": "<UPLOADED_IMAGE_1>"},
-        "77": {"image": "<UPLOADED_IMAGE_2>"},
-        "114:112": {"noise_seed": <seed>}
+        "459:474": {"prompt": "<FULL PROMPT + STATE DELTA>"},
+        "470": {"image": "<UPLOADED_IMAGE_1>"},
+        "475": {"image": "<UPLOADED_IMAGE_2>"},
+        "459:458": {"seed": <seed>}
     },
     "output_path": "assets/states/b1.1_state_1.png",
-    "workflow_name": "klein-img2image-dual-reference",
-    "workflow_model": "flux-2-klein-9b"
+    "workflow_name": "qwen-edit-dual-ref",
+    "workflow_model": "qwen-image-2.1-edit"
 })
 ```
 
-**尺寸约定（2026-08 实测）**：
-- `Klein-txt2image.json`：`ResolutionSelector`（节点 `115:114`）控制比例。**B 站横屏 = `"16:9 (Widescreen)"`**（1360×768，megapixels=1）；竖屏 9:16 = `"9:16 (Portrait Widescreen)"`（768×1360）。管线内已默认为 16:9 横屏
-- `Klein-img2image.json`：**无 ResolutionSelector**，输出比例 = 参考图比例（ImageScaleToTotalPixels 缩放到 1MP）。参考图是 16:9 时输出 1360×768
+**尺寸约定（2026-10）**：
+- `Qwen21-txt2img.json`：**16:9 = `1664×928`（Qwen 原生尺寸；勿用 1280×720 等非原生尺寸，背景会出纹理伪影）**；9:16 = `928×1664`。直接覆盖节点 `7` 的 width/height
+- `Qwen21-edit.json`：覆盖节点 `459:456` 的 width/height（默认已内置 1664×928）；9:16 = `928×1664`
+- `wf_edit.json`（双参考备用）：尺寸同样由 `459:456` 控制
 
-**实测教训（2026-08）**：
-- 图生图漏传 `"76": {"image": "<UPLOADED_IMAGE>"}` → 报错 `Invalid image file: 6B2FAD77C6429F9D05EB55E57C361427A.jpg`（LoadImage 加载的是工作流模板里的旧参考图）
-- 小装饰元素（图钉/胶带等 <5% 画面占比）经 img2image 重绘后 opaque 比例过低（<1%），**不要用 img2image 提取小装饰**——装饰走 CSS 或素材库 decal
+**实测教训（2026-08 / 2026-10）**：
+- 图生图漏传 `"470": {"image": "<UPLOADED_IMAGE>"}` → 报错 `Invalid image file: ...`（LoadImage 加载的是工作流模板里的旧参考图）
+- 小装饰元素（图钉/胶带等 <5% 画面占比）经图生图重绘后 opaque 比例过低（<1%），**不要用图生图提取小装饰**——装饰走 CSS 或素材库 decal
+- 2026-10 实测：`Qwen21-edit.json` 单参考重绘全链路通过（1664×928，36s）；中文大标题字形正确，但**未指定的辅助纸片会被模型填满伪文字**——文案与图标必须显式写进 prompt，并逐张抽检（`bilingual-spec.md §10`）；模板自带 image_2 槽位若残留旧图会污染画面，单参考生产必须用无 image_2 的 `Qwen21-edit.json`
 
-**模型栈（Klein 固定）**：`flux-2-klein-9b_int8_convrot.safetensors`（UNET）+ `qwen_3_8b_fp8mixed.safetensors`（CLIP）+ `flux2-vae.safetensors`（VAE）。
+**模型栈（Qwen-Image 2.1）**：`qwen_image_2.1_int8_convrot.safetensors`（UNET）+ `qwen3vl_8b_int8_convrot.safetensors`（CLIP，`type: qwen_image`，4096 维锁定——勿换 Qwen2.5-VL 系，维度不匹配会报错）+ `qwen_image_2.1_vae_bf16.safetensors`（VAE）。
 
 **注意事项**：
 - 自定义工作流会跳过默认模型检查（flux2-dev），直接使用工作流内模型名
-- 图生图参考图经 `ImageScaleToTotalPixels` 缩放至 1MP（比例偏差可接受，B3 决策）
-- 竖屏 9:16 由 `ResolutionSelector`（115:114 / 114:106 区域）控制
-- 调用前必须阅读 Layer 3 技能（`comfyui` / `comfyui-auto-recovery` / `flux-best-practices`），记录到 `layer3_skills_read`
+- 编辑工作流的输出尺寸以节点 `459:456` 的字面量为准（覆盖即生效）
+- 调用前必须阅读 Layer 3 技能（`comfyui` / `comfyui-auto-recovery`），记录到 `layer3_skills_read`；中文文字进图规则见 `bilingual-spec.md §10`
 
 ## 1. 素材库检索（asset_library，强制）
 
@@ -205,20 +213,21 @@ box = [65, 60, 25, 20]  →  "supporting chart positioned center-right, lower-mi
 
 **compose 消费**：compose 读 scene_plan 的 box/family/entrance_order/stagger/build_on_ratio 结构化数据执行动画；标注版蓝图仅作人工/视觉校验参考。
 
-**语言红线（bilingual-spec §10，硬性）**：
-- 生图 prompt 一律英文，无论 narration_language
-- 中文字符绝不进生图 prompt（中文标签/图章全部走 CSS 渲染）
+**语言红线（bilingual-spec §10，硬性；2026-10 Qwen 版）**：
+- 生图 prompt 结构一律英文，引号内标签原文可为中文（Qwen-Image 2.1 支持中文直出）
+- 中文数量内容驱动、不设上限（标题/标签/地名/年份/印章……需要几处写几处）；所有生成文字逐张质检
+- 纸片 / 胶带 / 标签 / 图章按内容需要填中文短标、英文短语或图标，**在 prompt 中显式指定**（未指定 = 伪文字）；负向词带乱码护栏
 - Recurring Subject Rule（§9）：同一主体跨 beat 复现时措辞逐字一致
 
 **Negative Prompt（Playbook 要求，硬性）**：每个提示词必须包含 playbook 的 `image_negative_prompt`（from `styles/vox-paper-collage.yaml`），禁止省略。
 
-**工具**：`comfyui_image` + `Klein-txt2image.json`（文生图，见 §0.5）。调用前必须阅读 Layer 3 技能（查工具 agent_skills 字段），并记录到 `layer3_skills_read`。
+**工具**：`comfyui_image` + `Qwen21-txt2img.json`（文生图，见 §0.5）。调用前必须阅读 Layer 3 技能（查工具 agent_skills 字段），并记录到 `layer3_skills_read`。
 
 ## 4. 独立元素 PNG（方案 3：独立文生图）
 
-**2026-08 决策（替代原 img2img 提取方案）**：元素**独立文生图**生成，不再从完整图提取（Klein 图生图"提取"不可控：楼变 4 层/线稿化）。
+**2026-08 决策（替代原 img2img 提取方案）**：元素**独立文生图**生成，不再从完整图提取（编辑模型的"提取"不可控：楼变 4 层/线稿化）。
 
-每个元素用 `Klein-txt2image.json` 单独生成：
+每个元素用 `Qwen21-txt2img.json` 单独生成：
 
 - prompt 结构：`该元素的视觉描述` + `isolated single subject, solid flat tan background color #D8C7A3, no other objects, no text` + STYLE BLOCK + CLOSER
 - 元素视觉描述必须与完整图 prompt 中该元素的描述**逐字一致**（Recurring Subject Rule，保证元素与蓝图风格统一）
@@ -229,8 +238,8 @@ box = [65, 60, 25, 20]  →  "supporting chart positioned center-right, lower-mi
 **位置在 compose 阶段使用**：元素的摆放位置来自 scene_plan 的 `box` 字段，完整图仅作视觉参考。
 
 **数据真实性（data_class 规则）**：
-- `real_data`（数字/排名/行情）：真实数据源（yfinance/官方文档）→ matplotlib 参照图 → 以 matplotlib 图为参考用 Klein-img2image 风格化（此场景参考图=数据图，语义明确，img2image 可控）→ PIL 抠图。禁止 AI 编造数字，提示词显式写精确值
-- `real_content`（真实人物/地点/产品）：走 Real Photo Cascade 获取真实照片，用 Klein-img2image 以照片为参考重绘。**不允许纯生成**
+- `real_data`（数字/排名/行情）：真实数据源（yfinance/官方文档）→ matplotlib 参照图 → 以 matplotlib 图为参考用 `Qwen21-edit.json` 风格化（此场景参考图=数据图，语义明确，编辑可控）→ PIL 抠图。禁止 AI 编造数字，提示词显式写精确值
+- `real_content`（真实人物/地点/产品）：走 Real Photo Cascade 获取真实照片，用 `Qwen21-edit.json` 以照片为参考重绘。**不允许纯生成**
 - `creative`（抽象概念）：纯文生图
 - `css`（装饰）：优先素材库 decal 贴图，CSS 负责定位动画
 
@@ -247,7 +256,7 @@ real_content 元素必须基于真实照片。级联渠道，按顺序尝试：
 6. 生图描述生成（标注 stylized representation，仅当用户批准）
 ```
 
-**获取到真实照片后**：用 `comfyui_image` + `Klein-img2image.json`（reference_image_path = 真实照片）重绘为 VOX 拼贴风格。绝不用云图像服务。
+**获取到真实照片后**：用 `comfyui_image` + `Qwen21-edit.json`（reference_image_path = 真实照片）重绘为 VOX 拼贴风格。绝不用云图像服务。
 
 **版权记录**：每个照片归档时填写 `license`（public_domain / cc0 / cc_by / commercial / unknown），Wikimedia 优先，Bing/Google 默认 unknown。
 
@@ -287,6 +296,7 @@ assets 阶段结束时，若有 `missing_photos[]`，汇总展示给用户：
 
 - 模板红线：STYLE BLOCK 与 CLOSER 必须 verbatim，禁止改写/缩写
 - **Editorial Title 每拍必选**（Playbook）
+- **文字质检（2026-10）**：所有生成文字（中文 + 英文）逐张放大目检（或 OCR 比对预期文案），错字 / 乱码 / 伪词重掷；照片重绘路线额外抽查未指定伪文字
 - Negative Prompt 每图必带（Playbook）
 - 每 beat 一张完整图 + 独立元素 + 多宫格参考，对应关系可追溯
 - 所有生成物记录 provenance（model、seed、prompt 路径、derived_from）

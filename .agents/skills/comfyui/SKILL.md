@@ -47,6 +47,71 @@ Use this skill before calling `comfyui_image` or `comfyui_video`, and when conve
 - Provide `workflow_model_stack` for reproducibility when the workflow is not bundled. Include base checkpoint or diffusion model, quantization, text encoder, VAE, LoRAs and strengths, sampler or scheduler, steps, and guidance if the workflow exposes them.
 - The tools record the final workflow hash. Treat that hash plus the model stack, seed, dimensions, and prompt as the reproducibility contract.
 
+## Bundled Workflow: `Qwen21-txt2img.json` (standard Qwen-Image 2.1 T2I)
+
+`tools/_comfyui/workflows/Qwen21-txt2img.json` is the verified standard text-to-image
+workflow for Qwen-Image 2.1. Use it for clean single-subject images on a flat background
+(character sprites, product cutouts, title-card art).
+
+Verified node pairing — **do not substitute these**:
+
+| Role | File |
+| --- | --- |
+| Diffusion | `qwen_image_2.1_int8_convrot.safetensors` |
+| Text encoder | `qwen3vl_8b_int8_convrot.safetensors` with `type: qwen_image` |
+| VAE | `qwen_image_2.1_vae_bf16.safetensors` |
+| Scheduler node | `ModelSamplingAuraFlow` (`shift: 3.0`) → into `KSampler` |
+| Sampler | `euler` / `simple`, 25 steps, `cfg 4.0`, `denoise 1.0` |
+| Output node id | `10` (`SaveImage`) |
+
+Prompt/seed are templated via `workflow_overrides` on nodes `5` (positive),
+`6` (negative), and `8` (`seed` / `steps` / `cfg`).
+
+### Text-encoder pairing is dimension-locked
+
+Qwen-Image 2.1 expects a **4096-wide** text embedding. `Qwen3-VL-8B` produces 4096;
+`Qwen2.5-VL-7B` produces **3584** and fails at the sampler with
+`Given normalized_shape=[4096], expected input with shape [*4096], but got input of size[1, N, 3584]`.
+If you see that error, the CLIP is mismatched — not the resolution, not the sampler.
+
+### Two traps that cost real time
+
+1. **Do not reuse Flux2 graph structure for Qwen.** `Flux2Scheduler` and
+   `SamplerCustomAdvanced` are Flux-specific; a Qwen graph needs `KSampler` +
+   `ModelSamplingAuraFlow`. Verify node signatures against `GET /object_info/<NodeClass>`
+   before authoring — do not copy a sibling workflow's wiring by analogy.
+2. **`Qwen-Layered-*` is not a text-to-image model.** The Layered family emits N RGBA
+   *contributions* to a layered illustration (background plate, outline layer, colour
+   layer, shadow layer, and an occasional text layer). Compositing them back does not
+   yield a foreground cutout, and `negative` prompts cannot suppress the baked-in
+   background plate or its texture. Reach for `Qwen21-txt2img.json` instead when the
+   goal is a clean subject; use Layered only when you actually want editable layers.
+
+### Resolution
+
+Generate at a native 16:9 size (`1664x928`). Off-native sizes such as `1280x720`
+produce texture/pattern artefacts in the background.
+
+### Post-processing: crop to content before compositing
+
+These models pad the frame with background. A `1664x928` output may contain a subject
+occupying under 40% of the width, so setting CSS `width: 420px` yields a visually tiny
+element. Crop to the non-background bounding box before handing the asset to a
+composition.
+
+## Bundled Workflow: `Qwen21-edit.json` (Qwen-Image-Edit 2.1, single reference)
+
+`tools/_comfyui/workflows/Qwen21-edit.json` is the single-reference edit/restyle workflow
+(real photo or chart → collage restyle), derived from the vox-collage app template with the
+second-reference slot removed. Verified pairing: output node `461` (`SaveImageAdvanced`);
+prompt and `negative_prompt` at `459:474`; reference image at node `470` via
+`<UPLOADED_IMAGE>`; seed at `459:458`; latent size at `459:456` (default `1664x928`).
+Do not hand a two-image template into a single-image job: a leftover second reference slot
+contaminates the edit. State the text plan explicitly in the prompt — specified CJK text
+renders correctly (content-driven, no per-image cap), supporting scraps get explicit
+Chinese labels, short English words, or icons, and anything left unspecified is filled
+with corrupted pseudo-text.
+
 ## Failure Handling
 
 - If the server is unavailable, surface the structured setup offer. Starting ComfyUI or setting `COMFYUI_SERVER_URL` is the first fix.

@@ -55,8 +55,8 @@ audio:
   hero_moment_voice_shift: "None: minimal emotion spikes, calm deadpan throughout"
 
 asset_generation:
-  image_prompt_prefix: "See templates/style_block.md and templates/closer.md - both must be appended verbatim to every image prompt. SCENE: one hero element (dominant, about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. Every image carries an Editorial Title of 1-4 words rendered as a large magazine-cover style headline integrated into the composition (e.g. AGING CRISIS, GOLD, 10.5 TRILLION). The Editorial Title is mandatory for every beat, not optional - it carries the core idea distilled from the narration. Type overlaps the hero subject with negative space, flat print, no glow, no bevel, no 3D."
-  image_negative_prompt: "NOT digital illustration, NOT cartoon, NOT 3D render, NOT glossy, no gradients, no clutter, no visual noise, no random decorations, no fantasy elements, no sci-fi elements unless required, no anime, no CGI look, no photorealistic background, no oversaturated colors, no poor composition, no distorted anatomy, no blurry details, no watermark, no logos, no text beyond the specified Editorial Title label"
+  image_prompt_prefix: "See templates/style_block.md and templates/closer.md - both must be appended verbatim to every image prompt. SCENE: one hero element (dominant, about 70 percent of visual weight), 2-3 supporting elements maximum, generous negative space. Every image carries an Editorial Title of 1-4 words rendered as a large magazine-cover style headline integrated into the composition (e.g. AGING CRISIS, GOLD, 10.5 TRILLION). The Editorial Title is mandatory for every beat, not optional - it carries the core idea distilled from the narration. Supporting scraps, tape and labels may carry additional short labels (Chinese labels, English words, or icon graphics) that must be explicitly specified in the prompt - never leave their content unspecified (bilingual-spec section 10). Type overlaps the hero subject with negative space, flat print, no glow, no bevel, no 3D."
+  image_negative_prompt: "NOT digital illustration, NOT cartoon, NOT 3D render, NOT glossy, no gradients, no clutter, no visual noise, no random decorations, no fantasy elements, no sci-fi elements unless required, no anime, no CGI look, no photorealistic background, no oversaturated colors, no poor composition, no distorted anatomy, no blurry details, no watermark, no logos, no text beyond the explicitly specified labels"
   consistency_anchors:
     - "templates/style_block.md verbatim in every prompt"
     - "templates/closer.md verbatim at the end of every prompt"
@@ -72,7 +72,7 @@ quality_rules:
   - "FINAL RULE: final frame of each clip must exactly match the source image from build-on completion to the end"
   - "No element moves again after it lands (after build-on phase)"
   - "No music, no narration, no voices inside the animation clips - paper ASMR only"
-  - "No text beyond the Editorial Title label in images"
+  - "No text in images beyond the labels explicitly specified in the prompt"
   - "Never use em dashes anywhere in any output - use commas, colons, parentheses, or plain hyphens"
   - "Facts stay accurate - never invent names, dates, or numbers"
   - "Real-tragedy restraint: no gore, no suffering close-ups, no mockery of victims"
