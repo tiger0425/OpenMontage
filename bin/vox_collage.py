@@ -34,6 +34,7 @@
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import os
@@ -524,15 +525,43 @@ def get_wav_duration(p: Path) -> float:
 
 
 # ---------------------------------------------------------------- Subcommands
+def slugify_topic(topic: str, max_len: int = 48) -> str:
+    """把选题转成项目 ID —— 保留中文。
+
+    与 setup_video.py / course.py / console_remake.py 保持一致：它们都以 `\\w`
+    （Unicode 语义）做白名单，中文因此得以保留。本管线原先用 `[^a-z0-9]`，会把
+    「福特重回WRC」与「丰田重回WRC」双双压成 `wrc` 而互相踩同一个目录。
+    同类 slug 碰撞事故 setup_video.py 在 2026-08-29 已记录过一次（E5 防复发）。
+    """
+    s = str(topic).strip().lower()
+    s = re.sub(r"[^\w\u4e00-\u9fff]+", "-", s, flags=re.UNICODE).strip("-_")
+    s = re.sub(r"-{2,}", "-", s)
+    if len(s) > max_len:
+        s = s[:max_len].rstrip("-_")
+    return s
+
+
 def cmd_new(args):
     init_db()
-    pid = args.id or re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")
+    pid = args.id or slugify_topic(args.topic)
     if not pid:
-        pid = f"vox-col-{int(time.time())}"
+        # 选题全是符号/emoji 时才会走到这里。用选题哈希而非时间戳：同一选题重跑得到
+        # 同一个 ID，于是会在下面的闸门处明确报错，而不是静默堆积重复项目。
+        pid = "vox-col-" + hashlib.sha1(args.topic.encode("utf-8")).hexdigest()[:10]
 
     proj_dir = PROJECTS_DIR / pid
+    force = bool(getattr(args, "force", False))
+    # episode.json 里是已定稿的人工剧本与分幕，覆盖不可逆 —— 绝不静默重写。
+    if (proj_dir / "episode.json").exists() and not force:
+        sys.exit(
+            f"[!] 项目 {pid} 已存在且含 episode.json（人工稿件）：{proj_dir}\n"
+            f"    episode.json 覆盖不可逆，已中止，未改动任何文件。\n"
+            f"    要另起项目请换选题或用 --id 指定新 ID；确认推倒重建时加 --force。"
+        )
     if proj_dir.exists():
-        print(f"[!] Project directory already exists: {proj_dir}")
+        reason = ("按 --force 重建（即将覆盖 episode.json）" if (proj_dir / "episode.json").exists()
+                  else "无 episode.json，继续初始化")
+        print(f"[!] 目录已存在：{proj_dir} —— {reason}")
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. 拷贝主题基准图与设计代币
@@ -1291,6 +1320,7 @@ def main():
     p_new.add_argument("--theme", choices=["archival-red", "racing-orange", "tech-cyan", "finance-green"], default="archival-red")
     p_new.add_argument("--duration", default="90s", help="Target duration (e.g. 90s, 3m, 5m, 10m)")
     p_new.add_argument("--scenes", type=int, default=None, help="Explicit scene count (overrides duration defaults)")
+    p_new.add_argument("--force", action="store_true", help="Overwrite an existing project — DESTROYS its episode.json")
     p_new.set_defaults(func=cmd_new)
 
     # script & approve
@@ -1358,6 +1388,7 @@ def main():
     p_run.add_argument("--theme", choices=["archival-red", "racing-orange", "tech-cyan", "finance-green"], default="archival-red")
     p_run.add_argument("--duration", default="90s")
     p_run.add_argument("--scenes", type=int, default=None, help="Explicit scene count (overrides duration defaults)")
+    p_run.add_argument("--force", action="store_true", help="Overwrite an existing project — DESTROYS its episode.json")
     p_run.set_defaults(func=cmd_run)
 
     p_heavy = sub.add_parser("run-heavy", help="Compute intensive production flow")
