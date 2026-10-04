@@ -1,0 +1,149 @@
+{
+  "92": {
+    "inputs": {
+      "filename_prefix": "VOX/scene05_vid",
+      "format": "mp4",
+      "format.codec": "h264",
+      "format.codec.encoding": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": ["130", 0]
+    },
+    "class_type": "SaveVideo",
+    "_meta": { "title": "保存视频" }
+  },
+  "119": {
+    "inputs": { "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "加载VAE" }
+  },
+  "120": {
+    "inputs": { "vae_name": "minimax_h3_audio_vae_fp32.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "加载VAE" }
+  },
+  "121": {
+    "inputs": { "samples": ["125", 0], "vae": ["120", 0] },
+    "class_type": "VAEDecodeAudio",
+    "_meta": { "title": "VAE解码（音频）" }
+  },
+  "122": {
+    "inputs": { "samples": ["125", 0], "vae": ["119", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE解码" }
+  },
+  "123": {
+    "inputs": { "sampler_name": "euler" },
+    "class_type": "KSamplerSelect",
+    "_meta": { "title": "K采样器选择" }
+  },
+  "124": {
+    "inputs": {
+      "scheduler": "beta",
+      "steps": 6,
+      "denoise": 1,
+      "model": ["147", 0]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": { "title": "基本调度器" }
+  },
+  "125": {
+    "inputs": {
+      "noise": ["129", 0],
+      "guider": ["126", 0],
+      "sampler": ["123", 0],
+      "sigmas": ["124", 0],
+      "latent_image": ["136", 1]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": { "title": "自定义采样器（高级）" }
+  },
+  "126": {
+    "inputs": { "model": ["147", 0], "conditioning": ["136", 0] },
+    "class_type": "BasicGuider",
+    "_meta": { "title": "基本引导器" }
+  },
+  "127": {
+    "inputs": {
+      "unet_name": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "UNet加载器" }
+  },
+  "128": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "加载CLIP" }
+  },
+  "129": {
+    "inputs": { "noise_seed": 60411823 },
+    "class_type": "RandomNoise",
+    "_meta": { "title": "随机噪波" }
+  },
+  "130": {
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "codec": "h264",
+      "images": ["122", 0],
+      "audio": ["121", 0]
+    },
+    "class_type": "CreateVideo",
+    "_meta": { "title": "创建视频" }
+  },
+  "131": {
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": ["132", 0]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": { "title": "数学表达式" }
+  },
+  "132": {
+    "inputs": { "value": 10 },
+    "class_type": "PrimitiveFloat",
+    "_meta": { "title": "视频时长（秒）" }
+  },
+  "136": {
+    "inputs": {
+      "prompt": ["138", 0],
+      "width": 576,
+      "height": 1024,
+      "length": ["131", 1],
+      "ref_image_size": "match",
+      "clip": ["128", 0],
+      "vae": ["119", 0],
+      "audio_vae": ["120", 0],
+      "ref_images.ref_image_0": ["137", 0]
+    },
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "_meta": { "title": "MiniMax H3 参考转视频" }
+  },
+  "137": {
+    "inputs": { "image": "vox_scene05.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "加载图像" }
+  },
+  "138": {
+    "inputs": {
+      "value": "VOX-style editorial documentary PAPER COLLAGE layer-assembly animation, vertical 9:16.\n\nPreserve the EXACT original composition, layout, palette, torn paper edges and object positions of the source illustration. This is a LAYER ASSEMBLY animation, NOT a redesign. Nothing is added, nothing is removed, nothing is moved, nothing is rearranged.\n\nCANVAS AND CAMERA\n9:16 vertical. Asphalt-grey textured paper background with coarse halftone grain and faint dark oil-stain blotches.\nCamera is COMPLETELY STATIC -- no zoom, no pan, no tilt, no orbit, no handheld, no shake, no camera move of any kind. The illustration itself tells the story. No depth of field, no cinematic lighting, no photorealistic environment.\n\nLAYER BUILD ORDER (each layer enters individually, one at a time, never two at once)\nLayer 1  Asphalt-grey paper background with grain, print texture and oil-stain blotches. 0.0s-1.0s. Simple fade in.\nLayer 2  Large bold black condensed headline word RESONANCE in the upper third. 1.0s-2.0s. Paper slide in from the left with a mask wipe, settling with a tiny 1.5 degree rotation.\nLayer 3  Main subject: the rusted abandoned hatchback cut-out, full silhouette with torn paper edges. 2.0s-3.8s. Paper drop from above, scale 96 to 100 percent, one short placement bounce.\nLayer 4  Body detail: the incised scratches, rust blooms, missing door handle and perished window rubber. 3.8s-5.0s. Soft pop with a subtle paper unfold.\nLayer 5  First vibration ring cluster radiating from the front wheel arch, thin terracotta arcs. 5.0s-6.2s. Concentric arcs draw outward one after another.\nLayer 6  Second vibration ring cluster travelling forward through the cabin and landing on the dashboard and steering wheel. 6.2s-7.4s. Arcs draw outward one after another.\nLayer 7  The single dark oil droplet beneath the collapsed shock absorber, frozen mid-fall. 7.4s-8.2s. Small fade in.\nLayer 8  Texture and final emphasis: paper grain overlay settling and soft paper drop shadows deepening. 8.2s-8.6s. Gentle 1.5 percent emphasis scale, then locked.\n\nHOLD 8.6s-10.0s\nComposition is complete. Every element remains permanently locked in its original position for the rest of the film. Only extremely subtle idle motion: 2 to 4 pixel slow-drifting dust particles, micro paper shadow breathing at or below 5 percent opacity pulse, the oil droplet continuing its fall at under 2 pixels per second. Nothing drifts, slides, floats, spins or repositions. The image feels alive but the viewer notices no animation.\n\nLOCK RULE (absolute)\nEvery object keeps its exact size, rotation, perspective and position for the whole film. Maximum idle movement 2 to 5 pixels, maximum rotation 1 to 2 degrees, maximum scale pulse 1 to 2 percent, maximum opacity pulse 5 percent. The car body must not flex, the paper edges must not wobble, the headline letters must never move individually or distort.\n\nENTRY ANIMATION VOCABULARY (only these are permitted)\nPaper slide, paper drop, soft pop, small fade, gentle scale 95 to 100 percent, paper unfold, mask reveal, simple wipe, rotation under 3 degrees, short paper placement bounce. Nothing dramatic.\n\nSTYLE\nPremium VOX / Johnny Harris / Neo documentary motion graphics. Editorial collage, paper cut layers, magazine cut-outs, vintage newsprint texture, halftone printing, soft paper drop shadows, minimal composition, elegant hierarchy.\nMuted editorial palette only -- asphalt grey, chalky off-white, rust terracotta, matte black. Introduce no new colours at any point.\n\nMOOD\nQuiet, grimy, mechanical. The viewer feels a neglected car being assembled out of torn paper, one layer at a time, then held with quiet living motion.\n\nSOUND\nDry garage ambience only. Low electrical hum, a faint distant drip, a soft paper slide and a light metallic rattle as the layers land. No music, no voice, no narration, no dialogue, no cinematic impact."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": { "title": "Input Text (Prompt)" }
+  },
+  "147": {
+    "inputs": {
+      "lora_name": "minimax_h3_turbo_v4_step600_pruned_comfyui.safetensors",
+      "strength_model": 1,
+      "model": ["127", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "LoRA加载器（仅模型）" }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VOX Collage Episode Contract",
+  "description": "Defines the canonical episode structure for the VOX Collage documentary video pipeline.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "topic",
+    "ratio",
+    "theme",
+    "scenes"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$",
+      "description": "Unique episode identifier (ASCII lowercase with dashes/underscores)."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable episode title."
+    },
+    "topic": {
+      "type": "string",
+      "description": "Topic or core premise of the explainer."
+    },
+    "ratio": {
+      "type": "string",
+      "enum": ["16:9", "9:16"],
+      "default": "16:9",
+      "description": "Video aspect ratio: 16:9 (horizontal, 1920x1080) or 9:16 (vertical, 1080x1920)."
+    },
+    "theme": {
+      "type": "string",
+      "enum": ["archival-red", "racing-orange", "tech-cyan", "finance-green"],
+      "default": "archival-red",
+      "description": "Project visual theme preset id."
+    },
+    "target_duration_sec": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 900,
+      "description": "Target video duration in seconds (from 90s to 10 minutes)."
+    },
+    "chapters": {
+      "type": "array",
+      "description": "Structural chapters for medium-to-long form explainer documentaries (> 3 minutes).",
+      "items": {
+        "type": "object",
+        "required": ["chapter_index", "title", "scene_ids"],
+        "properties": {
+          "chapter_index": { "type": "integer" },
+          "title": { "type": "string" },
+          "scene_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered sequence of scenes/shots across the entire explainer.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "order",
+          "mode",
+          "motion_type",
+          "voiceover"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9]{2,3}$",
+            "description": "Scene 2-digit or 3-digit ID (e.g. '01', '02')."
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "chapter": {
+            "type": "string",
+            "description": "Chapter title this scene belongs to."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "stat_hero",
+              "map_pin",
+              "archival_mat",
+              "exploded_blueprint",
+              "versus_clash",
+              "macro_halftone"
+            ],
+            "description": "Visual mini-scene composition layout mode."
+          },
+          "motion_type": {
+            "type": "string",
+            "enum": ["hero_motion", "drift_only"],
+            "default": "drift_only",
+            "description": "hero_motion uses MiniMax H3 layer animation; drift_only uses HyperFrames 2% slow drift."
+          },
+          "voiceover": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Narration text without dashes (——)."
+              },
+              "audio_file": {
+                "type": "string",
+                "description": "Path or filename of the synthesized wav."
+              },
+              "duration_sec": {
+                "type": "number",
+                "description": "Exact audio length read directly from wav header."
+              },
+              "transcribed_text": {
+                "type": "string",
+                "description": "Whisper medium validation transcription text."
+              }
+            }
+          },
+          "visual": {
+            "type": "object",
+            "properties": {
+              "headline": { "type": "string" },
+              "stat_number": { "type": "string" },
+              "annotation": { "type": "string" },
+              "real_asset_refs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Keys mapping into refs manifest (Wikimedia Commons true assets)."
+              },
+              "dataliao_image": { "type": "string" },
+              "still_image": { "type": "string" },
+              "motion_video": { "type": "string" },
+              "image_prompt": { "type": "string" },
+              "video_prompt": { "type": "string" }
+            }
+          },
+          "timing": {
+            "type": "object",
+            "properties": {
+              "lead_sec": { "type": "number", "default": 0.3 },
+              "tail_sec": { "type": "number", "default": 0.25 },
+              "slot_sec": { "type": "number" },
+              "media_start_sec": { "type": "number", "default": 1.0 }
+            }
+          }
+        }
+      }
+    },
+    "refs_manifest": {
+      "type": "object",
+      "description": "Registry of true photography assets fetched from Wikimedia Commons with licenses and attribution."
+    }
+  }
+}

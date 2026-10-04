@@ -70,10 +70,15 @@ comfyui_video_*.mp4
 voices/
 
 # Local ComfyUI installation (third-party, not part of repo)
-ComfyUI/
+# Anchored to the repo root on purpose: unanchored, it also swallowed
+# apps/vox-collage/template/comfyui/ (case-insensitively) and silently
+# dropped the pipeline's workflow JSONs from every `git add`.
+/ComfyUI/
 
-# HyperFrames generated workspace
-hyperframes/
+# HyperFrames generated workspace (repo-root npx output)
+# Anchored for the same reason: unanchored, it also swallowed
+# apps/vox-collage/template/hyperframes/generate_composition.py.
+/hyperframes/
 
 # Scratch/debug scripts
 scratch/
@@ -251,3 +256,5 @@ snap_*/
 # ref-remake pipeline official scripts (exempt from generic gen_*.py ignore)
 !apps/ref-remake/scripts/gen_frames.py
 !apps/ref-remake/scripts/gen_tts.py
+.hf-tmp/
+.hf-cache/
