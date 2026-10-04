@@ -45,6 +45,7 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string" },
+          "description": { "type": "string", "description": "Human-readable summary of what this stage does (documentation only; not consumed by code)" },
           "agent": { "type": "string", "description": "Legacy: class name for Python-driven stages" },
           "skill": { "type": "string", "description": "Skill path for instruction-driven stages (e.g., pipelines/explainer/idea-director)" },
           "required_artifacts_in": {
