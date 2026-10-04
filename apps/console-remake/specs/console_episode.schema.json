@@ -1,0 +1,246 @@
+{
+ "$schema": "http://json-schema.org/draft-07/schema#",
+ "title": "console-remake episode",
+ "description": "console-remake 创作契约：中文脚本 + 控制台分幕（世界宪法 apps/console-remake/specs/design-system.md）",
+ "type": "object",
+ "required": ["slug", "title", "voice", "scenes"],
+ "properties": {
+  "slug": {"type": "string"},
+  "title": {"type": "string", "description": "成片标题（发布用）"},
+  "cover_title": {"type": "string"},
+  "source": {
+   "type": "object",
+   "properties": {
+    "url": {"type": "string"},
+    "title": {"type": "string"},
+    "author": {"type": "string"},
+    "duration": {"type": "number"}
+   }
+  },
+  "voice": {
+   "type": "object",
+   "properties": {
+    "voice_ref": {"type": "string"},
+    "model_version": {"enum": ["2.5", "2"], "default": "2.5"},
+    "lang": {"type": "string", "default": "ZH"},
+    "seed": {"type": "integer", "default": 42},
+    "emotion": {"type": "string", "default": "calm"}
+   }
+  },
+  "audio": {
+   "type": "object",
+   "properties": {
+    "bgm": {"type": ["string", "null"]},
+    "bgm_volume": {"type": "number", "default": 0.12}
+   }
+  },
+  "timing": {
+   "type": "object",
+   "properties": {
+    "line_gap": {"type": "number", "default": 0.35},
+    "scene_gap": {"type": "number", "default": 0.6},
+    "scene_lead_in": {"type": "number", "default": 0.35},
+    "tail": {"type": "number", "default": 2.2}
+   }
+  },
+  "subtitles": {"type": "boolean", "default": true},
+  "watermark": {"type": ["string", "null"]},
+  "cover_at": {"type": "number", "description": "封面截帧兜底时间（AI 封面存在时不用）"},
+  "sfx": {
+   "type": "array",
+   "description": "音效轨：{src(assets/sfx/ 文件名), at(行 id 或 scene:xx), off, gain}",
+   "items": {
+    "type": "object",
+    "required": ["src", "at"],
+    "properties": {
+     "src": {"type": "string"}, "at": {"type": "string"},
+     "off": {"type": "number"}, "gain": {"type": "number"}
+    }
+   }
+  },
+  "chapters": {
+   "type": "array",
+   "description": "HUD 章节（6-10 个为宜）：顶栏翻页指示 + 进度轨刻痕",
+   "items": {
+    "type": "object",
+    "required": ["title", "scene"],
+    "properties": {
+     "title": {"type": "string", "description": "如 三、反转：壳比模型更重要"},
+     "scene": {"type": "string", "description": "起始幕 id（如 s05）"}
+    }
+   }
+  },
+  "hud": {
+   "type": "object",
+   "description": "HUD 顶栏品牌文案（缺省 AGENT HARNESS / 智能体运行框架）",
+   "properties": {
+    "brand_en": {"type": "string"},
+    "brand_cn": {"type": "string"}
+   }
+  },
+  "scenes": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": ["id", "lines"],
+    "properties": {
+      "id": {"type": "string", "pattern": "^s[0-9]{2,}[a-z]?$"},
+      "label": {"type": "string", "description": "幕标签（人读，不上屏）"},
+      "gap_in": {"type": "number"},
+      "hold_after": {"type": "number"},
+      "footage": {
+       "type": "object",
+       "description": "真实录屏窗口（视频层，装配器内置；见 LESSONS §11）",
+       "properties": {
+        "src": {"type": "string", "description": "assets/footage/ 下的文件名；片段时长必须 ≥ 幕时长"},
+        "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"},
+        "radius": {"type": "number"}, "dim": {"type": "boolean"}, "bare": {"type": "boolean"},
+        "focus": {"type": "string", "description": "video object-position（如 \"50% 30%\"）"},
+        "cam": {"type": "object", "description": "镜头运动 {z:[起,止], x:[...], y:[...], start, ease}"},
+        "provenance": {"$ref": "#/definitions/provenance", "description": "外部来源素材的出处与许可（自录免填）"},
+        "grading": {"type": "object", "description": "media-treatment 调色参数 → data-color-grading"}
+       }
+      },
+      "transition": {
+       "type": "object",
+       "properties": {
+        "enter": {"enum": ["fade", "zoom", "push-left", "push-up", "rise"]},
+        "exit": {"enum": ["fade", "zoom-out", "push-left", "push-up"]}
+       }
+      },
+      "registry": {
+       "type": "object",
+       "description": "整幕交给 HyperFrames 注册表组件（npx hyperframes add 安装；每集同组件最多一次，timeline 键会冲突）",
+       "required": ["component"],
+       "properties": {
+        "component": {"type": "string", "description": "组件名，如 browser-device-stage（compositions/components/<name>.html）"},
+        "vars": {"type": "object", "description": "data-variable-values：组件声明的变量（chrome/title/swap_at/accent/exit…）"},
+        "slots": {
+         "type": "object",
+         "description": "组件内容槽：{slotName: {img|video, alt}}；装配器注入宿主 <template data-slot=\"<component>-<slotName>\">",
+         "additionalProperties": {
+          "type": "object",
+          "properties": {
+           "img": {"type": "string", "description": "assets/images/ 下的文件名"},
+           "video": {"type": "string", "description": "assets/footage/ 下的文件名"},
+           "alt": {"type": "string"},
+           "grading": {"type": "object", "description": "media-treatment 调色参数 → data-color-grading（本管线禁用，见 LESSONS §13）"},
+           "provenance": {"$ref": "#/definitions/provenance", "description": "槽位真实素材的出处与许可"}
+          }
+         }
+        }
+       }
+      },
+     "lines": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": ["id", "text", "elements"],
+       "properties": {
+        "id": {"type": "string"},
+        "text": {"type": "string", "description": "中文旁白 = 字幕文本"},
+        "gap_after": {"type": "number"},
+        "sub": {"type": "boolean", "default": true, "description": "false 则本句不出字幕"},
+        "elements": {
+         "type": "array",
+         "items": {"$ref": "#/definitions/element"}
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+  "definitions": {
+   "provenance": {
+    "type": "object",
+    "description": "真实素材的出处与许可（image 零件必填；外部来源的 footage 建议填；自录素材可填 license:\"自有录屏\"）",
+    "required": ["url", "license"],
+    "properties": {
+     "url": {"type": "string"},
+     "license": {"type": "string", "description": "如 CC-BY-4.0 / 官方 press kit / 自有录屏"},
+     "credit": {"type": "string", "description": "署名文案（CC-BY 类素材发布时必须署名）"},
+     "retrieved_at": {"type": "string"},
+     "note": {"type": "string"}
+    }
+   },
+   "element": {
+   "type": "object",
+   "required": ["type"],
+   "properties": {
+    "id": {"type": "string", "description": "供 arrow/leader 的 from/to 引用（缺省自动生成）"},
+    "type": {"enum": ["frame", "grid", "pill", "hairline", "bignum", "arrow", "leader", "bracket", "slot", "paper", "toast", "panel", "text", "source", "seal",
+                      "win", "term", "rows", "repocard", "mark", "bars", "shape", "image"]},
+    "at": {"type": "string", "description": "语音驱动锚定：本元素在台词中被说出的字/词（配合 align 词级时间戳）"},
+    "x": {"type": "number"}, "y": {"type": "number"},
+    "w": {"type": "number"}, "h": {"type": "number"},
+    "enter_offset": {"type": "number", "default": 0, "description": "在所属旁白句内的进场偏移（秒）"},
+    "color": {"enum": ["red", "amber", "blue", "cyan", "green", "accent", "ink", "dim"]},
+    "label": {"type": "string"}, "label_pos": {"enum": ["inside-top-left", "top-center"]},
+    "rows": {"type": ["integer", "array"], "description": "grid=行数；rows/bars=行对象数组"},
+    "cols": {"type": "integer"},
+    "cell": {"type": "number", "default": 24}, "gap": {"type": "number", "default": 6},
+    "fill": {"type": "number", "minimum": 0, "maximum": 1},
+    "fill_color": {"enum": ["red", "amber", "blue", "cyan"]},
+    "divider": {"type": "boolean"},
+    "label_left": {"type": "string"}, "label_right": {"type": "string"},
+    "text": {"type": "string"}, "style": {"enum": ["solid", "outline", "filled"]},
+    "size": {"type": ["number", "string"]}, "sub": {"type": "string"},
+    "count": {"type": "boolean"}, "count_dur": {"type": "number"},
+    "from": {"type": "string"}, "to": {"type": "string"},
+    "from_side": {"enum": ["left", "right", "top", "bottom"]}, "to_side": {"enum": ["left", "right", "top", "bottom"]},
+    "x1": {"type": "number"}, "y1": {"type": "number"}, "x2": {"type": "number"}, "y2": {"type": "number"},
+    "tick": {"type": "boolean", "description": "leader/hairline 端刻度（默认 leader 开启）"},
+    "tick_len": {"type": "number"}, "up": {"type": "boolean", "description": "bracket 端折朝上"},
+    "dash": {"type": "boolean"}, "draw_dur": {"type": "number"}, "pad": {"type": "number"},
+    "motion": {
+     "enum": ["travel", "push", "shift", "erase", "leak", "stack", "grow"],
+     "description": "动作动效（按台词动词选）：行进/塞入/位移/擦除/泄漏/层叠/生长"
+    },
+    "mdx": {"type": "number"}, "mdy": {"type": "number"},
+    "motion_dur": {"type": "number"}, "motion_ease": {"type": "string"},
+    "travel_fade": {"type": "boolean", "description": "travel 结尾淡出（一次性经过）"},
+    "push_at": {"type": "number"}, "push_scale": {"type": "number"},
+    "shift_at": {"type": "number"}, "erase_at": {"type": "number"},
+    "leak_n": {"type": "integer"}, "leak_at": {"type": "number"},
+    "leak_gap": {"type": "number"}, "leak_dy": {"type": "number"},
+    "strike_at": {"type": "number", "description": "删除线划出时刻（相对句内入场）"},
+    "stagger": {"type": "number", "description": "grid 扫填步长；rows/bars 行错峰"},
+    "orientation": {"enum": ["v", "h"]}, "len": {"type": "number"}, "strong": {"type": "boolean"},
+    "ticks": {"type": "integer"}, "filled": {"type": "integer"},
+    "header": {"type": "string"}, "lines": {"type": "array", "items": {"type": "string"}},
+    "highlight": {"type": ["string", "integer"]}, "footer": {"type": "string"},
+    "title": {"type": "string"}, "body": {"type": "string"}, "accent": {"enum": ["red", "amber", "blue", "cyan"]},
+    "tone": {"enum": ["deep-red", "surface2", "card", "paper", "win"], "description": "panel 质地；card/paper/win 为 console-v2 新增"},
+    "kind": {"enum": ["browser", "terminal", "app", "hl", "ul", "ring", "cross", "rect", "circle", "line"],
+             "description": "win 的窗口类型 / mark 的标注类型 / shape prims 的形状"},
+    "url": {"type": "string"}, "focus": {"type": "boolean"},
+    "cmd": {"type": "string", "description": "term：要逐字打出的命令行"},
+    "prompt": {"type": "string"}, "out": {"type": "array", "items": {"type": "string"}, "description": "term：命令输出行"},
+    "type_speed": {"type": "number", "description": "term：逐字速度（秒/字，默认 0.028）"},
+    "out_stagger": {"type": "number"},
+    "row_h": {"type": "number"}, "card": {"type": "boolean"},
+    "dot": {"enum": ["ok", "warn", "err", "busy"]}, "tag_tone": {"enum": ["ok", "warn"]},
+    "desc": {"type": "string"}, "lang": {"type": "string"}, "lang_color": {"type": "string"},
+    "stars": {"type": "string"}, "badge": {"type": "string"},
+    "rot": {"type": "number"},
+    "label_w": {"type": "number"}, "value_w": {"type": "number"}, "bar_h": {"type": "number"},
+    "grow_dur": {"type": "number"},
+    "prims": {"type": "array", "items": {"type": "object"}, "description": "shape：{kind,x,y,w,h,r,fill,color,border,rot,stage}"},
+    "stage_stagger": {"type": "number"}, "prim_dur": {"type": "number"},
+    "mono": {"type": "boolean"}, "strike": {"type": "boolean"}, "dim": {"type": "boolean"},
+    "align": {"enum": ["center"]},
+    "size_hint": {"type": "string"},
+    "src": {"type": "string", "description": "image：真实图片文件名（放 assets/images/，装配时自动拷入 hyperframes）"},
+    "fit": {"enum": ["cover", "contain"], "description": "image：填充方式（默认 cover）"},
+    "radius": {"type": "number", "description": "image：圆角（px）"},
+    "real": {"type": "boolean", "description": "标记本元素描绘真实存在的实体（人/产品/项目/地点）：true 时必须用 image 零件引用真实素材，禁止 CSS 假扮"},
+    "provenance": {"$ref": "#/definitions/provenance"},
+    "grading": {"type": "object", "description": "media-treatment 调色参数（preset/adjust/details）→ data-color-grading（image 用）"}
+   }
+  }
+ }
+}

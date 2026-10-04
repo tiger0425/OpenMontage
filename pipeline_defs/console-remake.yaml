@@ -1,0 +1,77 @@
+name: console-remake
+version: '1.1'
+description: >
+  深色开发者控制台（console / HUD）设计复刻管线。
+  输入参考视频（YouTube URL / 本地文件），将参考片的设计语言固化为九种控制台零件
+  （空心描边框/数据格阵/等宽胶囊/发丝线/巨型数字/连接箭头/刻度槽/米白纸面板/通知 toast），
+  以结构借鉴+独立重写产出中文版：IndexTTS2 克隆配音 + HyperFrames 1920×1080 合成 +
+  设计内嵌文字 + console 字幕条。CSS 世界负责讲解，真实素材负责作证：真实人物/实物/界面
+  必须采集真实素材（image/footage 零件 + provenance 出处登记），零 AI 生图（封面除外）；
+  动笔前必做 HyperFrames 能力侦察（catalog/docs/调色），渲染前过 hyperframes check。
+  世界宪法：apps/console-remake/specs/design-system.md
+category: custom
+stability: beta
+default_checkpoint_policy: manual_all
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+required_skills:
+- console-remake
+- humanizer-bilibili
+- hyperframes-core
+- hyperframes-animation
+- hyperframes-registry
+- hyperframes-cli
+- media-use
+stages:
+- name: fetch
+  checkpoint_required: true
+  human_approval_default: false
+  description: 下载/拷贝参考片 + Whisper 转录 + 抽帧（python bin/console_remake.py new）
+  review_focus:
+  - 源片完整性（yt-dlp，URL 或本地文件）
+  - 转录含时间戳；抽帧 ≥12 张供设计复核
+- name: script
+  checkpoint_required: true
+  human_approval_default: true
+  description: 撰写 artifacts/episode.json（中文脚本 + 控制台分幕 + 章节）→ 红线扫描 → 人审闸门；动笔前置=能力侦察（capability_recon.json）
+  review_focus:
+  - 能力侦察已完成：artifacts/capability_recon.json 存在，含积木↔分幕映射与调色/转场候选；能用的能力没规划视为缺陷
+  - 素材真实纪律：真实实体（人/产品/项目/界面/地点）用 image/footage 真实素材 + provenance(url+license)；CSS 假扮真实实体视为红线
+  - 结构借鉴+独立重写（非逐句翻译）；术语保留；数字汉字化
+  - 零件必须是"仪表与控件"（测量什么/显示什么状态），禁止装饰元素
+  - 每幕至少一处「联系」：同色呼应 / 引线 leader / 括线 bracket / 箭头 / 发丝线分区（纯孤立显示视为未完成）
+  - 动词必须有动作动效：台词出现跑/塞/挪/删/漏/叠等动词时，对应元素声明 motion（travel/push/shift/erase/leak/stack/grow），且在台词说到该动词的 0.5s 窗口内发生
+  - 单帧内容簇 ≤2；开场/收尾敢留白；内容落于 y∈[96,940]（HUD 常驻后的空间纪律）
+  - 每句台词绑定零件与 enter_offset（音画咬合）
+  - chapters 6~10 个（title+scene）——HUD 顶栏翻页与进度刻痕的数据源
+  - 红线扫描作为闸门附件（单句≥0.75 红 / 全篇≥0.45 黄）；闸门输出含 capability_recon 与 real_assets 摘要
+- name: approve-script
+  checkpoint_required: true
+  human_approval_default: true
+  description: 人审放行（approve-script）；未放行禁止 synth
+- name: synth
+  checkpoint_required: false
+  human_approval_default: false
+  description: IndexTTS 2.5 逐句克隆配音（seed 固定），ffprobe/wave 实测时长回填 tts_results.json（重·GPU，派 Worker）
+- name: compose
+  checkpoint_required: false
+  human_approval_default: false
+  description: 时间轴计算 + ffmpeg 烘焙旁白/BGM/音效 master + 真实素材拷贝（footage/images）+ 生成薄宿主（HUD 框架）+ 每幕独立 compositions/*.html（轻）
+  review_focus:
+  - 真实素材完整：image/footage 文件均存在（compose 警告为空）；provenance 齐全
+  - 能力利用率：capability_recon.mapping 已如实落地（调色/注册表组件/转场按映射执行）
+- name: render
+  checkpoint_required: false
+  human_approval_default: false
+  description: check 0 error 后 hyperframes render 1080P；可选 Lanczos 4K HEVC（重·CPU，派 Worker）；样式/背景/HUD 类改动必须全片重渲
+- name: package
+  checkpoint_required: true
+  human_approval_default: false
+  description: 封面（首选 AI 无字底稿 + make_cover.py 排版叠字，16:9+4:3；已存在不覆盖，截帧仅兜底）+ 单文档 publish_copy.txt（含【素材来源】credits）+ README
+- name: archive
+  checkpoint_required: false
+  human_approval_default: false
+  description: 归档到 exports/<id>/（video/thumbnails/metadata：成片、双比例封面、发布文案 txt、章节、episode 与制作档案）
