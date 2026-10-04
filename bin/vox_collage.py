@@ -1065,6 +1065,21 @@ def cmd_motion(args):
     video_dir.mkdir(parents=True, exist_ok=True)
     only = set(x.strip() for x in args.only.split(",")) if args.only else None
 
+    # ASMR 保护：asmr-*.m4a 可能已被人工加工（例如用 Demucs 去过人声），而完整跑一次
+    # motion 会重建所有 hero 幕的 asmr 并静默覆盖它们 —— 本项目实测踩过这个坑。
+    # 覆盖前先把旧文件备份到 .media/video/_asmr_backup/<时间戳>/，使人工版本可恢复。
+    # 备份目录是子目录，不会被 generate_composition 的 `asmr-*.m4a` 非递归 glob 收进去。
+    asmr_backup_dir = None
+
+    def _backup_asmr(path: Path) -> Path:
+        nonlocal asmr_backup_dir
+        if asmr_backup_dir is None:
+            asmr_backup_dir = video_dir / "_asmr_backup" / time.strftime("%Y%m%d-%H%M%S")
+            asmr_backup_dir.mkdir(parents=True, exist_ok=True)
+        dst = asmr_backup_dir / path.name
+        shutil.copy2(path, dst)
+        return dst
+
     hero = [s for s in ep_data.get("scenes", []) if s.get("motion_type") == "hero_motion"]
     drift_count = sum(1 for s in ep_data.get("scenes", []) if s.get("motion_type") == "drift_only")
     if only:
@@ -1148,6 +1163,10 @@ def cmd_motion(args):
 
         # 抽出独立 ASMR 音轨，供 compose 作为低音量铺底
         asmr = video_dir / f"asmr-{sid}.m4a"
+        if asmr.exists():
+            bak = _backup_asmr(asmr)
+            print(f"[motion] 幕 {sid} 已有 asmr（可能是人工加工版），已备份 -> "
+                  f"{bak.relative_to(proj_dir)} 后再重建")
         fa = ["ffmpeg", "-y", "-i", str(out), "-vn", "-c:a", "aac", "-b:a", "192k", str(asmr)]
         subprocess.run(fa, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
