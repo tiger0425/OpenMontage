@@ -79,11 +79,21 @@ VOX 纸质拼贴视觉风格有**两条平行实现的路线**：
 
 每一步都必须让仓库处于可工作状态。步骤尽量小，便于随时看到程序仍在工作。
 
-### Phase 0 — 冻结路线 B（3 个小提交，零行为变更）
+### Phase 0 — 冻结路线 B（零行为变更）✅ 已完成 2026-10-04
 
-1. **在路线 B manifest 声明冻结。** `pipeline_defs/vox-paper-collage.yaml` 增加显式冻结标记与一段说明（谁生成的、为何冻结、活路线是哪条）。不改任何 stage 定义。
-2. **在路线 B 的 EP 技能顶部加冻结横幅。** `skills/pipelines/vox-paper-collage/executive-producer.md` 顶部加同义声明，使 agent 一进入就看见。
-3. **在总纲标注。** `docs/VOX_PIPELINE_MASTER.md` 的路线 B 段落标注「已冻结，勿再维护」并指向路线 A。
+> 实施记录：3 项编辑**合并为一个提交**（纯标记/文档，拆三个提交只增加噪音），与计划原文的
+> 「3 个小提交」不同，行为等价。
+
+1. ✅ **在路线 B manifest 声明冻结。** 用 `metadata.frozen: true` + 顶部注释块。
+   **⚠️ 实施中发现一个计划没预见的约束**：`schemas/pipelines/pipeline_manifest.schema.json` 里
+   `stability` 是**封闭枚举** `["production", "beta"]`，顶层又是 `additionalProperties: false`（第 160 行），
+   且 `lib/pipeline_loader.py:48` 确实会执行 `jsonschema.validate` —— 所以**不能**写
+   `stability: frozen`，也**不能**新增顶层键，否则 manifest 直接加载失败。
+   唯一合法的自由字段是 `metadata`（schema 第 134 行 `{"type": "object"}`，另有 3 个 manifest 已在用）。
+   改动后已实测 `load_pipeline('vox-paper-collage')` 仍通过校验（8 stages）。
+2. ✅ **在路线 B 的 EP 技能顶部加冻结横幅。** `skills/pipelines/vox-paper-collage/executive-producer.md`
+3. ✅ **在总纲标注。** `docs/VOX_PIPELINE_MASTER.md` §0 总览 + §4 路线 B 章首；
+   并顺手修正 §0 表格里「`apps/vox-collage/`（本地目录，不在 git）」这句已过期的话（本次已入库）。
 
 > 完成 phase 0 后，`f454040` 那类「改一个数字动 10 个文件」的维护行为应当停止发生。
 
@@ -110,6 +120,9 @@ VOX 纸质拼贴视觉风格有**两条平行实现的路线**：
 
 ## Decision Document（决策记录）
 
+- **冻结标记用 `metadata.frozen`，绝不用 `stability`。** manifest schema 里 `stability` 是封闭枚举
+  （`production|beta`）、顶层 `additionalProperties: false`，而 `lib/pipeline_loader.py` 会真正校验 ——
+  写 `stability: frozen` 会让 manifest 无法加载。`metadata` 是 schema 里唯一合法的自由字段。
 - **不建立统一的「管线常数注册表」。** 实测表明跨路线的常数重复（`4.7`）只存在于不跑的路线 B；为它建注册表是在给死代码修路。事实源只覆盖路线 A 内**跨进程共享**的时间轴量。
 - **单一事实源的形式采用「机器可读」而非「文档约定」。** 现有 `bilingual-spec.md` 已是「文档即事实源」，正是 `f454040` 要改 10 个文件的根因。
 - **`WIPE_SEC` 与 `lead/tail` 必须保持分离**，尽管数值都是 0.30。前者是换幕擦除时长，后者是幕内首尾留白。计划明确禁止合并。

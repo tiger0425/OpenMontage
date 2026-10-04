@@ -8,7 +8,23 @@ description: >
   image), IndexTTS2 narration after script approval, Pixabay music, Freesound paper
   ASMR, and VOX 3-thumbnail publish. Forged by the pipeline-forge meta-pipeline.
 category: custom
+# ── 已冻结（2026-10-04）───────────────────────────────────────────────────────
+# 本 manifest 由 pipeline-forge 元管线机器生成，从未被执行过一次（0 checkpoint / 0 产物）。
+# 实测体量 29 文件 / 6216 行，占 VOX 纸质拼贴视觉风格总量的 59.5%；而实际出片走的是
+# 另一条路线 A：bin/vox_collage.py + apps/vox-collage/（21 文件 / 4226 行）。
+# ⚠️ 不要再向路线 B 投入维护：改一组节奏参数会牵动 10 个文件（f454040 实证）。
+# 保留而非删除：examples/vox-paper-collage/ 的 6 份样例仍有参考价值。
+# 处置决策与分阶段计划见 docs/optimization-charters/vox-pipeline-simplification.md
+#
+# 注意：stability 仍写作 beta。schema 的 stability 是封闭枚举（production|beta），
+# 写入 frozen 会让 lib/pipeline_loader.py 的 jsonschema 校验失败；顶层又是
+# additionalProperties:false，不能新增顶层键。故冻结状态由 metadata.frozen 表达。
 stability: beta
+metadata:
+  frozen: true
+  frozen_since: '2026-10-04'
+  superseded_by: 'route A: bin/vox_collage.py + apps/vox-collage/'
+  reason: 'pipeline-forge 生成的双路线实现，从未执行过；维护成本全落在不跑的这条路上'
 default_checkpoint_policy: manual_all
 extensions:
   custom_scripts: false

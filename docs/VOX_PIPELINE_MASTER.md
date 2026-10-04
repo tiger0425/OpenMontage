@@ -10,10 +10,16 @@
 
 本仓库的 VOX 拼贴有**两条并行的执行路线**，共享视觉 DNA 与提示词资产，2026-10 起生图统一为 **Qwen-Image 2.1**。
 
+> ⚠️ **路线 B 已于 2026-10-04 冻结，不要再向它投入维护。**
+> 实测：路线 B 29 文件 / 6216 行，占本视觉风格总量的 **59.5%**，却**从未被执行过一次**（0 checkpoint）；
+> 实际出片全部走路线 A（21 文件 / 4226 行）。改一组节奏参数会牵动 10 个文件（`f454040` 实证）。
+> 冻结标记：`pipeline_defs/vox-paper-collage.yaml` → `metadata.frozen: true`。
+> 处置决策与分阶段计划：`docs/optimization-charters/vox-pipeline-simplification.md`。
+
 | 维度 | 路线 A：CLI 全自动线 | 路线 B：原生 8 阶段线 |
 |---|---|---|
 | 入口 | `python bin/vox_collage.py <cmd>` | `bin/omo.py` 状态机 + EP 编排；用户用自然语言驱动 agent |
-| 代码/规范 | `bin/vox_collage.py` + `apps/vox-collage/`（本地目录，不在 git）+ `.agents/skills/vox-collage/SKILL.md` | `pipeline_defs/vox-paper-collage.yaml` + `skills/pipelines/vox-paper-collage/` + `styles/vox-paper-collage*.yaml` |
+| 代码/规范 | `bin/vox_collage.py` + `apps/vox-collage/` + `.agents/skills/vox-collage/SKILL.md`（**已入库**，见 `a42ce30`） | `pipeline_defs/vox-paper-collage.yaml` + `skills/pipelines/vox-paper-collage/` + `styles/vox-paper-collage*.yaml`（**已冻结**） |
 | 编排方式 | 命令串行，script 单人审闸门；重命令派 Compute Worker | EP（executive-producer）串行驱动 8 阶段，多个人审闸门 |
 | 生图 | Qwen21-txt2img（AI 幕）+ wf_edit（真实照片重绘） | Qwen21-txt2img + Qwen21-edit（单参考净化版）+ wf_edit（双参考备用） |
 | 视频动效 | MiniMax H3 核心幕图层组装 + HyperFrames 2% slow drift | HyperFrames 确定性动画（build-on/living-poster，无 H3） |
@@ -190,6 +196,10 @@ projects/vox-collage/<id>/
 ---
 
 ## 4. 路线 B：原生 8 阶段线（agent 编排）
+
+> ⚠️ **本节描述的路线已冻结（2026-10-04），且从未执行过一次。勿据此开工，也勿再更新本节。**
+> 现役主产线是 §3 路线 A（`bin/vox_collage.py`）。本节 8 阶段定义仅作历史与设计参考保留。
+> 详见 `docs/optimization-charters/vox-pipeline-simplification.md`。
 
 ### 4.0 执行模型
 
