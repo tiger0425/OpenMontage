@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/adaptation_script",
+  "title": "Series Adaptation Script",
+  "description": "Independent target-language rewrite artifact for series-adapt.",
+  "type": "object",
+  "required": [
+    "version",
+    "episode_num",
+    "title_en",
+    "slug",
+    "estimated_duration_seconds",
+    "total_word_count",
+    "sections"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "episode_num": { "type": "integer", "minimum": 1 },
+    "title_en": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "minLength": 1 },
+    "narrative_arc": { "type": "string" },
+    "hook_pattern": { "type": "string" },
+    "estimated_duration_seconds": { "type": "number", "minimum": 1 },
+    "total_word_count": { "type": "integer", "minimum": 1 },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "narration", "visual_direction", "duration_seconds", "word_count"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "minLength": 1 },
+          "narration": { "type": "string", "minLength": 1 },
+          "visual_direction": { "type": "object" },
+          "duration_seconds": { "type": "number", "minimum": 0 },
+          "word_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

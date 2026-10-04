@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/knowledge_brief",
+  "title": "Knowledge Brief",
+  "description": "Source extraction artifact for the series-adapt brief stage.",
+  "type": "object",
+  "required": ["version", "episode_num", "source_video_id", "core_arguments", "key_facts"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "episode_num": { "type": "integer", "minimum": 1 },
+    "source_video_id": { "type": "string", "minLength": 1 },
+    "core_arguments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["argument"],
+        "properties": {
+          "argument": { "type": "string", "minLength": 1 },
+          "source_lines": { "type": "array", "items": { "type": "integer" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "key_facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["fact"],
+        "properties": {
+          "fact": { "type": "string", "minLength": 1 },
+          "category": { "type": "string" },
+          "source_line": { "type": "integer" },
+          "confidence": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "setup_video_episode.schema.json",
+  "title": "setup-video episode.json（agent 按 script-prompt.md 产出）",
+  "type": "object",
+  "required": ["video", "points", "flash", "chips", "narration", "table"],
+  "additionalProperties": true,
+  "properties": {
+    "video": {
+      "type": "object",
+      "required": ["game", "title"],
+      "additionalProperties": true,
+      "properties": {
+        "game": { "type": "string", "minLength": 1 },
+        "brand": { "type": "string" },
+        "title": { "type": "string", "minLength": 1 },
+        "track": { "type": "string" },
+        "badge": { "type": "string" },
+        "team_primary": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "brand_badge": { "type": "string", "description": "徽标显式路径（模板 v0.3，映射优先级最高）" },
+        "hook": { "type": "string", "description": "s1 收益钩子大字（v0.3 新增）" },
+        "promise": { "type": "string", "description": "s1-s5 提醒条文案，默认'全参数最后定格 · 长按保存'（v0.3 新增）" }
+      }
+    },
+    "drive": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "in": { "type": "number", "minimum": 0 },
+        "out": { "type": "number" },
+        "crop": { "type": "string" },
+        "slowmo": { "type": "number", "exclusiveMinimum": 0 },
+        "fallback_image": { "type": "string" }
+      }
+    },
+    "points": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["label", "k1", "v1", "renhua", "evidence_ts"],
+        "additionalProperties": true,
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "k1": { "type": "string" }, "v1": { "type": "string", "minLength": 1 }, "u1": { "type": "string" },
+          "k2": { "type": "string" }, "v2": { "type": "string" }, "u2": { "type": "string" },
+          "renhua": { "type": "string", "minLength": 1 },
+          "evidence_ts": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "flash": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["label", "img_ts"],
+        "additionalProperties": true,
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "img_ts": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "chips": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "narration": {
+      "type": "object",
+      "required": ["s1", "s2", "s3", "s4", "s5", "s6"],
+      "additionalProperties": false,
+      "properties": {
+        "s1": { "type": "string", "minLength": 1 },
+        "s2": { "type": "string", "minLength": 1 },
+        "s3": { "type": "string", "minLength": 1 },
+        "s4": { "type": "string", "minLength": 1 },
+        "s5": { "type": "string", "minLength": 1 },
+        "s6": { "type": "string", "minLength": 1 }
+      }
+    },
+    "table": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["name", "value"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "desc": { "type": "string" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

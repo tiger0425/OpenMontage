@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/composition_report",
+  "title": "Series Composition Report",
+  "description": "Composition result artifact for the series-adapt pipeline.",
+  "type": "object",
+  "required": [
+    "version",
+    "episode_num",
+    "render_runtime",
+    "output_path",
+    "lint_passed",
+    "validate_passed",
+    "render_duration_seconds",
+    "render_target_seconds",
+    "resolution",
+    "fps"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "episode_num": { "type": "integer", "minimum": 1 },
+    "render_runtime": { "type": "string", "enum": ["remotion", "hyperframes", "ffmpeg"] },
+    "output_path": { "type": "string", "minLength": 1 },
+    "lint_passed": { "type": "boolean" },
+    "validate_passed": { "type": "boolean" },
+    "render_duration_seconds": { "type": "number", "minimum": 0 },
+    "render_target_seconds": { "type": "number", "minimum": 0 },
+    "resolution": { "type": "string", "minLength": 1 },
+    "fps": { "type": "number", "exclusiveMinimum": 0 }
+  },
+  "additionalProperties": true
+}

@@ -31,9 +31,14 @@ htmlcov/
 .pilotdeck/
 
 # Pipeline outputs (regenerable — never commit large media)
+# Anchored to the repo root: unanchored, a bare name also matches same-named
+# directories at any depth (see the /pipelines/ note below for the damage).
 output/
-pipeline/
-artifacts/
+/pipeline/
+# Anchored for the same reason: unanchored, this also matched schemas/artifacts/
+# and kept live contract schemas out of git (6 were never committed, incl.
+# fetch_report, referenced by 41 files).
+/artifacts/
 renders/
 videos/
 tests/qa/output/
@@ -91,10 +96,10 @@ fix_*.py
 probe_*.py
 ffmpeg_*.py
 copy_*.py
-render_*.py
-run_*.py
-gen_*.py
-check_*.py
+/render_*.py
+/run_*.py
+/gen_*.py
+/check_*.py
 download_model.py
 update_manifest.py
 
@@ -214,7 +219,12 @@ browser-use-hf/
 exports/
 
 # Pipeline checkpoint state (regenerable production-run state)
-pipelines/
+# Anchored to the repo root on purpose: unanchored, this ALSO ignored
+# skills/pipelines/ — so every new director skill was silently dropped by
+# `git add`. It had already cost us two never-committed paths:
+#   skills/pipelines/explainer/lessons-learned.md   (~50 KB of lessons)
+#   skills/pipelines/ref-remake/                    (8 director skills)
+/pipelines/
 
 # Agent scratch / temp dirs
 tmp/

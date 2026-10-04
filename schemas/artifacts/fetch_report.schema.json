@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/fetch_report",
+  "title": "Fetch Report",
+  "description": "Source episode download + transcription report produced by the fetch stage of series-adapt.",
+  "type": "object",
+  "required": ["version", "episode_num", "source_url", "video_id", "source_video_path", "transcript_path", "video_duration_seconds", "transcript_word_count", "language_detected"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "episode_num": { "type": "integer", "minimum": 1 },
+    "source_url": { "type": "string" },
+    "video_id": { "type": "string" },
+    "source_video_path": { "type": "string" },
+    "transcript_path": { "type": "string" },
+    "video_duration_seconds": { "type": "number", "minimum": 1 },
+    "transcript_word_count": { "type": "integer", "minimum": 0 },
+    "language_detected": { "type": "string", "enum": ["zh", "en", "unknown"] },
+    "downloaded_at": { "type": "string" },
+    "segment_count": { "type": "integer", "minimum": 0 },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}
