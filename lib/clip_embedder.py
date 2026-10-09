@@ -23,8 +23,9 @@ That intelligence lives in the corpus manager and retrieval skills.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Iterable, Sequence, Union
+from typing import Any, Iterable, Sequence, Union
 
 import numpy as np
 
@@ -35,7 +36,23 @@ import numpy as np
 _MODEL = None
 _PROCESSOR = None
 _DEVICE: str = "cpu"
-_MODEL_ID = "openai/clip-vit-base-patch32"
+# Override with OPENMONTAGE_CLIP_MODEL to point at a local directory.
+# Needed because `openai/clip-vit-base-patch32` no longer publishes
+# model.safetensors, which transformers >=5 requires. The LAION
+# ViT-B/32 checkpoint is architecturally identical (512-d projection).
+_MODEL_ID = os.environ.get("OPENMONTAGE_CLIP_MODEL", "openai/clip-vit-base-patch32")
+
+
+def _features(out: Any) -> Any:
+    """Normalise transformers' CLIP feature return across versions.
+
+    transformers 4.x returns a plain tensor; 5.x returns
+    BaseModelOutputWithPooling whose ``pooler_output`` holds the
+    projected 512-d embedding.
+    """
+    if hasattr(out, "pooler_output"):
+        return out.pooler_output
+    return out
 
 
 def _load() -> None:
@@ -82,7 +99,7 @@ def embed_images(image_paths: Sequence[Union[str, Path]]) -> np.ndarray:
 
     inputs = _PROCESSOR(images=images, return_tensors="pt").to(_DEVICE)
     with torch.no_grad():
-        features = _MODEL.get_image_features(**inputs)
+        features = _features(_MODEL.get_image_features(**inputs))
     features = features / features.norm(dim=-1, keepdim=True).clamp_min(1e-8)
     arr = features.cpu().numpy().astype(np.float32, copy=False)
     # Close PIL handles to avoid leaking file handles on Windows
@@ -116,7 +133,7 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
         max_length=77,
     ).to(_DEVICE)
     with torch.no_grad():
-        features = _MODEL.get_text_features(**inputs)
+        features = _features(_MODEL.get_text_features(**inputs))
     features = features / features.norm(dim=-1, keepdim=True).clamp_min(1e-8)
     return features.cpu().numpy().astype(np.float32, copy=False)
 

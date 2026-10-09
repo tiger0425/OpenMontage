@@ -133,7 +133,37 @@ class HyperFramesCompose(BaseTool):
                 "description": (
                     "Registry block or component name for operation='add_block' "
                     "(e.g. 'data-chart', 'grain-overlay', 'shimmer-sweep'). "
-                    "See https://hyperframes.heygen.com/catalog for the list."
+                    "See https://hyperframes.heygen.com/catalog for the list. "
+                    "For source='ui2v', this is a UI2V slug (e.g. "
+                    "'hero-stack-cards') — discover them with "
+                    "`ui2v_fetch` operation='recommend'."
+                ),
+            },
+            "source": {
+                "type": "string",
+                "enum": ["official", "ui2v"],
+                "default": "official",
+                "description": (
+                    "Block registry to install from for operation='add_block'. "
+                    "'official' = `hyperframes add` (first-party; preferred when "
+                    "a block fits). 'ui2v' = the UI2V community registry, "
+                    "delegated to `ui2v_fetch` install. Templated-mode only."
+                ),
+            },
+            "version": {
+                "type": "string",
+                "description": (
+                    "Optional semver pin for operation='add_block' with "
+                    "source='ui2v'. Defaults to latest."
+                ),
+            },
+            "force": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "For operation='add_block' with source='ui2v': overwrite an "
+                    "existing install and allow a package the static scan "
+                    "flagged suspicious. Never overrides a malware block."
                 ),
             },
             "workspace_path": {
@@ -840,13 +870,20 @@ class HyperFramesCompose(BaseTool):
         )
 
     def _add_block(self, inputs: dict[str, Any]) -> ToolResult:
-        """Install a registry block or component via `hyperframes add`.
+        """Install a registry block or component into the workspace.
 
-        Blocks are standalone sub-compositions (own dimensions, duration, timeline)
-        that land at `compositions/<name>.html`. Components are effect snippets
-        that land at `compositions/components/<name>.html`. After install, the
-        caller is responsible for wiring the block into `index.html` via
-        `data-composition-src` or pasting the component's snippet — see
+        Two sources:
+
+        - `source="official"` (default) — `hyperframes add`, the first-party
+          HyperFrames registry (blocks land at `compositions/<name>.html`,
+          components at `compositions/components/<name>.html`).
+        - `source="ui2v"` — the UI2V community registry, delegated to
+          `ui2v_fetch.install`. The whole package lands at
+          `<blocks>/<slug>/` and the returned payload includes a
+          `data-composition-src` wiring snippet.
+
+        After install, the caller wires the block into `index.html` via
+        `data-composition-src` or pastes the component snippet — see
         `.agents/skills/hyperframes-registry/SKILL.md`.
         """
         workspace = self._require_workspace(inputs)
@@ -864,10 +901,40 @@ class HyperFramesCompose(BaseTool):
                     "operation='scaffold_workspace' first."
                 ),
             )
+
+        source = (inputs.get("source") or "official").strip().lower()
+        if source == "ui2v":
+            # Lazy import keeps the registry cheap and avoids a hard cycle.
+            from tools.video.ui2v_fetch import UI2VFetch
+
+            res = UI2VFetch().execute(
+                {
+                    "operation": "install",
+                    "slug": block,
+                    "workspace_path": str(workspace),
+                    "version": inputs.get("version"),
+                    "force": bool(inputs.get("force")),
+                }
+            )
+            return ToolResult(
+                success=res.success,
+                data={
+                    "operation": "add_block",
+                    "source": "ui2v",
+                    "block_name": block,
+                    "workspace": str(workspace),
+                    "install": res.data,
+                },
+                artifacts=res.artifacts,
+                error=res.error,
+                duration_seconds=res.duration_seconds,
+            )
+
         args = ["add", block, "--json", "--no-clipboard"]
         proc = self._run_hf(args, cwd=workspace, timeout=300, check=False)
         data: dict[str, Any] = {
             "operation": "add_block",
+            "source": "official",
             "block_name": block,
             "workspace": str(workspace),
             "exit_code": proc.returncode,
