@@ -5,7 +5,7 @@ description: >
   支持 16:9 横屏 (1920x1080) 与 9:16 竖屏 (1080x1920)，时长覆盖 90 秒短解说到 10 分钟中长专题片。
   核心铁律：真实素材入画（真车/真Logo/工厂/历史照，拒绝 AI 臆造）；基准图母版（Master Sheet）前置风格锚定；
   多主题预设库（archival-red / racing-orange / tech-cyan / finance-green）；
-  6 类微场景构图范式轮转与动静混编策略（hero_motion + 2% slow drift）；
+  6 类微场景构图范式轮转与动静混编策略（hero_motion 相机静止 + drift_only 1% slow drift）；
   读 WAV 头精确毫秒排布时间轴，母版无字幕 + FFmpeg ASS 3D 挤出立体字幕快速烧录。
   触发词：VOX拼贴 / 纸片拼贴 / 纪录片拼贴 / vox-collage / 跑拼贴管线 / 拼贴科普视频 / 纸质纪录片 / 9:16拼贴 / 16:9拼贴。
 ---
@@ -31,7 +31,8 @@ description: >
    * **单片构图轮转**：单片内必须在 6 类范式中交替轮转（Stat Hero / Map Pin / Archival Mat / Exploded Blueprint / Versus Clash / Macro Halftone），严禁连续两幕构图雷同。
 4. **90 秒 ~ 10 分钟跨度与动静混编 (Hybrid Motion)**：
    * **核心高潮幕 (Hero Motion)**：跑 ComfyUI MiniMax H3 图层组装视频（4 步 Turbo 采样）；
-   * **叙事铺垫幕 (Drift Only)**：由 HyperFrames 前端渲染高清静帧 + `2% Slow Drift`（呼吸慢推拉），画质达 4K 且免去 GPU 冗长等待。
+   * **叙事铺垫幕 (Drift Only)**：由 HyperFrames 前端渲染高清静帧 + `1% Slow Drift`（呼吸慢推拉），画质达 4K 且免去 GPU 冗长等待。
+   * **相机漂移分工**：Hero Motion 幕的 H3 片段相机**完全静止**（呼吸感来自图层逐层搭建）；Drift Only 幕由前端施加 1% 呼吸漂移。两者不叠加。
 5. **配音优先与字幕母版解耦**：
    * 读 WAV 头精确秒数驱动槽位：`slot = lead(0.3s) + vo + tail(0.25s)`；
    * 母版纯净无字幕，由 FFmpeg + ASS 快速烧录 3D 挤出立体字幕，改错别字无需重渲染整片。

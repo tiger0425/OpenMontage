@@ -268,3 +268,17 @@ snap_*/
 !apps/ref-remake/scripts/gen_tts.py
 .hf-tmp/
 .hf-cache/
+
+# One-off per-video study workspaces (ad-hoc python + source/proxy media —
+# 2.7 GB incl. several 500 MB mp4s). Throwaway, never source.
+/studies/
+studies/
+
+# Repo-root one-off scratch from video analysis runs
+/assemble_final.py
+/probe_out.json
+/scratch_*.py
+/scratch_*.vtt
+/transcript_*.txt
+/video_info_*.json
+/subtitles_*.json3

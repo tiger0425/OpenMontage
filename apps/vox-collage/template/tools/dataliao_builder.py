@@ -10,7 +10,17 @@ import math
 import os
 import random
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+
+# 六大微场景构图范式 (design-system.md §5) —— 与 collage_episode.schema.json 的 mode 枚举严格一致
+VALID_MODES = (
+    "stat_hero",            # 模式 A 数据流向叙事
+    "map_pin",              # 模式 B 地图时空标定
+    "archival_mat",         # 模式 C 档案相纸散落
+    "exploded_blueprint",   # 模式 D 技术爆炸拆解
+    "versus_clash",         # 模式 E 双阵营天平对抗
+    "macro_halftone",       # 模式 F 局部网点特写
+)
 
 try:
     from rembg import remove as rembg_remove
@@ -58,6 +68,44 @@ def load_font(font_key: str, size: int) -> ImageFont.FreeTypeFont:
             return ImageFont.truetype(r"C:\Windows\Fonts\simhei.ttf", size)
         except Exception:
             return ImageFont.load_default()
+
+
+def validate_mode_rotation(scenes: list) -> tuple:
+    """校验 design-system.md §5「严禁连续两幕采用同一种构图」。
+
+    这条铁律在 schema 层无法表达 (JSON Schema draft-07 没有 "不等于上一项" 约束)，
+    因此必须在运行期强制。本函数是全片唯一执行点。
+
+    返回 (errors, warnings)：
+      errors   —— 必须修复：非法/缺失 mode、相邻两幕同 mode
+      warnings —— 建议修复：跨章节同 mode、全片范式过度集中
+    """
+    errors, warnings = [], []
+    seq = [s for s in scenes if isinstance(s, dict)]
+
+    for s in seq:
+        mode = s.get("mode")
+        sid = s.get("id", "?")
+        if not mode:
+            # build_scene() 缺省会静默回落 stat_hero，相邻两幕都缺省就会构图雷同
+            errors.append(f"幕 {sid}: 缺少 mode 字段（六大范式之一：{'/'.join(VALID_MODES)}）")
+        elif mode not in VALID_MODES:
+            errors.append(f"幕 {sid}: 非法 mode '{mode}'，必须是 {'/'.join(VALID_MODES)} 之一")
+
+    for a, b in zip(seq, seq[1:]):
+        ma, mb = a.get("mode"), b.get("mode")
+        if ma and ma == mb:
+            same_chapter = a.get("chapter") and a.get("chapter") == b.get("chapter")
+            msg = f"幕 {a.get('id','?')} 与 幕 {b.get('id','?')} 构图雷同（均为 {ma}）"
+            (errors if same_chapter or not a.get("chapter") else warnings).append(msg)
+
+    used = {s.get("mode") for s in seq if s.get("mode")}
+    if len(seq) >= 4 and len(used) == 1:
+        warnings.append(
+            f"全片 {len(seq)} 幕仅使用一种构图范式（{used.pop()}），"
+            "「范式轮转」形同虚设，建议至少覆盖 3 种"
+        )
+    return errors, warnings
 
 
 class DataliaoEngine:
@@ -214,6 +262,127 @@ class DataliaoEngine:
             return 0.0
         return sum(hist[41:]) / total
 
+    # ---------- 模式 D / F 专用：局部裁切与网点特写 ----------
+
+    def _crop_zoom(self, img: Image.Image, box_w: int, box_h: int,
+                   focus_x: float = 0.5, focus_y: float = 0.5, zoom: float = 2.2) -> Image.Image:
+        """按目标框宽高比做偏置放大裁切（focus 0~1，0.5 为正中）。"""
+        ratio = box_w / box_h
+        src = img.convert("RGB")
+        if src.width / src.height > ratio:
+            base_w, base_h = int(src.height * ratio), src.height
+        else:
+            base_w, base_h = src.width, int(src.width / ratio)
+        scale = zoom * max(box_w / base_w, box_h / base_h)
+        tw, th = max(box_w, int(base_w * scale)), max(box_h, int(base_h * scale))
+        src = src.resize((tw, th), Image.Resampling.LANCZOS)
+        left = int((tw - box_w) * focus_x)
+        top = int((th - box_h) * focus_y)
+        return src.crop((left, top, left + box_w, top + box_h))
+
+    def make_detail_card(self, photo_path, box_w: int, box_h: int,
+                         focus_x: float = 0.5, focus_y: float = 0.5) -> Image.Image:
+        """模式 D 局部细节卡：裁出真实照片的不同部位 → 高对比灰度 → 白边相纸 + 红色定位框。"""
+        if photo_path is None or not Path(photo_path).exists():
+            return None
+        gray = ImageOps.grayscale(Image.open(photo_path).convert("RGB"))
+        gray = self._crop_zoom(gray, box_w, box_h, focus_x, focus_y, zoom=2.6)
+        gray = ImageOps.autocontrast(gray, cutoff=2)
+        gray = ImageEnhance.Contrast(gray).enhance(1.35)
+
+        border = 10
+        card = Image.new("RGB", (box_w + border * 2, box_h + border * 2), self.c_white)
+        card.paste(gray, (border, border))
+        ImageDraw.Draw(card).rectangle(
+            [border - 3, border - 3, border + box_w + 2, border + box_h + 2],
+            outline=self.c_accent, width=3,
+        )
+        return card
+
+    def make_halftone_closeup(self, photo_path, box_w: int, box_h: int,
+                              focus_x: float = 0.5, focus_y: float = 0.5) -> Image.Image:
+        """模式 F 局部网点特写：灰度 → 偏置放大 → 粗网点化 → 高对比，落白边相纸内。"""
+        if photo_path is None or not Path(photo_path).exists():
+            return None
+        gray = ImageOps.grayscale(Image.open(photo_path).convert("RGB"))
+        gray = self._crop_zoom(gray, box_w, box_h, focus_x, focus_y, zoom=3.0)
+        # 粗网点：缩小再放大成块，与原灰度混合出印刷网点质感
+        cell = 5
+        small = gray.resize((max(2, box_w // cell), max(2, box_h // cell)), Image.Resampling.BOX)
+        dots = small.resize((box_w, box_h), Image.Resampling.NEAREST)
+        gray = Image.blend(ImageOps.autocontrast(gray, cutoff=1), ImageOps.autocontrast(dots), 0.45)
+        gray = ImageEnhance.Contrast(gray).enhance(1.5)
+
+        border = 14
+        card = Image.new("RGB", (box_w + border * 2, box_h + border * 2), self.c_white)
+        card.paste(gray, (border, border))
+        ImageDraw.Draw(card).rectangle(
+            [border - 3, border - 3, border + box_w + 2, border + box_h + 2],
+            outline=self.c_ink, width=3,
+        )
+        return card
+
+    @staticmethod
+    def _project_to_rect(rect, toward: tuple) -> tuple:
+        """把目标点投影到矩形边界，用作引线终止点（避免引线压在卡片上）。"""
+        x0, y0, x1, y1 = rect
+        return (min(max(toward[0], x0), x1), min(max(toward[1], y0), y1))
+
+    def render_exploded_blueprint(self, canvas, draw, ref_img,
+                                  subj: tuple, cards: list, anchor: tuple, labels=None):
+        """模式 D · 技术爆炸拆解：主体 + 3 张局部细节卡 + 红色放射引线（带端点）。
+
+        subj  = (x, y, max_w, box_h)   主体抠图框
+        cards = [(x, y, w, h) x3]       细节卡位（竖排或横排由调用方给）
+        anchor= (x, y)                  引线起点（通常为画面中心）
+        """
+        if not ref_img:
+            return
+        labels = list(labels or ["", "", ""])
+        focuses = [(0.30, 0.32), (0.68, 0.44), (0.50, 0.70)]
+
+        # 1) 引线先画，随后被主体与卡片自然遮住一部分 → 技术图纸「线从件后穿出」的观感
+        for (cx, cy, cw, ch) in cards:
+            ex, ey = self._project_to_rect((cx, cy, cx + cw, cy + ch), anchor)
+            draw.line([anchor[0], anchor[1], ex, ey], fill=self.c_accent, width=3)
+            r = 6
+            draw.ellipse([ex - r, ey - r, ex + r, ey + r], fill=self.c_accent)
+
+        # 2) 主体
+        sx, sy, sw, sh = subj
+        self.paste_cutout_or_mat(canvas, ref_img, sw, sh, sx, sy, sw)
+
+        # 3) 细节卡 + 打字机标签
+        for (cx, cy, cw, ch), (fx, fy), label in zip(cards, focuses, labels):
+            card = self.make_detail_card(ref_img, cw, ch, fx, fy)
+            if card is None:
+                continue
+            canvas.paste(card, (cx, cy))
+            if label:
+                f = load_font("typewriter", 22)
+                draw.text((cx, cy + card.height + 6), label, font=f, fill=self.c_ink)
+
+    def render_macro_halftone(self, canvas, draw, ref_img, box: tuple, text_xy: tuple,
+                              stat: str, annot: str, stat_size: int = 140, annot_size: int = 28):
+        """模式 F · 局部网点特写：黑白半调极致放大 + 留白处一行断言（Stat + 打字机图注）。"""
+        if not ref_img:
+            return
+        bx, by, bw, bh = box
+        card = self.make_halftone_closeup(ref_img, bw, bh)
+        if card is not None:
+            canvas.paste(card, (bx, by))
+            draw.rectangle([bx - 4, by - 4, bx + card.width + 3, by + card.height + 3],
+                           outline=self.c_accent, width=4)
+        tx, ty = text_xy
+        if stat:
+            self.draw_stat(draw, stat, tx, ty, stat_size)
+        if annot:
+            ay = ty + stat_size + 30
+            f = load_font("typewriter", annot_size)
+            draw.text((tx, ay), annot_label(annot), font=f, fill=self.c_ink)
+            draw.line([tx, ay + annot_size + 10, tx + len(annot) * annot_size, ay + annot_size + 10],
+                      fill=self.c_accent, width=3)
+
     def draw_stat(self, draw, stat: str, x: int, y: int, size: int):
         if not stat:
             return
@@ -299,10 +468,29 @@ class DataliaoEngine:
             self.draw_stat(draw, stat, 150, 380, 170)
             if ref_img:
                 self.paste_photo_mat(canvas, ref_img, 820, -1.5, w - 960, h // 2 - 300)
-        else:  # exploded_blueprint / macro_halftone 等：抠图，过空则回退相纸框
-            self.draw_stat(draw, stat, 150, 380, 170)
-            if ref_img:
-                self.paste_cutout_or_mat(canvas, ref_img, 800, 600, w - 950, h // 2 - 300, 820)
+        elif mode == "exploded_blueprint":
+            # 模式 D · 技术爆炸拆解：主体居右 + 左侧 3 张局部细节卡 + 红色放射引线
+            if stat:
+                self.draw_stat(draw, stat, 1060, 845, 96)
+            self.render_exploded_blueprint(
+                canvas, draw, ref_img,
+                subj=(1050, 280, 680, 520),
+                cards=[(150, 300, 300, 175), (150, 520, 300, 175), (150, 740, 300, 175)],
+                anchor=(1390, 540),
+                labels=["细节 01", "细节 02", "细节 03"],
+            )
+        elif mode == "macro_halftone":
+            # 模式 F · 局部网点特写：黑白半调极致放大 + 右侧留白断言
+            self.render_macro_halftone(
+                canvas, draw, ref_img,
+                box=(140, 300, 1040, 620),
+                text_xy=(1290, 380),
+                stat=stat, annot=annot,
+                stat_size=140, annot_size=28,
+            )
+        else:
+            # 显式失败优于静默兜底：D/F 曾长期共用 else 分支而失去各自版式。
+            raise ValueError(f"unknown mode: {mode!r} (合法值 {'/'.join(VALID_MODES)})")
 
         # 3. 图注便签 (Annotation)：贴在大标题下方，避开底部字幕带（字幕居中占底部约 160px）
         if annot:
@@ -339,22 +527,28 @@ class DataliaoEngine:
                 mat = self.make_archival_mat(ref_img, max_w=820, rotate_deg=-1.5)
                 if mat:
                     canvas.paste(mat, (w // 2 - mat.width // 2, 700), mask=mat)
+        elif mode == "exploded_blueprint":
+            # 模式 D · 技术爆炸拆解：主体居上 + 下方 3 张横向细节卡 + 向下放射引线
+            if stat:
+                self.draw_stat(draw, stat, 90, 1240, 120)
+            self.render_exploded_blueprint(
+                canvas, draw, ref_img,
+                subj=(150, 420, 780, 460),
+                cards=[(40, 960, 300, 175), (390, 960, 300, 175), (740, 960, 300, 175)],
+                anchor=(540, 880),
+                labels=["细节 01", "细节 02", "细节 03"],
+            )
+        elif mode == "macro_halftone":
+            # 模式 F · 局部网点特写：黑白半调极致放大 + 下方留白断言
+            self.render_macro_halftone(
+                canvas, draw, ref_img,
+                box=(100, 430, 880, 560),
+                text_xy=(100, 1070),
+                stat=stat, annot=annot,
+                stat_size=120, annot_size=26,
+            )
         else:
-            self.draw_stat(draw, stat, 85, 420, 150)
-            if ref_img:
-                cut = self.get_cutout(ref_img)
-                if cut is not None and self.cutout_coverage(cut) > 0.06:
-                    cut_styled = self.apply_offset_strokes(cut)
-                    ratio = min(780 / cut_styled.width, 700 / cut_styled.height)
-                    cut_styled = cut_styled.resize(
-                        (int(cut_styled.width * ratio), int(cut_styled.height * ratio)),
-                        Image.Resampling.LANCZOS
-                    )
-                    canvas.paste(cut_styled, (w // 2 - cut_styled.width // 2, 600), mask=cut_styled)
-                else:
-                    mat = self.make_archival_mat(ref_img, max_w=820, rotate_deg=1.5)
-                    if mat:
-                        canvas.paste(mat, (w // 2 - mat.width // 2, 560), mask=mat)
+            raise ValueError(f"unknown mode: {mode!r} (合法值 {'/'.join(VALID_MODES)})")
 
         # 3. 图注：贴在大标题下方，避开底部字幕带
         if annot:

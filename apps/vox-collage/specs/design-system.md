@@ -13,7 +13,7 @@
 2. **统一构建逻辑**：
    * 所有元素共享统一的工艺层级：**半调网点纹理 (Halftone) + 粗糙相纸白边 (Rough Keyline) + 红色错位描边 (Offset Stroke) + 纸张翘起投影 (Drop Shadow)**。
 3. **色彩语义严禁僭越**：红色仅作为最高层级的导向与强调，绝不大面积铺底。
-4. **动静结合与呼吸感**：硬切镜头之间绝非死静止，全片常驻 **2% 缓慢呼吸漂移 (2% slow drift)**。
+4. **动静结合与呼吸感**：镜头绝不静止，但呼吸感**分层承担**——Hero 幕由 H3 图层搭建动效提供（相机静止），Drift 幕由 HyperFrames 前端 1% 慢速呼吸漂移提供（详见 §7.5 / §7.6）。
 
 ---
 
@@ -132,5 +132,13 @@
    * 所有的 Stat Hero 数字在入场 0.5s 内从基数快速滚动递增到目标值。
 4. **手绘下划线刷入 (Stroke Wipe)**：
    * 标题下方的红线/箭头使用 `stroke-dashoffset` 或从左向右的遮罩刷入（Duration 0.35s）。
-5. **硬切律 (Hard Cut Only)**：
-   * 幕与幕之间一律 0 帧硬切（Hard Cut），**严禁淡入淡出（Fade）、严禁滑动推镜头**，保持新闻剪辑的利落与冲击力。
+5. **转场单一归属律 (Single-Engine Transitions)**：
+   * **全片所有幕间转场唯一由 HyperFrames 负责**，实现为「无缝纸擦除」：一层撕边纸横扫过画面（覆盖 → 换幕 → 揭开），扫过处即换幕。
+   * **MiniMax H3 片段一律不做任何转场**，只负责幕内「逐层搭建」；H3 自带转场能力必须弃用。
+   * **严禁淡入淡出（Fade）、严禁滑动推镜头、严禁整块平移**。纸擦除时长 0.30s / 侧，颜色 `#4A505C`（与拼贴纸底同族、略提亮）。
+   * **裁决说明**：本条取代早期「0 帧硬切律」。理由是架构性的，不是审美性的——转场若由 H3 与 HyperFrames 各自承担，会出现两套转场引擎互相打架（`generate_composition.py` 已为此专门关闭 H3 侧转场）。H3 段落若保留自身转场，纸擦除会与其叠加，产生双重转场闪烁。代码权威实现见 `template/hyperframes/generate_composition.py`（`WIPE_SEC` / `WIPE_PAPER` / `paper-wipe`）。
+
+6. **相机漂移分工 (Camera Drift by Layer)**：
+   * **Hero Motion 幕（H3 生成）**：相机**完全静止**，0% 漂移。呼吸感全部来自图层逐层搭建动效（掉入、微展开、笔画刷入），见 `template/comfyui/wf_vid.json` 的 `Camera is COMPLETELY STATIC`。
+   * **Drift Only 幕（HyperFrames 静帧）**：前端 `scale: 1.0 → 1.01` 呼吸微动（**1%，非 2%**），`yoyo` 循环、`sine.inOut` 缓动，幅度必须克制到肉眼近乎不觉。
+   * **母版基准值**：主题 `tokens.json` 的 `motion.camera_drift_pct` 记录的是设计母版基准（2.0），供美术参考；渲染层实际取 1%。两者差异是刻意的——Hero 幕的呼吸由 H3 承担，再叠加前端漂移会双重晃动。

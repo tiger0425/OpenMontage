@@ -72,7 +72,7 @@ sys.path.insert(0, str(TOOLS_ROOT))
 sys.path.insert(0, str(TEMPLATES_ROOT))
 try:
     from commons_fetcher import fetch_queries
-    from dataliao_builder import DataliaoEngine
+    from dataliao_builder import DataliaoEngine, validate_mode_rotation
     from subtitle_burner import build_ass, burn_subtitles
     from master_sheet_theme import build_theme_master_sheet
     from hyperframes.generate_composition import generate_index_html
@@ -734,6 +734,15 @@ def cmd_approve_script(args):
         if "——" in txt or "--" in txt:
             sys.exit(f"[X] Red line violation in scene {s['id']}: found dash '——' or '--'. Replace with comma or period.")
 
+    # 红线：六大构图范式轮转（design-system.md §5「严禁连续两幕采用同一种构图」）
+    mode_errors, mode_warnings = validate_mode_rotation(ep_data.get("scenes", []))
+    for w in mode_warnings:
+        print(f"[!] 构图范式建议: {w}")
+    if mode_errors:
+        for e in mode_errors:
+            print(f"[X] 构图范式违规: {e}")
+        sys.exit("[X] Script BLOCKED by mode-rotation red line. See errors above.")
+
     set_status(pid, "script_approved")
     print(f"[OK] Script for {pid} APPROVED. Gate released.")
 
@@ -873,6 +882,16 @@ def cmd_dataliao(args):
     tokens = {}
     if tokens_file.exists():
         tokens = json.loads(tokens_file.read_text(encoding="utf-8"))
+
+    # 红线：即使绕过 approve-script，这里也必须拦住构图雷同的全片。
+    # 放在任何副作用（建目录 / 起引擎）之前，阻断时不留半成品。
+    mode_errors, mode_warnings = validate_mode_rotation(ep_data.get("scenes", []))
+    for w in mode_warnings:
+        print(f"[!] 构图范式建议: {w}")
+    if mode_errors:
+        for e in mode_errors:
+            print(f"[X] 构图范式违规: {e}")
+        sys.exit("[X] dataliao BLOCKED by mode-rotation red line.")
 
     engine = DataliaoEngine(
         ratio=ep_data.get("ratio", "16:9"),
