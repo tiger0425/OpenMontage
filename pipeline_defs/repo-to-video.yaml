@@ -169,11 +169,13 @@ stages:
       - composition_report
     required_tools:
       - hyperframes_compose
+      - ui2v_fetch
       - video_compose
     optional_tools:
       - audio_mixer
     tools_available:
       - hyperframes_compose
+      - ui2v_fetch
       - video_compose
       - audio_mixer
     checkpoint_required: true

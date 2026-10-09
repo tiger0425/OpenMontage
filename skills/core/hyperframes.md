@@ -161,6 +161,75 @@ The concrete rendering is: `hyperframes_compose` writes files into the
 workspace, runs `check → render`, and returns a `render_report`
 with the path to the generated MP4. See `tools/video/hyperframes_compose.py`.
 
+---
+
+## Block sourcing — official first, UI2V second
+
+When `render_runtime = "hyperframes"` and a scene is a **reuse** scene (a
+stock block fits), source the block before authoring it by hand. There are two
+registries, and the order matters:
+
+| Order | Source | How | When |
+|---|---|---|---|
+| 1 | **Official** (`hyperframes add`) | `hyperframes_compose` operation `add_block` (default `source="official"`), or `npx hyperframes add <name>` | Whenever a block fits. First-party, curated, path auto-remapped, no license review. |
+| 2 | **UI2V** (community) | `hyperframes_compose` operation `add_block` with `source="ui2v"`, or the `ui2v_fetch` tool | Only when the official pool has no equivalent — e.g. you want a card / lower-third variant series or a community hero look. |
+
+### Discover in one call
+
+```python
+from tools.tool_registry import registry
+registry.discover()
+registry.get("ui2v_fetch").execute({
+    "operation": "recommend",
+    "query": "lower third over a talking-head",   # scene description
+    "aspect": "landscape",                          # optional
+    "max_duration": 8,                              # optional
+    "limit": 8,
+})
+```
+
+`recommend` searches **both** pools and returns two ranked groups, each item
+carrying its exact install call:
+
+- `groups.official[]` → `{"install": {"command": "npx hyperframes add <name>"}}`
+- `groups.ui2v[]` → `{"install": {"tool": "ui2v_fetch", "inputs": {...}}}`
+
+It also returns `ui2v_series_hint` when UI2V has no strong match, pointing at the
+large series you can browse directly (`kallaway` ~300 cards, `vox` ~107,
+`hero` ~74). See `docs/registry-coverage.md` for the full coverage comparison.
+
+### Offline-safe by design
+
+`recommend` ranks from two local indexes — `data/hf_catalog.json` (official,
+72h TTL) and `data/ui2v_catalog.json` (UI2V, 24h TTL), both gitignored and
+refreshed automatically. If GitHub / Convex / npx are unreachable, discovery
+still returns candidates from the last snapshot; `source_errors` records what
+failed, and `index` reports entry counts and cache age. Rebuild on demand with
+`ui2v_fetch` operation `refresh_index` (e.g. in CI or before an offline shoot).
+
+### Install and wire
+
+```python
+# Official
+hyperframes_compose.execute({"operation": "add_block", "block_name": "data-chart",
+                             "workspace_path": "<ws>"})
+# UI2V — same call, different source; returns a wiring snippet
+hyperframes_compose.execute({"operation": "add_block", "block_name": "hero-stack-cards",
+                             "source": "ui2v", "workspace_path": "<ws>"})
+```
+
+Then paste the returned `data-composition-src` snippet into `index.html` and
+place it on the timeline with `data-start` / `data-duration`. The
+`data-composition-id` must match the id **inside** the block (not always the
+slug). Full wiring rules: `.agents/skills/hyperframes-registry/`.
+
+### The atelier prohibition still applies
+
+Registry blocks — official **and** UI2V — are frozen looks. When
+`composition_mode: "atelier"` (hero work, launches, brand pieces), do **not**
+wire any registry block into the composition. See
+`skills/meta/bespoke-composition.md`. `recommend` is a templated-mode tool.
+
 ### Workspace-local authoring artifacts
 
 Upstream's `website-to-video` skill uses `DESIGN.md`, `SCRIPT.md`, and

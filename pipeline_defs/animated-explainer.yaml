@@ -234,6 +234,7 @@ stages:
     tools_available:
       - video_compose
       - hyperframes_compose
+      - ui2v_fetch
       - video_stitch
       - audio_mixer
     checkpoint_required: true

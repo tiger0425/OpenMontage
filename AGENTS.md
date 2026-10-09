@@ -163,4 +163,48 @@ When the user's message contains ANY of the following triggers, you MUST read
 `python bin/course.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
 pipeline internals directly. 涉及重任务（synth / render / run-heavy）可派 Compute Worker 执行并以 `--json` 单行回报；脚本闸门必须经用户或规范审查后方可放行。
 
+## Console-Remake（深色控制台设计复刻）Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/console-remake/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- 控制台复刻 / console-remake / 深色控制台 / 跑控制台管线 / 控制台设计复刻
+- 把这条视频做成控制台版中文 / 用控制台世界做二创 / HUD 风格讲解
+- **任何「参考视频（纯动效讲解、无人物无实拍）+ 中文版 + 控制台/HUD/终端视觉」意图**——路由本管线
+- 触发词与 WRC/erchuang（实拍搬运）重叠时：内容为纯动态图形讲解视频即路由本管线
+
+**What the skill teaches you:**
+- 世界宪法 `apps/console-remake/specs/design-system.md`：九种控制台零件（空心描边框/数据格阵/等宽胶囊/发丝线/巨型数字/连接箭头/刻度槽/米白纸面板/通知 toast）+ 三类连接件（引线/括线/端刻度）+ 动作动效库（travel/push/shift/erase/leak/stack/grow） + 色彩语义（红=问题·成本｜琥珀=占用｜蓝=模型·查询｜青=结果）+ 常驻 HUD 框架（章节翻页/进度轨/画框/颗粒底纹）+ 禁用清单（圆角实心卡片一律禁）
+- 两条设计铁律：**元素不许孤立**（每幕至少一处联系：引线/括线/箭头/同色呼应/发丝线分区）；**动词必须演出来**（台词说"塞/删/漏/叠"时对应 motion 动作必须落在同一句窗口内）
+- 完整流程：`new`（下载/转录/抽帧）→ 写 `artifacts/episode.json`（中文脚本+控制台分幕+chapters，**先样片验收世界**）→ `script`（校验+红线扫描，**脚本闸门人审**）→ `approve-script` → `synth`（IndexTTS2 克隆配音，重）→ `compose`（烘焙音频+装配 HyperFrames 子合成）→ `render`（重）→ `package`（AI 底稿+排版封面 16:9/4:3 + 单文档 publish_copy.txt）→ `archive`（exports/<id>/）
+- 零 AI 生图（封面除外）、零实拍、几乎零 API 成本；音画咬合 = 零件入场由旁白句起点驱动；样式/HUD/背景改动必须全片重渲
+
+**CRITICAL**: For Console-Remake tasks, the ONLY permitted execution entry point is
+`python bin/console_remake.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
+pipeline internals directly. 重命令（synth / render / run-heavy）必须派 Compute Worker
+执行并以 `--json` 单行回报；脚本闸门（approve-script）必须等用户确认后才放行。
+
+## VOX-Collage（纸质拼贴科普与纪录片）Skill Routing
+
+When the user's message contains ANY of the following triggers, you MUST read
+`.agents/skills/vox-collage/SKILL.md` BEFORE taking any action:
+
+**Trigger phrases (Chinese or English):**
+- VOX拼贴 / 纸片拼贴 / 纪录片拼贴 / vox-collage / 跑拼贴管线
+- 拼贴科普视频 / 纸质纪录片 / 9:16拼贴 / 16:9拼贴
+- **任何「真实素材/照片 + 纸质拼贴 + 调查/纪录片/科普短视频/长视频」意图**——路由本管线
+
+**What the skill teaches you:**
+- 完整流程：`new`（创建项目、双画幅 16:9/9:16、预设母版）→ `refs`（Wikimedia Commons 抓取真实照片+版权清单）→ `script`（去AI化剧本、**脚本闸门人审**）→ `approve-script` → `synth`（IndexTTS 纯净配音、读 WAV 头精确秒数）→ `dataliao`（16:9/9:16 资料图生成）→ `stills`（Qwen-Image-Edit 2.1 风格化，锁定项目 master_sheet）→ `motion`（MiniMax H3 核心幕图层动画）→ `compose`（HyperFrames 装配、2% 呼吸慢漂移）→ `render`（无字幕纯净母版）→ `subtitle`（FFmpeg ASS 3D 挤出立体字幕）
+- 四大铁律：真实素材入画（拒绝 AI 臆造）、基准图母版前置风格锚定、6 类构图范式轮转与动静混编策略（hero_motion + 2% slow drift）、读 WAV 头真实秒数排布时间轴
+- CLI 入口：`python bin/vox_collage.py <subcommand>`（轻量 `run` 直达闸门，重型 `run-heavy` 算力压制）
+
+**CRITICAL**: For VOX-Collage tasks, the ONLY permitted execution entry point is
+`python bin/vox_collage.py <subcommand>`. Do NOT write ad-hoc Python scripts to call
+pipeline internals directly. 涉及重任务（synth / stills / motion / render / run-heavy）
+可派 Compute Worker 执行并以 `--json` 单行回报；脚本闸门必须经用户或规范审查后方可放行。
+
+
+
 

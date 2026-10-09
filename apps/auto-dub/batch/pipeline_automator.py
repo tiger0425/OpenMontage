@@ -237,6 +237,10 @@ class PipelineAutomator:
         # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
         #           none=不烧字幕（只生成 SRT 字幕文件留档）
         self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
+        # TTS 发音覆盖（config: pipeline.tts_pronunciation）：{原写法: 发音写法}
+        # 只在合成前替换送入 TTS 的文本，line["delivery_cues"]["provider_text"] 保持原文，
+        # 因此字幕/SRT 仍显示原写法（如字幕 SU7、语音读"苏七"）。
+        self.tts_pronunciation = config.get("pipeline", {}).get("tts_pronunciation", {}) or {}
         # 开头 disclaimer 横条（ticket #77）：仅 health_biology 域 + glossary 含 disclaimer_text 时启用；
         # intro_disclaimer_seconds 缺省 3.0s，向后兼容 tech/interview 等其他域（保持零行为）。
         self.intro_disclaimer_text = self._load_intro_disclaimer_text(config)
@@ -279,6 +283,11 @@ class PipelineAutomator:
             except Exception:
                 _kou = []
         self.keep_original_utterances = [str(s).strip() for s in (_kou or [])]
+
+        # 指定参考音色（如用户本人音色 D:/index-tts/my_voice.wav，跳过原片声纹提取与多人分音色）
+        _custom_vr = self.video_meta.get("voice_reference") \
+            or config.get("pipeline", {}).get("voice_reference")
+        self.custom_voice_ref = str(_custom_vr).strip() if _custom_vr else None
 
         # 字幕句子拆分：true=把一句里含多个内容项（一个单元内含多个 。！？ 句子）的 SRT 字幕，
         #          按句子边界拆成多条、各自独占时间窗，避免「两个内容页同时显示」
@@ -346,6 +355,13 @@ class PipelineAutomator:
         # 合成失败重试策略（ticket #11）：单人重试上限 2 次，多人 0 次（直接人审）。
         # 合成失败 = IndexTTS 出静音伪文件 / 服务无响应 / 异常。重试上限可配置。
         self.synth_retry_max = int(config.get("pipeline", {}).get("synth_retry_max", 2))
+        # 生成跑飞防护（2026-09-21 事故）：IndexTTS2 偶发不发 EOS 会一路生成到
+        # max_mel_tokens 上限（1000 token ≈ 39.94s，实测 25 token/秒）。
+        # 旧逻辑只测静音 → 超长伪文件被当成功混进音轨，漂移可炸到 1975s。
+        # 这里按目标时长反推生成上限并检测超长，超长触发换 seed 重试。
+        self.mel_tokens_per_second = float(
+            config.get("pipeline", {}).get("tts", {}).get("mel_tokens_per_second", 25.0)
+        )
         # 多人合成失败后直接人审：生成 synthesis_review.md 并挂起 assets checkpoint 等人审
         self.multi_synth_failure_review = bool(
             config.get("pipeline", {}).get("multi_synth_failure_review", True)
@@ -2239,34 +2255,49 @@ class PipelineAutomator:
             from tools.audio.voxcpm_tts import VoxCPMTTS
             tts = VoxCPMTTS()
 
-        # === 按说话人提取声纹（多人分音色）；单人/未分离回退单声纹路径 ===
+        # === 声纹准备：显式指定 custom_voice_ref 时强制使用，跳过原片声纹提取与多人分音色 ===
         speaker_refs = {}
-        try:
-            transcript_file = self.project_dir / "transcript.json"
-            if transcript_file.exists():
-                transcript = json.loads(transcript_file.read_text(encoding="utf-8"))
-                speaker_turns = transcript.get("speaker_turns", []) or []
-                speaker_refs = self._extract_speaker_voice_refs(speaker_turns)
-        except Exception as e:
-            logging.warning(f"多音色声纹提取失败，回退单声纹路径: {e}")
-
         external_voice_ref = self.assets_dir / "voice_ref.wav"
         use_external_ref = False
-        if len(speaker_refs) < 2:
-            # 单说话人/分离出不足 2 个有效声纹 → 回退单声纹路径。
-            # 注意：pyannote 可能把噪声/静音误判为第 2 位说话人（如 SPEAKER_01 仅 0.4s），
-            # 该 label 会被 candidates 过滤，最终 refs 只剩 1 个 → 这里必须回退，
-            # 否则 voice_ref=None 导致 IndexTTS2 缺 spk_audio_prompt 全量静音。
-            if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
-                try:
-                    chk_ref = AudioSegment.from_wav(str(external_voice_ref))
-                    if chk_ref.rms >= 100:
-                        use_external_ref = True
-                        print(f"    🎤 使用已有 voice reference: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s)")
-                except Exception as e:
-                    logging.warning(f"voice_ref.wav 不可用, 将重新提取: {e}")
-            if not use_external_ref:
-                use_external_ref = self._extract_voice_ref(external_voice_ref)
+
+        if self.custom_voice_ref and Path(self.custom_voice_ref).exists():
+            try:
+                chk_custom = AudioSegment.from_wav(str(self.custom_voice_ref))
+                if chk_custom.rms >= 100:
+                    import shutil as _shutil
+                    self.assets_dir.mkdir(parents=True, exist_ok=True)
+                    _shutil.copyfile(str(self.custom_voice_ref), str(external_voice_ref))
+                    use_external_ref = True
+                    print(f"    🎤 使用指定专属音色: {self.custom_voice_ref} ({chk_custom.duration_seconds:.1f}s，跳过原视频声纹提取)")
+            except Exception as e:
+                logging.warning(f"指定音色 {self.custom_voice_ref} 加载失败: {e}")
+
+        if not use_external_ref:
+            # === 按说话人提取声纹（多人分音色）；单人/未分离回退单声纹路径 ===
+            try:
+                transcript_file = self.project_dir / "transcript.json"
+                if transcript_file.exists():
+                    transcript = json.loads(transcript_file.read_text(encoding="utf-8"))
+                    speaker_turns = transcript.get("speaker_turns", []) or []
+                    speaker_refs = self._extract_speaker_voice_refs(speaker_turns)
+            except Exception as e:
+                logging.warning(f"多音色声纹提取失败，回退单声纹路径: {e}")
+
+            if len(speaker_refs) < 2:
+                # 单说话人/分离出不足 2 个有效声纹 → 回退单声纹路径。
+                # 注意：pyannote 可能把噪声/静音误判为第 2 位说话人（如 SPEAKER_01 仅 0.4s），
+                # 该 label 会被 candidates 过滤，最终 refs 只剩 1 个 → 这里必须回退，
+                # 否则 voice_ref=None 导致 IndexTTS2 缺 spk_audio_prompt 全量静音。
+                if external_voice_ref.exists() and external_voice_ref.stat().st_size > 1000:
+                    try:
+                        chk_ref = AudioSegment.from_wav(str(external_voice_ref))
+                        if chk_ref.rms >= 100:
+                            use_external_ref = True
+                            print(f"    🎤 使用已有 voice reference: {external_voice_ref.name} ({chk_ref.duration_seconds:.1f}s)")
+                    except Exception as e:
+                        logging.warning(f"voice_ref.wav 不可用, 将重新提取: {e}")
+                if not use_external_ref:
+                    use_external_ref = self._extract_voice_ref(external_voice_ref)
 
         # === TTS 音频目录处理：默认断点续跑，仅 force_resynth 时全量清空重合成 ===
         # 默认（force_resynth=False）：保留已有 seg，下方逐语段 `is_valid_existing`
@@ -2303,6 +2334,10 @@ class PipelineAutomator:
         for idx, line in enumerate(lines):
             block_id = line["id"]
             text = line["delivery_cues"]["provider_text"]
+            # TTS 发音覆盖：仅改送进 TTS 的合成文本，provider_text 原文不动（字幕仍显示原写法）
+            for _pron_src, _pron_dst in (self.tts_pronunciation or {}).items():
+                if _pron_src in text:
+                    text = text.replace(_pron_src, _pron_dst)
             block_start = float(line["start_seconds"])
             block_end = float(line["end_seconds"])
             block_dur = max(0.0, block_end - block_start)
@@ -2883,12 +2918,117 @@ class PipelineAutomator:
     INDEXTTS_BRIDGE = r"D:/index-tts/indextts_bridge.py"  # 已废弃：旧桥 D:/index-tts 已删除，见 CALLING.md 杂音陷阱
     INDEXTTS_SERVER = None  # 惰性：_engine_paths()["server"]（已废弃，同上）
 
-    def _extract_voice_ref(self, external_voice_ref) -> bool:
-        """提取更长的干净声纹片段并归一化音量。
+    def _voice_ref_intervals_from_transcript(self) -> list:
+        """用转录句子边界挑选声纹区间（只含真实语音）。
 
-        1. 用 silencedetect 找到视频中最长的一段连续人声
-        2. 截取 15-20 秒干净片段
-        3. 归一化音量到合理范围（RMS ~3000-5000）
+        2.3 新增：silencedetect 只能识别「静音」，识别不了**响亮的开场音乐/掌声/动画**。
+        旧逻辑在找不到 >= 12s 连续段时会盲取「前 15 秒」，把噪音当声纹。
+        转录句子天然只覆盖真实语音，可精确跳过开场非语音段。
+
+        返回按时间序的 [(start, end), ...]；transcript 不可用时返回 []。
+        """
+        try:
+            transcript_file = self.project_dir / "transcript.json"
+            if not transcript_file.exists():
+                return []
+            transcript = json.loads(transcript_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            logging.warning(f"读取 transcript 失败，无法按句子选声纹: {e}")
+            return []
+
+        turns = transcript.get("speaker_turns") or []
+        if not turns:
+            turns = []
+            for u in transcript.get("utterances") or []:
+                start = u.get("start", u.get("start_seconds"))
+                end = u.get("end", u.get("end_seconds"))
+                if start is None or end is None:
+                    continue
+                turns.append({
+                    "speaker": u.get("speaker") or "SPEAKER_00",
+                    "start": float(start),
+                    "end": float(end),
+                })
+        if not turns:
+            return []
+
+        try:
+            candidates = self._select_voice_ref_candidates(turns, prefer_single_span=True)
+        except Exception as e:
+            logging.warning(f"按句子选声纹候选失败: {e}")
+            return []
+        if not candidates:
+            return []
+        # 取累计时长最长的说话人（单说话人路径即唯一候选）
+        _, best = max(candidates.items(), key=lambda kv: sum(e - s for s, e in kv[1]))
+        return list(best)
+
+    def _extract_voice_ref_by_silencedetect(self, out_path) -> bool:
+        """silencedetect 回退路径（转录不可用/转录锚点拼接失败时）。
+
+        2.3：阈值由 >= 12s 放宽到 >= 6s，并**移除「盲取前 15 秒」兜底**——
+        该兜底正是 1975s 漂移事故的元凶（前 15s 全是开场音乐时被当作声纹）。
+        改为取最长可用段；完全没有可用段才返回 False。
+        """
+        try:
+            res = subprocess.run(
+                ["ffmpeg", "-i", str(self._voice_source),
+                 "-af", "silencedetect=noise=-30dB:d=0.8",
+                 "-f", "null", "-"],
+                capture_output=True, text=True, encoding="utf-8",
+            )
+            silences = []
+            cur_start = None
+            for m in re.finditer(r"silence_start:\s*([\d.]+)", res.stderr):
+                t = float(m.group(1))
+                if cur_start is not None:
+                    silences.append((cur_start, t))
+                cur_start = t
+
+            total = 0.0
+            probe = subprocess.run(
+                ["ffmpeg", "-i", str(self._voice_source), "-f", "null", "-"],
+                capture_output=True, text=True, encoding="utf-8")
+            m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
+            if m:
+                total = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            if cur_start is not None and total > cur_start:
+                silences.append((cur_start, total))
+
+            voice_segments = []
+            prev_end = 0.0
+            for start, end in silences:
+                if start > prev_end + 0.5:
+                    voice_segments.append((prev_end, start))
+                prev_end = max(prev_end, end)
+            if total > prev_end + 0.5:
+                voice_segments.append((prev_end, total))
+
+            candidates = [(s, e) for s, e in voice_segments if e - s >= 6.0]
+            if not candidates:
+                candidates = [(s, e) for s, e in voice_segments if e - s >= 1.0]
+            if not candidates:
+                logging.warning("silencedetect 未找到可用语音段，声纹提取放弃")
+                return False
+
+            start, end = max(candidates, key=lambda se: se[1] - se[0])
+            start = max(0.0, start + 0.5)  # 避开语音边界
+            dur = min(end - start, self.voice_ref_long_cap)
+            print(f"    🎤 提取声纹(silencedetect 回退): 从 {start:.1f}s 起 {dur:.1f}s")
+            return self._cut_and_normalize_ref(start, dur, out_path)
+        except Exception as e:
+            logging.warning(f"声纹提取(silencedetect)失败: {e}")
+            return False
+
+    def _extract_voice_ref(self, external_voice_ref) -> bool:
+        """提取干净声纹片段（2.3：优先锚定转录句子边界）。
+
+        事故背景（auto-dub-cJ0EOzey--o，2026-09-21）：该访谈前 12.2s 是响亮的开场
+        音乐/掌声，旧逻辑 silencedetect 找不到 >= 12s 连续段 → 盲取「前 15 秒」→
+        声纹 82% 是噪音 → IndexTTS2 克隆不稳、27 个子块不发 EOS 一路生成到
+        max_mel_tokens 上限（39.94s/句）→ 漂移 1975s。
+
+        现改为：① 转录句子边界选声纹（天然跳过开场音乐）→ ② silencedetect 回退。
 
         game_audio 模式下优先从分离后的 vocals.wav 提取（无游戏声干扰）。
         """
@@ -2899,69 +3039,19 @@ class PipelineAutomator:
             if vocals_path.exists() and vocals_path.stat().st_size > 1000:
                 source_audio = vocals_path
         self._voice_source = source_audio
-        try:
-            import tempfile as _tf
-            # 1. 先探测语音区间
-            detect_cmd = [
-                "ffmpeg", "-i", str(source_audio),
-                "-af", "silencedetect=noise=-30dB:d=0.8",
-                "-f", "null", "-",
-            ]
-            res = subprocess.run(detect_cmd, capture_output=True, text=True, encoding="utf-8")
-            # 解析 silencedetect 输出，找到最长连续语音段
-            silences = []
-            cur_start = None
-            for m in re.finditer(r"silence_start:\s*([\d.]+)", res.stderr):
-                t = float(m.group(1))
-                if cur_start is not None:
-                    silences.append((cur_start, t))
-                cur_start = t
-            if cur_start is not None:
-                # 视频末尾也算一段结束
-                probe = subprocess.run(
-                    ["ffmpeg", "-i", str(self._voice_source), "-f", "null", "-"],
-                    capture_output=True, text=True, encoding="utf-8")
-                m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
-                if m:
-                    total = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
-                    silences.append((cur_start, total))
 
-            voice_segments = []
-            prev_end = 0.0
-            for start, end in silences:
-                if start > prev_end + 0.5:
-                    voice_segments.append((prev_end, start))
-                prev_end = max(prev_end, end)
-            # 视频末尾的语音段
-            probe = subprocess.run(
-                ["ffmpeg", "-i", str(self._voice_source), "-f", "null", "-"],
-                capture_output=True, text=True, encoding="utf-8")
-            m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", probe.stderr)
-            if m:
-                total = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
-                if total > prev_end + 0.5:
-                    voice_segments.append((prev_end, total))
+        # 1) 优先：转录句子边界（只含真实语音）
+        intervals = self._voice_ref_intervals_from_transcript()
+        if intervals:
+            if self._build_stitched_voice_ref(intervals, external_voice_ref):
+                total = sum(e - s for s, e in intervals)
+                print(f"    🎤 提取声纹: {len(intervals)} 段拼接 {total:.1f}s "
+                      f"（锚点=转录句子，首段起点 {intervals[0][0]:.1f}s）")
+                return True
+            logging.warning("转录锚点声纹拼接失败，回退 silencedetect")
 
-            # 选最长的一段作为声纹
-            best = None
-            for start, end in voice_segments:
-                dur = end - start
-                if dur >= 12 and (best is None or dur > best[2]):
-                    best = (start, end, dur)
-            if best is None:
-                # 回退：取前 15 秒
-                start, dur = 0.0, 15.0
-            else:
-                start, end, dur = best
-                start = max(0.0, start + 1.0)  # 避开语音边界
-                end = min(end, start + 15.0)
-                dur = end - start
-
-            print(f"    🎤 提取声纹: 从 {start:.1f}s 起 {dur:.1f}s")
-            return self._cut_and_normalize_ref(start, dur, external_voice_ref)
-        except Exception as e:
-            logging.warning(f"声纹提取失败: {e}，使用内部锚点")
-            return False
+        # 2) 回退：silencedetect（转录不可用/拼接失败）
+        return self._extract_voice_ref_by_silencedetect(external_voice_ref)
 
     def _cut_and_normalize_ref(self, start: float, dur: float, out_path) -> bool:
         """从原视频切出声纹片段并归一化音量（复用 _extract_voice_ref 的截取逻辑）。
@@ -3045,6 +3135,7 @@ class PipelineAutomator:
         sweet_min: float | None = None,
         sweet_max: float | None = None,
         long_cap: float | None = None,
+        prefer_single_span: bool = False,
     ) -> dict:
         """按说话人挑选多段声纹候选（纯逻辑，可单测，ticket 02）。
 
@@ -3052,6 +3143,11 @@ class PipelineAutomator:
         - 甜点段（sweet_min..sweet_max，默认 1.5–12s）按时长降序优先选，累计到 target（默认 30s）
         - 甜点不足再补短段（>= 0.4s），仍不足补长段截断（long_cap 15s）
         - 累计 < min_seconds（默认 6s）的 speaker 跳过（音频不足无法稳定克隆）
+
+        prefer_single_span=True（2.3 新增，仅单说话人路径启用）：若存在 >= min_seconds
+        的连续跨度，直接取最长那一段（按 long_cap 截断），不做碎片拼接——
+        克隆稳定性上单段连续语音优于多段短碎片（碎片易在词中被切断）。
+
         返回 {speaker: [(start, end), ...]}（按时间序）。
         """
         target_seconds = self.voice_ref_target if target_seconds is None else target_seconds
@@ -3080,6 +3176,15 @@ class PipelineAutomator:
                     spans.append((cur_start, cur_end))
                     cur_start, cur_end = start, end
             spans.append((cur_start, cur_end))
+
+            # 1b) 单段优先（仅单说话人路径启用）：一段连续干净语音优于碎片拼接
+            if prefer_single_span:
+                span = max(spans, key=lambda se: se[1] - se[0])
+                if span[1] - span[0] >= min_seconds:
+                    s0 = span[0]
+                    e0 = min(span[1], s0 + long_cap)
+                    result[spk] = [(round(s0, 3), round(e0, 3))]
+                    continue
 
             # 2) 候选块：甜点/短段/长段截断 三级
             sweet, short, long_tail = [], [], []
@@ -3397,13 +3502,15 @@ class PipelineAutomator:
 
     def _synthesize_indextts(
         self, text: str, output_path, voice_ref: str | None = None, seed: int = 42,
-        target_duration: float | None = None,
+        target_duration: float | None = None, max_mel_tokens: int | None = None,
     ) -> bool:
         """通过常驻 IndexTTS2 服务合成单句（已收敛至统一客户端）。
 
         备注：已收敛至 apps/indextts-bridge/client.py:IndexTTSSession.synthesize()，
         含双次合成（duration_factor）与情感纯净（calm不传emo_vector）单源逻辑。
         本方法仅为兼容壳，委托至会话。
+
+        max_mel_tokens：按句收紧生成上限（防未发 EOS 的跑飞生成），None 用会话默认。
         """
         try:
             sess = self._get_indextts_session()
@@ -3416,6 +3523,7 @@ class PipelineAutomator:
                 lang=getattr(self, "tts_lang", "ZH"),
                 allow_slowdown=bool(getattr(self, "allow_slowdown", True)),
                 voice_ref=voice_ref,
+                max_mel_tokens=max_mel_tokens,
             )
         except Exception as e:
             print(f"      ❌ IndexTTS2 服务异常: {e}")
@@ -3572,6 +3680,47 @@ class PipelineAutomator:
     # ==========================================
     # 漂移超标时的缩短重翻
     # ==========================================
+    @staticmethod
+    def _normalize_translation_results(results) -> list:
+        """把 LLM 返回的翻译结果归一化为 list[dict]。
+
+        兼容三类常见畸形返回（否则会在 r.get(...) 处抛
+        `'str' object has no attribute 'get'`）：
+        - 外壳对象：{"translations": [...]} / {"results": [...]} / {"data": [...]}
+        - 键值映射：{"u12": "译文", ...}（键即 id）
+        - 数组里混入非 dict 元素（字符串/None）：丢弃这些元素
+        """
+        wrapper_keys = ("translations", "results", "data", "items", "sections", "utterances")
+
+        if isinstance(results, dict):
+            for key in wrapper_keys:
+                value = results.get(key)
+                if isinstance(value, list):
+                    results = value
+                    break
+            else:
+                mapped = []
+                for key, value in results.items():
+                    if isinstance(value, dict):
+                        entry = dict(value)
+                        entry.setdefault("id", key)
+                        mapped.append(entry)
+                    elif isinstance(value, str) and value.strip():
+                        mapped.append({"id": key, "translated_text": value})
+                results = mapped
+
+        if not isinstance(results, list):
+            return []
+
+        normalized = []
+        for item in results:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str):
+                # 裸字符串数组：按顺序无法可靠映射 id，直接丢弃更安全
+                continue
+        return normalized
+
     def _retranslate_shorter(self, script_data: dict, scene_plan_data: dict) -> Optional[dict]:
         """漂移超标时，用温和的字数预算重新翻译所有句子（保持完整语义，不做硬压缩）。"""
         cps = self._budget_cps()
@@ -3629,6 +3778,7 @@ class PipelineAutomator:
                 updated_lines.extend(batch)
                 continue
 
+            results = self._normalize_translation_results(results)
             trans_map = {}
             for r in results:
                 rid = str(r.get("id", ""))
@@ -3973,13 +4123,25 @@ class PipelineAutomator:
                     pass
         chunks = self._split_semantic(text or "", self.chunk_max_chars) or [""]
         chunk_wavs = []
+        # 子块时长份额（按块均分，与静音兜底口径一致）
+        chunk_target = block_dur / max(len(chunks), 1)
+        # 生成跑飞防护（2026-09-21 事故）：IndexTTS2 偶发不发 EOS 会一路生成到
+        # max_mel_tokens 上限（1000 token ≈ 39.94s）。旧逻辑只测静音，超长伪文件
+        # 被当成功混进音轨 → 漂移可炸到 1975s。这里按目标时长收紧生成上限，
+        # 并把「时长远超目标」也判为失败换 seed 重试。
+        overshoot_limit = max(chunk_target * 1.6, chunk_target + 5.0)
+        mel_cap = min(
+            int(getattr(self, "tts_max_mel_tokens", 1000)),
+            max(200, int(chunk_target * float(getattr(self, "mel_tokens_per_second", 25.0)) * 1.8)),
+        )
         for ci, chunk in enumerate(chunks):
             cf = self.audio_dir / f"seg_{block_id}_c{ci}.wav"
             if force_resynthesize or not (cf.exists() and cf.stat().st_size > 1000):
                 synth_ok = False
                 last_reason = None
                 # 合成失败重试（ticket #11）：上限 self.synth_retry_max；
-                # 失败 = TTS 返回 False / 服务异常 / 产出静音伪文件（rms < 100）。
+                # 失败 = TTS 返回 False / 服务异常 / 产出静音伪文件（rms < 100）
+                #      / 生成跑飞超长（未发 EOS，时长远超目标）。
                 # 重试时换 seed（同 seed 大概率产出同样的失败/静音结果）。
                 max_retries = max(0, int(getattr(self, "synth_retry_max", 2)))
                 for attempt in range(max_retries + 1):
@@ -3988,6 +4150,7 @@ class PipelineAutomator:
                             text=chunk, output_path=cf,
                             voice_ref=str(voice_ref) if voice_ref else None,
                             seed=42 + attempt, target_duration=block_dur,
+                            max_mel_tokens=mel_cap,
                         )
                     else:
                         tts_params = {"text": chunk, "output_path": str(cf), "seed": 42 + attempt}
@@ -4001,6 +4164,9 @@ class PipelineAutomator:
                     if ok and self._wav_is_silent(cf):
                         ok = False
                         last_reason = "silent"
+                    elif ok and (self._wav_duration(cf) or 0.0) > overshoot_limit:
+                        ok = False
+                        last_reason = "overshoot"
                     if ok:
                         synth_ok = True
                         break
@@ -4010,17 +4176,28 @@ class PipelineAutomator:
                             f"原因={last_reason or 'tts'}): {chunk[:20]}..."
                         )
                 if not synth_ok:
-                    # 重试耗尽：记录失败句（多人时上层转人审），静音兜底保证流程可继续
-                    reason = last_reason or "tts_failed"
-                    self._synth_failures.append({
-                        "id": block_id,
-                        "chunk_index": ci,
-                        "text": chunk,
-                        "reason": reason,
-                        "target_duration_seconds": round(block_dur, 3),
-                    })
-                    print(f"      ❌ 语段 {block_id} c{ci} 合成失败（{reason}），静音兜底")
-                    self._create_silent_wav(block_dur / max(len(chunks), 1), cf)
+                    if (last_reason == "overshoot" and cf.exists()
+                            and cf.stat().st_size > 1000 and not self._wav_is_silent(cf)):
+                        # 跑飞但仍有可用音频：保留最后一次（已被 mel_cap 收紧到 ~1.8x 目标），
+                        # 交逐句 atempo 兜底。静音兜底会直接丢内容，故不采用。
+                        # 不进 _synth_failures（那是「需人审」清单，保留音频不需要人审）。
+                        self._last_warnings.append(
+                            f"语段 {block_id} c{ci} 生成超长（未发 EOS）但已按上限收紧保留，"
+                            f"交逐句对齐兜底：{chunk[:20]}..."
+                        )
+                        print(f"      ⚠️ 语段 {block_id} c{ci} 生成超长但保留（已按上限收紧），交逐句对齐兜底")
+                    else:
+                        # 重试耗尽：记录失败句（多人时上层转人审），静音兜底保证流程可继续
+                        reason = last_reason or "tts_failed"
+                        self._synth_failures.append({
+                            "id": block_id,
+                            "chunk_index": ci,
+                            "text": chunk,
+                            "reason": reason,
+                            "target_duration_seconds": round(block_dur, 3),
+                        })
+                        print(f"      ❌ 语段 {block_id} c{ci} 合成失败（{reason}），静音兜底")
+                        self._create_silent_wav(chunk_target, cf)
             dur = self._wav_duration(cf)
             chunk_wavs.append({"path": cf, "dur": dur})
 
@@ -4485,6 +4662,9 @@ class PipelineAutomator:
             ).strip().strip('"\'').strip()
             # 简单清洗，防 LLM 多加了冒号或废话
             cover_title = cover_title.replace("“", "").replace("”", "").replace("\"", "")
+            # 提示词里用 `\n` 说明分行，LLM 常原样输出字面量反斜杠+n；封面模板按真实换行
+            # split 分行，若不规范化就会在封面大字里渲染出可见的 "\n"。
+            cover_title = cover_title.replace("\\n", "\n")
             if len(cover_title) > 20:
                 cover_title = cover_title[:4] + "\n" + cover_title[4:8]
             return cover_title

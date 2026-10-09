@@ -9,6 +9,21 @@
         "Dino": "迪诺",
         "Sylvie": "西尔维"
       }
+    },
+    {
+      "name": "langchain-jev",
+      "triggers": ["jev", "typesafe", "harness", "system 1", "system 2"],
+      "terms": {
+        "Jev": "Jev",
+        "TypeSafe AI": "TypeSafe AI",
+        "System 1": "系统 1",
+        "System 2": "系统 2",
+        "model routing": "模型路由",
+        "structured outputs": "结构化输出",
+        "tool calling": "工具调用",
+        "online evals": "在线评测",
+        "Jev as a judge": "Jev 作为评判者"
+      }
     }
   ]
 }

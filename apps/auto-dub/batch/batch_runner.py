@@ -633,7 +633,7 @@ class BatchRunner:
                 shutil.rmtree(dest_dir)
             shutil.copytree(target_dir, dest_dir)
             moved = [str(dest_dir.relative_to(self.published_dir)).replace('\\', '/')]
-            self.db.update_status(video_id, 'published')
+            db.update_status(video_id, 'published')
             for m in moved:
                 print(f"  ✅ 已归档: {m}")
             print(f"✅ 视频 {video_id} 已确认发布（review 保留副本，published 已归档）")
@@ -674,7 +674,7 @@ class BatchRunner:
             shutil.copy2(f, dest)
             moved.append(str(dest.relative_to(self.published_dir)).replace('\\', '/'))
 
-        self.db.update_status(video_id, 'published')
+        db.update_status(video_id, 'published')
         for m in moved:
             print(f"  ✅ 已归档: {m}")
         print(f"✅ 视频 {video_id} 已确认发布（review 保留副本，published 已归档）")

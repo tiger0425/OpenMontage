@@ -188,6 +188,7 @@ stages:
     tools_available:
       - video_compose
       - hyperframes_compose
+      - ui2v_fetch
       - audio_mixer
       - video_stitch
       - video_trimmer

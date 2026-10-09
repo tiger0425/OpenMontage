@@ -74,9 +74,7 @@ def media_el(vis, asset_dir, hid, mid=None, opacity0=False, vstart=0.0, vdur=8.0
     if opacity0:
         style += 'opacity:0;'
     if vis.get("type") == "clip":
-        # 场景内媒体片段：播完即停（不带 loop，避免循环压到下一幕）；背景循环视频的 loop 在 bgv 处单独处理
-        # 必须给 video 自己的 data-start/data-duration 时间窗——否则 hyperframes 不拥有播放权，
-        # 片段播完后的帧会脱离场景容器持续显示（"一张图一直没消"的根因）
+        # 场景内媒体片段：不加 loop（README 坑 #6——循环会压到下一幕）；data-duration 保证时间窗结束自动切换
         attrs.update({"muted": "", "playsinline": "",
                       "data-start": str(round(vstart, 2)),
                       "data-duration": str(round(vdur, 2))})
@@ -91,10 +89,10 @@ def split_media(vis, asset_dir, mid, opacity0=False, vstart=0.0, vdur=8.0):
     id 挂在包裹层上供 GSAP 交叉淡化定位；opacity:0 初始态也放在包裹层。
     """
     src = f"assets/{vis.get('asset_path','')}"
-    card_style = ("position:absolute;left:50%;top:60%;transform:translate(-50%,-50%);"
-                  "width:58%;height:auto;max-height:400px;overflow:hidden;"
-                  "background:rgba(0,0,0,0.25);border:2px solid rgba(255,255,255,0.9);"
-                  "border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,0.5);z-index:4;")
+    card_style = ("position:absolute;left:50%;top:64%;transform:translate(-50%,-50%);"
+                  "width:100%;height:auto;max-height:700px;overflow:hidden;"
+                  "background:rgba(0,0,0,0.35);border:2px solid rgba(255,255,255,0.9);"
+                  "border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.6);z-index:4;")
     if opacity0:
         card_style += "opacity:0;"
     inner_style = "width:100%;height:auto;display:block;object-fit:contain;"
@@ -140,11 +138,16 @@ def render_split(scene, si, sstart, sdur, asset_dir, ctx):
                        f"{esc(hh['main'])}<br>{el('span', {'class':'hook-sub'}, '', esc(hh['sub']))}",
                        hid=f"hf-{ctx['sid']}-hook"))
     # 媒体区
+    vs = scene.get("visuals", [])
+    n = len(vs)
+    cf = crossfade_times(scene, ctx["sdur"])          # 交叉淡化时刻（场景内，i=1..n-1）
+    bounds = [0.0] + list(cf) + [ctx["sdur"]]          # 每个 visual 的可见窗口边界
     html.append(el("div", {}, "width:1080px;height:1000px;position:relative;overflow:hidden;background:transparent;",
                    "".join(
                        split_media(v, asset_dir, f"{ctx['sid']}-v{i}", opacity0=(i > 0),
-                                    vstart=ctx["sstart"], vdur=ctx["sdur"])
-                       for i, v in enumerate(scene.get("visuals", []))
+                                    vstart=ctx["sstart"] + bounds[i],
+                                    vdur=max(1.0, bounds[i+1] - bounds[i]))
+                       for i, v in enumerate(vs)
                    ) + el("div", {"class": "grad-zone"}, "", "", hid=f"hf-{ctx['sid']}-gz"),
                    hid=f"hf-{ctx['sid']}-zone"))
     # 底部玻璃卡（对比行/副文追加在最后一项内容之后）
@@ -160,21 +163,34 @@ def render_split(scene, si, sstart, sdur, asset_dir, ctx):
         main = t.get("main", "")
         hl = t.get("highlight", "")
         bar.append(el("div", {"id": f"{ctx['sid']}-title", "class": "title"},
-                      "font-size:52px;margin-top:14px",
-                      f"{esc(main)}<br>{el('span', {'style':'color:#ff3b30'}, '', esc(hl))}",
-                      hid=f"hf-{ctx['sid']}-title"))
+                       "font-size:52px;margin-top:14px",
+                       f"{esc(main)}<br>{el('span', {'style':'color:#ff3b30'}, '', esc(hl))}",
+                       hid=f"hf-{ctx['sid']}-title"))
     if d.get("sub"):
         bar.append(el("div", {"id": f"{ctx['sid']}-sub", "class": "sub"},
                       "font-size:29px;margin-top:10px", esc(d["sub"]), hid=f"hf-{ctx['sid']}-sub"))
-    if d.get("extra_img"):
-        # 硬规则：玻璃卡附图必须与媒体区图片不同（独立抽帧），重复则拒绝渲染
+    extra_src = d.get("extra_video") or d.get("extra_img")
+    if extra_src:
         media_paths = {v.get("asset_path") for v in scene.get("visuals", [])}
-        if d["extra_img"] in media_paths:
-            print(f"ERROR: {ctx['sid']} extra_img={d['extra_img']} 与媒体区图片重复，跳过（需独立抽帧）")
+        if extra_src in media_paths:
+            print(f"ERROR: {ctx['sid']} extra_src={extra_src} 与媒体区图片重复，跳过（需独立抽帧）")
         else:
-            bar.append(el("img", {"src": f"assets/{d['extra_img']}"},
-                          "width:100%;height:250px;object-fit:contain;background:transparent;border-radius:12px;margin-top:14px;border:1px solid rgba(255,255,255,0.15);",
-                          hid=f"hf-{ctx['sid']}-extra"))
+            if str(extra_src).endswith(".mp4"):
+                attrs = {
+                    "src": f"assets/{extra_src}",
+                    "muted": "",
+                    "playsinline": "",
+                    "loop": "",
+                    "data-start": str(round(ctx["sstart"], 2)),
+                    "data-duration": str(round(ctx["sdur"], 2))
+                }
+                bar.append(el("video", attrs,
+                              "width:100%;height:300px;object-fit:cover;background:#0a0e1a;border-radius:12px;margin-top:14px;border:2px solid rgba(255,59,48,0.6);box-shadow:0 8px 24px rgba(0,0,0,0.5);",
+                              hid=f"hf-{ctx['sid']}-extra"))
+            else:
+                bar.append(el("img", {"src": f"assets/{extra_src}"},
+                              "width:100%;height:250px;object-fit:contain;background:transparent;border-radius:12px;margin-top:14px;border:1px solid rgba(255,255,255,0.15);",
+                              hid=f"hf-{ctx['sid']}-extra"))
     if vsb:
         bar.append(el("div", {"id": f"{ctx['sid']}-vs"},
                       "width:100%;display:flex;gap:12px;margin-top:16px;",
@@ -216,7 +232,7 @@ def render_center(scene, si, sstart, sdur, asset_dir, ctx):
         vs_all = scene.get("visuals", [])
         n_all = len(vs_all)
         parts.append(el("div", {"id": f"{ctx['sid']}-media"},
-                        "position:relative;z-index:5;width:100%;height:420px;margin-top:26px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.85);box-shadow:0 14px 36px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
+                        "position:relative;z-index:5;width:100%;height:600px;margin-top:44px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.85);box-shadow:0 14px 36px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
                         "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}", opacity0=(i > 0),
                                      vstart=ctx["sstart"] + (ctx["sdur"] * i / n_all if i > 0 else 0.0),
                                      vdur=min(v.get("clip_duration_s") or 8,
@@ -263,7 +279,7 @@ def render_ending(scene, si, sstart, sdur, asset_dir, ctx):
     parts = []
     if scene.get("visuals"):
         parts.append(el("div", {"id": f"{ctx['sid']}-media"},
-                        "position:relative;z-index:5;width:100%;height:400px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.9);box-shadow:0 16px 40px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
+                        "position:relative;z-index:5;width:100%;height:620px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.9);box-shadow:0 16px 40px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
                         "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}", opacity0=(i > 0),
                                      vstart=ctx["sstart"] + (ctx["sdur"] * i / max(1, len(scene.get("visuals", []))) if i > 0 else 0.0),
                                      vdur=min(v.get("clip_duration_s") or 8,

@@ -229,16 +229,17 @@ def cmd_montage(a: argparse.Namespace) -> None:
         s, e = part.strip().split("-")
         cuts.append((float(s), float(e)))
     def run(src: str, out: str, want_audio: bool) -> None:
+        # 输入侧 -ss/-t 快速定位（对长原片避免从头全解码），再统一 setpts 归零后 concat
         cmd = ["ffmpeg", "-y", "-v", "error"]
-        for _ in cuts:
-            cmd += ["-i", src]
+        for (s, e) in cuts:
+            cmd += ["-ss", f"{s:.3f}", "-t", f"{e - s:.3f}", "-i", src]
         flt = []
         for i, (s, e) in enumerate(cuts):
             src_label = f"[{i}:{'a' if want_audio else 'v'}]"
             if want_audio:
-                flt.append(f"{src_label}atrim=start={s}:end={e},asetpts=PTS-STARTPTS,volume={a.bed_volume}[v{i}]")
+                flt.append(f"{src_label}asetpts=PTS-STARTPTS,volume={a.bed_volume}[v{i}]")
             else:
-                flt.append(f"{src_label}trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
+                flt.append(f"{src_label}setpts=PTS-STARTPTS[v{i}]")
         flt.append("".join(f"[v{i}]" for i in range(len(cuts))) + f"concat=n={len(cuts)}:{'v=0:a=1' if want_audio else 'v=1:a=0'}[o]")
         cmd += ["-filter_complex", ";".join(flt), "-map", "[o]"]
         if not want_audio:
@@ -258,43 +259,66 @@ def cmd_montage(a: argparse.Namespace) -> None:
 
 # ---------------------------------------------------------------- mux
 def cmd_mux(a: argparse.Namespace) -> None:
-    inputs = [a.video]
+    plain_inputs = [a.video]
     nxt = 1
     filters = []
-    mix_ins = []
     nar_label, bed_label = None, None
     if a.narration:
-        inputs.append(a.narration)
-        filters.append(f"[{nxt}:a]volume=1.0,aresample=48000[nar]")
+        plain_inputs.append(a.narration)
+        filters.append(f"[{nxt}:a]volume={a.narration_volume},aresample=48000[nar]")
         nar_label = "[nar]"
         nxt += 1
     if a.bed and os.path.exists(a.bed):
-        inputs.append(a.bed)
+        plain_inputs.append(a.bed)
         # 原声床（no_vocals）普遍偏静；loudnorm 提到清晰可闻再混，避免被旁白盖没
         filters.append(f"[{nxt}:a]loudnorm=I=-25:TP=-2:LRA=13,aresample=48000[bed]")
         bed_label = "[bed]"
         nxt += 1
-    mix_parts = [p for p in (nar_label, bed_label) if p]
-    if len(mix_parts) >= 2:
+
+    bgm = getattr(a, "bgm", "") or ""
+    if bgm and os.path.exists(bgm):
+        # 三轨母带：引擎声床 + 战歌 BGM（循环 + 尾部淡出）+ 旁白（对齐 EP1/EP2 听感）
+        total = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", a.video],
+            capture_output=True, text=True).stdout.strip())
+        fade = max(0.0, total - 2.5)
+        filters.append(
+            f"[{nxt}:a]atrim=0:{total:.3f},afade=t=out:st={fade:.3f}:d=2.5,"
+            f"volume={a.bgm_volume},aresample=48000[bgm]")
+        mix_parts = [p for p in (nar_label, bed_label, "[bgm]") if p]
         filters.append("".join(mix_parts) +
-                       "amix=inputs=2:duration=first:normalize=0:dropout_transition=0[a];"
-                       "[a]alimiter=limit=0.95[aout]")
+                       f"amix=inputs={len(mix_parts)}:normalize=0:dropout_transition=0[a];"
+                       "[a]alimiter=limit=0.96[aout]")
         cmd = ["ffmpeg", "-y", "-v", "error"]
-        for i in inputs:
-            cmd += ["-i", i]
+        for p in plain_inputs:
+            cmd += ["-i", p]
+        cmd += ["-stream_loop", "-1", "-i", bgm]
         cmd += ["-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[aout]",
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", a.out]
-    elif len(mix_parts) == 1:
-        src_label = "[aout]" if False else ("[nar]" if nar_label else "[bed]")
-        filters.append(f"{src_label}atrim=end_pts=8e9[aout]")
-        cmd = ["ffmpeg", "-y", "-v", "error"]
-        for i in inputs:
-            cmd += ["-i", i]
-        cmd += ["-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[aout]",
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", a.out]
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "44100",
+                "-t", f"{total:.3f}", "-movflags", "+faststart", a.out]
+        subprocess.run(cmd, check=True)
     else:
-        cmd = ["ffmpeg", "-y", "-v", "error", "-i", a.video, "-c", "copy", a.out]
-    subprocess.run(cmd, check=True)
+        mix_parts = [p for p in (nar_label, bed_label) if p]
+        if len(mix_parts) >= 2:
+            filters.append("".join(mix_parts) +
+                           "amix=inputs=2:duration=first:normalize=0:dropout_transition=0[a];"
+                           "[a]alimiter=limit=0.95[aout]")
+            cmd = ["ffmpeg", "-y", "-v", "error"]
+            for p in plain_inputs:
+                cmd += ["-i", p]
+            cmd += ["-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[aout]",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", a.out]
+        elif len(mix_parts) == 1:
+            src_label = "[nar]" if nar_label else "[bed]"
+            filters.append(f"{src_label}atrim=end_pts=8e9[aout]")
+            cmd = ["ffmpeg", "-y", "-v", "error"]
+            for p in plain_inputs:
+                cmd += ["-i", p]
+            cmd += ["-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[aout]",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", a.out]
+        else:
+            cmd = ["ffmpeg", "-y", "-v", "error", "-i", a.video, "-c", "copy", a.out]
+        subprocess.run(cmd, check=True)
     dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                           "-of", "csv=p=0", a.out], capture_output=True, text=True).stdout.strip()
     print(f"[erchuang] → {a.out} ({dur}s)")
@@ -351,10 +375,13 @@ def main() -> None:
     p.add_argument("--bed-volume", type=float, default=0.15, help="声床音量（默认 0.15）")
     p.set_defaults(fn=cmd_montage)
 
-    p = sub.add_parser("mux", help="画面+配音+声床混流")
+    p = sub.add_parser("mux", help="画面+配音+声床混流（可选战歌 BGM 三轨母带）")
     p.add_argument("--video", required=True)
     p.add_argument("--narration", default="")
     p.add_argument("--bed", default="")
+    p.add_argument("--bgm", default="", help="可选 BGM 战歌（循环 + 尾部 2.5s 淡出）")
+    p.add_argument("--bgm-volume", type=float, default=0.45, help="BGM 音量（默认 0.45）")
+    p.add_argument("--narration-volume", type=float, default=1.25, help="旁白音量（默认 1.25）")
     p.add_argument("--out", required=True)
     p.set_defaults(fn=cmd_mux)
 

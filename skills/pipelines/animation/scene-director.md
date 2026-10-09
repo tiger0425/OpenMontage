@@ -41,6 +41,24 @@ Use:
 - `text_card` for clean high-impact copy moments,
 - `generated` only where needed.
 
+**When `render_runtime = "hyperframes"` — source reuse blocks while planning.**
+For each scene that is a reuse scene (a stock block fits), run discovery and
+record the chosen block in the scene plan:
+
+```python
+ui2v_fetch.execute({"operation": "recommend",
+                    "query": "<scene description>",
+                    "aspect": "landscape", "limit": 6})
+```
+
+`recommend` returns ranked candidates from **both** the official registry and
+UI2V, each with its install call. Prefer the official group; reach for UI2V only
+when the official pool has no equivalent (e.g. a card / lower-third variant
+series). Record the resolved block id per scene under
+`reusable_motifs` / `tool_path_map` so the edit and compose stages never have to
+guess. **Do not** plan registry blocks for atelier/hero work. See § "Block
+sourcing" in `skills/core/hyperframes.md`.
+
 **For `image_animation` approach (anime/illustration style):**
 
 Use `anime_scene` type for each scene. Plan:

@@ -154,7 +154,8 @@ stages:
       - proposal_packet
     produces:
       - scene_plan
-    tools_available: []
+    tools_available:
+      - ui2v_fetch
     checkpoint_required: true
     human_approval_default: true
     review_focus:
@@ -162,6 +163,7 @@ stages:
       - Animation mode specified per scene, consistent with proposal
       - Transition logic is limited and meaningful
       - Every scene has a feasible tool path
+      - "When render_runtime is hyperframes: block sourcing was considered. Prefer official blocks (hyperframes catalogue); when the official pool has no equivalent, run `ui2v_fetch` operation='recommend' per scene and record chosen blocks (official name or UI2V slug) in the scene plan. Registry blocks are templated-mode only — never plan them for atelier/hero work."
     success_criteria:
       - Schema-valid scene_plan artifact
       - Every scene includes animation mode and visual treatment
@@ -218,7 +220,8 @@ stages:
       - script
     produces:
       - edit_decisions
-    tools_available: []
+    tools_available:
+      - ui2v_fetch
     checkpoint_required: true
     human_approval_default: false
     review_focus:
@@ -226,6 +229,7 @@ stages:
       - Motion serves hierarchy rather than decoration
       - Timeline logic is consistent across scenes
       - Audio ducking configured for narration segments
+      - "Registry-block cuts carry a resolved source: official block name (installed via `hyperframes add`) or a UI2V slug (installed via `ui2v_fetch` install). Unresolved 'some block' references are a critical finding."
     success_criteria:
       - Schema-valid edit_decisions artifact
       - Edit decisions cover all planned animation beats
@@ -248,6 +252,7 @@ stages:
     tools_available:
       - video_compose
       - hyperframes_compose
+      - ui2v_fetch
       - audio_mixer
       - video_stitch
     checkpoint_required: true

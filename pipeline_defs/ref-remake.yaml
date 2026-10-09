@@ -177,6 +177,7 @@ stages:
       - audio_mixer
       - minimax_image
       - hyperframes_compose
+      - ui2v_fetch
     checkpoint_required: true
     human_approval_default: false
     review_focus:
@@ -206,11 +207,13 @@ stages:
       - composition_report
     required_tools:
       - hyperframes_compose
+      - ui2v_fetch
       - video_compose
     optional_tools:
       - audio_mixer
     tools_available:
       - hyperframes_compose
+      - ui2v_fetch
       - video_compose
       - audio_mixer
     checkpoint_required: true

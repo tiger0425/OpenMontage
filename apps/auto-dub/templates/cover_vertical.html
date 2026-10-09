@@ -429,7 +429,7 @@
       titleLinesContainer.innerHTML = "";
 
       let rawTitle = v.title || "视频标题";
-      let lines = rawTitle.split("\n");
+      let lines = rawTitle.split(/\\n|\n/);
 
       lines.forEach((lineText, idx) => {
         if (!lineText.trim()) return;

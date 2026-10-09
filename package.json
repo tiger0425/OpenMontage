@@ -1,6 +1,31 @@
 {
-  "devDependencies": {},
   "dependencies": {
+    "playwright-core": "^1.63.0",
     "sharp": "^0.35.3"
-  }
+  },
+  "name": "openmontage",
+  "version": "1.0.0",
+  "description": "<p align=\"center\">   <img src=\"assets/logo.png\" alt=\"OpenMontage\" width=\"200\"> </p>",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "lib": "lib",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiger0425/OpenMontage.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tiger0425/OpenMontage/issues"
+  },
+  "homepage": "https://github.com/tiger0425/OpenMontage#readme"
 }

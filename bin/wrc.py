@@ -264,6 +264,18 @@ def stage_render_video(video_id, args):
     eps = sorted((proj / "artifacts" / "episodes").glob("*.json"))
     if not eps:
         return {"ok": False, "error": "没有集 JSON"}
+    # 背景库兜底：episode.background 不在 assets 时，从 background_library/wrc/loops/ 自动取
+    # （2026-10-03 修复：缺背景 loop 导致 hyperframes 渲染早退 exit 1）
+    import shutil as _sh
+    _bg_names = set()
+    for _p in eps:
+        _bg = json.loads(_p.read_text(encoding="utf-8"))["episode"].get("background")
+        if _bg:
+            _bg_names.add(_bg)
+    _loop_lib = OMO_ROOT / "background_library" / "wrc" / "loops"
+    for _bg in _bg_names:
+        if not (assets / _bg).exists() and (_loop_lib / _bg).exists():
+            _sh.copy2(_loop_lib / _bg, assets / _bg)
     set_status(video_id, "composing")
     # 回填 audio_s + 每幕 asset_path（从 frames.json 映射 visuals）
     frames_json = proj / "artifacts" / "frames" / "frames.json"
