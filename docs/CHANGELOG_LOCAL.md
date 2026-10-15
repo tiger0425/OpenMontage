@@ -1,7 +1,13 @@
 # OpenMontage 本地修改记录
 
 > 记录基于上游 [calesthio/OpenMontage](https://github.com/calesthio/OpenMontage) 的本地定制改动。
-> 最后同步上游 commit: `0c202b5` (2026-07-03)
+> 最后同步上游 commit: `e45f5b1` (2026-10-12)
+>
+> 同步方式备注（2026-10-15，merge a5d92a3）：本地历史的「上游侧」是 SHA 重写过的
+> 副本（merge-base 曾停在 4 月的 `fd4c58f`）。本次用 `git replace --graft` 把 7 月
+> 同步节点 `54ae612` 接回真实上游祖先 `0c202b5` 的 parents 后再合并，merge-base
+> 回到 2026-07-03，冲突收敛到 12 个文件。合并完成后 replace ref 已删除；
+> 此后历史已与上游共享真实祖先，后续同步直接 `git fetch upstream && git merge upstream/main`。
 
 ---
 
