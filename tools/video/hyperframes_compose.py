@@ -1,11 +1,14 @@
 """HyperFrames composition tool — HTML/CSS/GSAP render path.
 
 Sibling to `video_compose` (FFmpeg + Remotion). This tool owns the HyperFrames
-runtime end-to-end: workspace materialization, `hyperframes check` (which
-reruns lint internally), and `hyperframes render`. It is invoked by
+runtime end-to-end: workspace materialization, `hyperframes lint`,
+`hyperframes check`, and `hyperframes render`. It is invoked by
 `video_compose` when `edit_decisions.render_runtime == "hyperframes"`, and
 can also be called directly by pipelines that want HyperFrames-specific
-operations (lint-only, check-only, scaffold-only).
+operations (check/lint/validate/inspect, scaffold-only, or an
+existing-workspace atelier render that preserves authored HTML). `check` is
+the current unified CLI gate (lint + runtime + layout + motion + WCAG
+contrast in one browser session); `validate` remains a compatibility alias.
 
 This tool deliberately does NOT attempt parity with every Remotion scene
 component. See `skills/core/hyperframes.md` for what is in scope in Phase 1
@@ -49,7 +52,7 @@ _AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 
 class HyperFramesCompose(BaseTool):
     name = "hyperframes_compose"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "hyperframes"
@@ -81,8 +84,11 @@ class HyperFramesCompose(BaseTool):
         "hyperframes_render",
         "hyperframes_lint",
         "hyperframes_validate",
+        "hyperframes_inspect",
+        "hyperframes_check",
         "hyperframes_doctor",
         "scaffold_workspace",
+        "render_existing_workspace",
         "add_block",
     ]
 
@@ -91,6 +97,7 @@ class HyperFramesCompose(BaseTool):
         "Motion-graphics-heavy briefs where the scene library in remotion-composer/ doesn't fit",
         "Website-to-video / UI-driven compositions",
         "Registry-block-driven scenes (hyperframes add data-chart, grain-overlay, etc.)",
+        "Hand-authored atelier workspaces, including deterministic Three.js worlds",
     ]
     not_good_for = [
         "Word-level caption burn (stays on Remotion in Phase 1)",
@@ -107,20 +114,25 @@ class HyperFramesCompose(BaseTool):
                 "type": "string",
                 "enum": [
                     "render",
+                    "render_existing",
                     "lint",
                     "check",
                     "validate",
+                    "inspect",
+                    "check",
                     "doctor",
                     "scaffold_workspace",
                     "add_block",
                 ],
                 "description": (
                     "render: materialize workspace + check + render to MP4. "
+                    "render_existing: preserve an authored index.html, then check + render it. "
                     "lint: run `hyperframes lint` (static contract) on a workspace. "
                     "check: run `hyperframes check` — lint + runtime + layout + "
                     "motion + WCAG contrast in one browser session. This is the "
-                    "current CLI gate; `validate` is a deprecated alias kept for "
-                    "compatibility and must not appear in new scripts. "
+                    "current CLI gate; `validate` is a legacy browser-based alias kept "
+                    "for compatibility and must not appear in new scripts. "
+                    "inspect: seek an existing workspace and audit layout/runtime issues. "
                     "doctor: run `hyperframes doctor` AND report the actual CLI "
                     "version plus upgrade/skills staleness. "
                     "scaffold_workspace: materialize HTML/CSS/assets but do not render. "
@@ -176,7 +188,7 @@ class HyperFramesCompose(BaseTool):
             },
             "output_path": {
                 "type": "string",
-                "description": "Output MP4 path. Used by operation='render'.",
+                "description": "Output MP4 path. Used by render and render_existing.",
             },
             "edit_decisions": {
                 "type": "object",
@@ -226,15 +238,25 @@ class HyperFramesCompose(BaseTool):
                 "type": "boolean",
                 "default": False,
                 "description": (
-                    "Skip the WCAG contrast audit during validate. Acceptable "
+                    "Skip the WCAG contrast audit during check. Acceptable "
                     "while iterating; forbidden for final delivery."
                 ),
+            },
+            "strict_check": {
+                "type": "boolean",
+                "default": False,
+                "description": "Treat HyperFrames check warnings as errors.",
+            },
+            "snapshots": {
+                "type": "boolean",
+                "default": False,
+                "description": "Save representative quality-check snapshots.",
             },
         },
     }
 
     resource_profile = ResourceProfile(
-        cpu_cores=4, ram_mb=3072, vram_mb=0, disk_mb=2000, network_required=False
+        cpu_cores=4, ram_mb=3072, vram_mb=0, disk_mb=2000, network_required=True
     )
     retry_policy = RetryPolicy(max_retries=0)
     resume_support = ResumeSupport.FROM_START
@@ -261,6 +283,7 @@ class HyperFramesCompose(BaseTool):
     # We cache per-process so the first call pays ~2-5s and subsequent calls
     # (get_info spam from the registry) are free.
     _npm_resolve_cache: Optional[dict[str, str]] = None
+    _cli_probe_cache: Optional[dict[str, str]] = None
 
     # Process-level cache for the ACTUAL CLI version from `hyperframes --version`
     # (used by doctor). Shape: {"version": "0.7.101"} or {"error": "<short>"}.
@@ -341,6 +364,45 @@ class HyperFramesCompose(BaseTool):
             cls._npm_resolve_cache = {"version": version}
         return cls._npm_resolve_cache
 
+    @classmethod
+    def _probe_cli(cls) -> dict[str, str]:
+        """Run the published CLI's doctor command once per process.
+
+        Package resolution alone does not prove that the executable can start:
+        an upstream packaging regression can publish successfully while every
+        CLI command crashes during bootstrap. Provider preflight must not call
+        that state available.
+        """
+        if cls._cli_probe_cache is not None:
+            return cls._cli_probe_cache
+
+        npx = shutil.which("npx")
+        if not npx:
+            cls._cli_probe_cache = {"error": "npx not on PATH"}
+            return cls._cli_probe_cache
+
+        try:
+            proc = subprocess.run(
+                [npx, "--yes", cls._NPM_PACKAGE, "doctor", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            cls._cli_probe_cache = {"error": "doctor timed out after 20s"}
+            return cls._cli_probe_cache
+        except (OSError, subprocess.SubprocessError) as exc:
+            cls._cli_probe_cache = {"error": f"doctor failed: {type(exc).__name__}"}
+            return cls._cli_probe_cache
+
+        if proc.returncode != 0:
+            output = "\n".join(filter(None, [proc.stderr, proc.stdout])).strip()
+            tail = output.splitlines()[-1][:200] if output else f"exit {proc.returncode}"
+            cls._cli_probe_cache = {"error": f"doctor failed: {tail}"}
+        else:
+            cls._cli_probe_cache = {"status": "ok"}
+        return cls._cli_probe_cache
+
     def _runtime_check(self) -> dict[str, Any]:
         """Return availability state for the HyperFrames runtime.
 
@@ -376,6 +438,12 @@ class HyperFramesCompose(BaseTool):
                     f"{npm_resolve['error']}"
                 )
 
+        cli_probe: dict[str, str] = {}
+        if not reasons:
+            cli_probe = self._probe_cli()
+            if "error" in cli_probe:
+                reasons.append(f"published CLI is not executable: {cli_probe['error']}")
+
         return {
             "runtime_available": not reasons,
             "node_major": node_major,
@@ -384,6 +452,8 @@ class HyperFramesCompose(BaseTool):
             "npm_package": self._NPM_PACKAGE,
             "npm_package_version": npm_resolve.get("version"),
             "npm_resolve_error": npm_resolve.get("error"),
+            "cli_probe_status": cli_probe.get("status"),
+            "cli_probe_error": cli_probe.get("error"),
             "reasons": reasons,
         }
 
@@ -437,10 +507,17 @@ class HyperFramesCompose(BaseTool):
                 result = self._scaffold(inputs)
             elif operation == "lint":
                 result = self._lint(inputs)
-            elif operation in ("check", "validate"):
+            elif operation == "validate":
+                # Legacy alias — route to the unified check gate (no _validate impl).
+                result = self._check(inputs)
+            elif operation == "inspect":
+                result = self._inspect(inputs)
+            elif operation == "check":
                 result = self._check(inputs)
             elif operation == "render":
                 result = self._render(inputs)
+            elif operation == "render_existing":
+                result = self._render_existing(inputs)
             elif operation == "add_block":
                 result = self._add_block(inputs)
             else:
@@ -834,26 +911,48 @@ class HyperFramesCompose(BaseTool):
             error=None if ok else f"hyperframes lint exit {proc.returncode}",
         )
 
-    def _check(self, inputs: dict[str, Any]) -> ToolResult:
-        """operation='check' (and deprecated alias 'validate') → `hyperframes check`.
-
-        `check` is the current CLI gate: it runs lint + runtime + layout + motion
-        + WCAG contrast in one browser session. The upstream CLI keeps
-        `validate`/`inspect`/`layout` as deprecated aliases for compatibility,
-        but new scripts must use `check` — same reason we don't call
-        `hyperframes init` from the orchestrator.
-        """
+    def _inspect(self, inputs: dict[str, Any]) -> ToolResult:
+        """Seek through an authored workspace and audit runtime/layout issues."""
         workspace = self._require_workspace(inputs)
         if not (workspace / "index.html").exists():
             return ToolResult(
                 success=False,
-                error=f"No index.html in {workspace}. Run scaffold_workspace first.",
+                error=f"No index.html in {workspace}.",
             )
+        proc = self._run_hf(["inspect", "--json"], cwd=workspace, timeout=300, check=False)
+        data: dict[str, Any] = {"exit_code": proc.returncode}
+        payload = self._parse_json_output(proc.stdout)
+        if payload is not None:
+            data["report"] = payload
+        else:
+            data["stdout_tail"] = (proc.stdout or "")[-4000:]
+        data["stderr_tail"] = (proc.stderr or "")[-2000:]
+        ok = proc.returncode == 0
+        return ToolResult(
+            success=ok,
+            data=data,
+            error=None if ok else f"hyperframes inspect exit {proc.returncode}",
+        )
+
+    def _check(self, inputs: dict[str, Any]) -> ToolResult:
+        """operation='check' (and legacy alias 'validate') → `hyperframes check`.
+
+        `check` is the current CLI gate: it runs lint + runtime + layout + motion
+        + WCAG contrast in one browser session. The upstream CLI keeps
+        `validate`/`inspect`/`layout` as compatibility aliases, but new scripts
+        must use `check` — same reason we don't call `hyperframes init` from the
+        orchestrator.
+        """
+        workspace = self._require_workspace(inputs)
+        if not (workspace / "index.html").exists():
+            return ToolResult(success=False, error=f"No index.html in {workspace}.")
         args = ["check", "--json"]
-        if inputs.get("skip_contrast"):
+        if inputs.get("skip_contrast", False):
             args.append("--no-contrast")
-        if inputs.get("strict"):
+        if inputs.get("strict_check", False) or inputs.get("strict", False):
             args.append("--strict")
+        if inputs.get("snapshots", False):
+            args.append("--snapshots")
         proc = self._run_hf(args, cwd=workspace, timeout=300, check=False)
         data: dict[str, Any] = {"exit_code": proc.returncode}
         payload = self._parse_json_output(proc.stdout)
@@ -968,7 +1067,9 @@ class HyperFramesCompose(BaseTool):
             )
 
         workspace = self._require_workspace(inputs)
-        output_path = Path(inputs.get("output_path") or (workspace / "renders" / "final.mp4")).resolve()
+        output_path = Path(
+            inputs.get("output_path") or (workspace / "renders" / "final.mp4")
+        ).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         steps: dict[str, Any] = {}
@@ -1053,6 +1154,111 @@ class HyperFramesCompose(BaseTool):
             },
             artifacts=[str(output_path)],
         )
+
+    def _render_existing(self, inputs: dict[str, Any]) -> ToolResult:
+        """Validate and render a hand-authored workspace without scaffolding it.
+
+        Atelier compositions own their HTML, CSS, JavaScript, and local assets.
+        Re-running `_scaffold` would destroy that authored work, so this path
+        performs the mandatory gates against the files already on disk.
+        """
+        runtime_ok = self._runtime_check()
+        if not runtime_ok["runtime_available"]:
+            return ToolResult(
+                success=False,
+                error=(
+                    "HyperFrames runtime not available: "
+                    + "; ".join(runtime_ok["reasons"])
+                    + ". Per governance, do not swap runtimes silently."
+                ),
+                data={"runtime_check": runtime_ok},
+            )
+
+        workspace = self._require_workspace(inputs)
+        entry = workspace / "index.html"
+        if not entry.is_file():
+            return ToolResult(
+                success=False,
+                error=f"No authored index.html in {workspace}.",
+            )
+        original_digest = self._file_digest(entry)
+        output_path = Path(
+            inputs.get("output_path") or (workspace / "renders" / "final.mp4")
+        ).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        steps: dict[str, Any] = {}
+
+        quality_check = self._check(
+            {
+                "workspace_path": str(workspace),
+                "skip_contrast": inputs.get("skip_contrast", False),
+                "strict_check": inputs.get("strict_check", False),
+                "snapshots": inputs.get("snapshots", False),
+            }
+        )
+        steps["check"] = quality_check.data
+        if not quality_check.success:
+            return ToolResult(
+                success=False,
+                error=f"Quality check failed for authored workspace: {quality_check.error}",
+                data={"steps": steps},
+            )
+
+        _, _, fps = self._resolve_dimensions(
+            inputs.get("profile"), inputs.get("fps", 30)
+        )
+        quality = inputs.get("quality", "standard")
+        args = [
+            "render",
+            "--output", str(output_path),
+            "--fps", str(fps),
+            "--quality", quality,
+            "--strict",
+        ]
+        proc = self._run_hf(args, cwd=workspace, timeout=1800, check=False)
+        steps["render"] = {
+            "exit_code": proc.returncode,
+            "stdout_tail": (proc.stdout or "")[-4000:],
+            "stderr_tail": (proc.stderr or "")[-4000:],
+        }
+        if proc.returncode != 0:
+            return ToolResult(
+                success=False,
+                error=f"hyperframes render exit {proc.returncode}",
+                data={"steps": steps},
+            )
+        if not output_path.is_file():
+            return ToolResult(
+                success=False,
+                error=f"HyperFrames exited 0 but output is missing: {output_path}",
+                data={"steps": steps},
+            )
+        if self._file_digest(entry) != original_digest:
+            return ToolResult(
+                success=False,
+                error="Authored index.html changed during render_existing.",
+                data={"steps": steps},
+            )
+
+        return ToolResult(
+            success=True,
+            data={
+                "operation": "render_existing",
+                "output": str(output_path),
+                "workspace": str(workspace),
+                "fps": fps,
+                "quality": quality,
+                "authored_entry_preserved": True,
+                "steps": steps,
+            },
+            artifacts=[str(output_path)],
+        )
+
+    @staticmethod
+    def _file_digest(path: Path) -> str:
+        import hashlib
+
+        return hashlib.sha256(path.read_bytes()).hexdigest()
 
     # ------------------------------------------------------------------
     # Workspace generation helpers

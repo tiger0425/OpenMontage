@@ -111,6 +111,34 @@ def sample_artifact(name: str) -> dict:
                     {"stage": "script", "tools": [], "approach": "Write from research"},
                     {"stage": "assets", "tools": [{"tool_name": "tts_selector", "role": "narration", "available": True}], "approach": "Generate assets"},
                 ],
+                "visual_direction": {
+                    "default_by_niche": "clean editorial explainer",
+                    "available_styles": ["flat-motion-graphics", "clean-professional"],
+                    "selected_style": "flat-motion-graphics",
+                    "style_rationale": "Strongest contrast for diagram-led explanations.",
+                },
+                "paragraph_structure": {
+                    "mode": "six-act",
+                    "compressed_to": 4,
+                    "rationale": "60s target compresses the six-act structure to four paragraphs.",
+                },
+                "segment_timing": {
+                    "mode": "semantic",
+                    "simple_beat": "6-8s",
+                    "standard_beat": "8-10s",
+                    "complex_beat": "10-14s",
+                    "reveal_beat": "3-5s",
+                    "total_tolerance": "+/- 3%",
+                },
+                "data_authenticity_plan": [
+                    {
+                        "element_id": "data_point_1",
+                        "element_description": "73% adoption stat",
+                        "data_class": "real_data",
+                        "data_source": "research_brief data_points[0]",
+                        "reference_strategy": "data_chart",
+                    }
+                ],
             },
             "cost_estimate": {
                 "total_estimated_usd": 0.52,
@@ -129,16 +157,43 @@ def sample_artifact(name: str) -> dict:
             "style": "clean-professional",
             "target_platform": "youtube",
             "target_duration_seconds": 60,
+            "niche": "technology explainers",
+            "platform_title_style": "viral",
+            "design_system": {
+                "background_color": "#0B0B0F",
+                "lighting_style": "soft key light with a cool rim",
+                "global_mood": "clean, modern, high-contrast",
+            },
+            "beat_plan": [],
+            "angle_options": [
+                {
+                    "name": "The Surprising Truth",
+                    "description": "Myth-busting angle grounded in the survey data.",
+                    "hook": "You think X is slow.",
+                    "style": "viral",
+                }
+            ],
+            "selected_angle": "The Surprising Truth",
+            "candidate_count": 3,
+            "candidate_count_reason": "Standard breadth for a well-covered topic.",
+            "blacklist_check": {"status": "passed"},
         }
     if name == "script":
         return {
             "version": "1.0",
             "title": "Test Script",
             "total_duration_seconds": 60,
+            "narration_language": "en",
+            "paragraph_structure": {
+                "mode": "six-act",
+                "compressed_to": 4,
+                "rationale": "60s target compresses the six-act structure to four paragraphs.",
+            },
             "sections": [
                 {
                     "id": "s1",
                     "text": "Hello world",
+                    "paragraph_label": "quick_intro",
                     "start_seconds": 0,
                     "end_seconds": 10,
                 }

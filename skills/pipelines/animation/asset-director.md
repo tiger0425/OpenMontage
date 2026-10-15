@@ -31,7 +31,7 @@ Quick routing for common animation-pipeline needs:
 |-------|----------|---------|
 | Schema | `schemas/artifacts/asset_manifest.schema.json` | Artifact validation |
 | Prior artifacts | `state.artifacts["scene_plan"]["scene_plan"]`, `state.artifacts["script"]["script"]`, `state.artifacts["proposal"]["proposal_packet"]` | Tool path and beat map |
-| Tools | `tts_selector`, `image_selector`, `video_selector`, `math_animate`, `diagram_gen`, `code_snippet`, `music_gen` — selectors auto-discover all available providers from the registry | Asset production options |
+| Tools | `tts_selector`, `image_selector`, `video_selector`, `math_animate`, `diagram_gen`, `code_snippet`, `threejs_world`, `music_gen`, `fal_elevenlabs_music` — selectors auto-discover all available providers from the registry | Asset production options |
 | Playbook | Active style playbook | Visual consistency |
 
 ## Process
@@ -44,6 +44,13 @@ Prefer the lowest-variance useful path:
 - `code_snippet` for code scenes,
 - `math_animate` for real math motion,
 - provided artwork before new generation.
+
+For a real 3D environment, read `skills/creative/3d-world-generation.md` and
+the tool's `threejs-world-generation` Layer 3 skill, then use
+`threejs_world` before any image or video generator. Build the cinematic
+workspace plus a semantic or wireframe diagnostic pass. Register the editable
+workspace as `type: "3d_world"`; snapshots belong in the assets review, while
+the final MP4 belongs to compose.
 
 ### 1b. Sample Preview (Prevents Wasted Spend)
 
@@ -164,3 +171,12 @@ This is especially important for:
 - **Remotion component patterns** — new composition techniques emerge as the framework evolves
 
 Do not rely on stale knowledge. When in doubt, search first.
+
+---
+
+## Gate Reminder (Binding)
+
+This stage gates on human approval (`human_approval_default: true`). After review passes:
+checkpoint with `status="awaiting_human"`, present the summary (the Backlot board renders
+the artifact), and **END YOUR TURN**. Do not start the next stage in the same response.
+Approval is per-gate — an earlier "go ahead" does not cover this gate.

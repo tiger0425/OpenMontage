@@ -107,8 +107,8 @@ def get_pipeline_stages(pipeline_type: str | None) -> list[str]:
         return list(STAGES)
 
     try:
-        from lib.pipeline_loader import load_pipeline, get_stage_order
-        manifest = load_pipeline(pipeline_type)
+        from lib.pipeline_loader import load_pipeline_readonly, get_stage_order
+        manifest = load_pipeline_readonly(pipeline_type)
         return get_stage_order(manifest)
     except (FileNotFoundError, Exception):
         # Graceful fallback: return all known stages in canonical order
@@ -121,9 +121,38 @@ CHECKPOINT_SCHEMA_PATH = (
     / "checkpoint.schema.json"
 )
 
+# Canonical project root. Checkpoints, artifacts, and the project marker all
+# live under PROJECTS_DIR/<project_id>/ — this is the location the Backlot
+# board watches. Callers may still pass a different pipeline_dir (tests do),
+# but production runs should use the default.
+from lib.paths import PROJECTS_DIR  # noqa: E402  (single source of truth)
+
+PROJECT_MARKER_FILENAME = "project.json"
+HISTORY_DIRNAME = "history"
+
 
 class CheckpointValidationError(ValueError):
     """Raised when a checkpoint or its canonical artifacts are invalid."""
+
+
+def _validate_style_playbook(style_playbook: str | None) -> None:
+    """Fail closed when a checkpoint names a visual identity that cannot load."""
+
+    if style_playbook is None:
+        return
+    try:
+        from styles.playbook_loader import list_playbooks, load_playbook
+
+        load_playbook(style_playbook)
+    except Exception as exc:
+        try:
+            available = list_playbooks()
+        except Exception:
+            available = []
+        raise CheckpointValidationError(
+            f"Unknown or invalid style_playbook {style_playbook!r}. "
+            f"Available playbooks: {available}. Underlying error: {exc}"
+        ) from exc
 
 
 @lru_cache(maxsize=1)
@@ -138,12 +167,17 @@ def _validate_artifacts_for_stage(
     artifacts: dict[str, Any],
     pipeline_type: Optional[str] = None,
 ) -> None:
+    # Valid stages come from the pipeline manifest (get_pipeline_stages), which
+    # can declare stages beyond the 9 canonical ones (e.g. character-animation's
+    # `character_design`/`rig_plan`, screen-demo's `real_capture`). Those have no
+    # canonical artifact, so look it up defensively — a missing entry means the
+    # stage simply has no required artifact, not a crash.
     required_artifact = canonical_artifact_for_stage(stage, pipeline_type)
-    if required_artifact is None:
-        raise CheckpointValidationError(
-            f"No canonical artifact configured for stage {stage!r}"
-        )
-    if status in {"completed", "awaiting_human"} and required_artifact not in artifacts:
+    if (
+        required_artifact is not None
+        and status in {"completed", "awaiting_human"}
+        and required_artifact not in artifacts
+    ):
         raise CheckpointValidationError(
             f"Stage {stage!r} with status {status!r} must include "
             f"canonical artifact {required_artifact!r}"
@@ -209,6 +243,196 @@ def _checkpoint_path(pipeline_dir: Path, project_id: str, stage: str) -> Path:
     return pipeline_dir / project_id / f"checkpoint_{stage}.json"
 
 
+def init_project(
+    project_id: str,
+    *,
+    title: str,
+    pipeline_type: str,
+    pipeline_dir: Optional[Path] = None,
+    style_playbook: Optional[str] = None,
+) -> Path:
+    """Initialize a project workspace with the canonical layout + marker file.
+
+    Creates projects/<project_id>/ with the standard subdirectories and writes
+    project.json — the marker the Backlot board uses to render a project's
+    identity and stage rail before the first checkpoint exists.
+
+    Idempotent: re-running preserves the original created_at and merges fields.
+    Returns the project directory.
+    """
+    _validate_style_playbook(style_playbook)
+    base = pipeline_dir or PROJECTS_DIR
+    project_dir = base / project_id
+    for sub in (
+        "artifacts",
+        "assets/images",
+        "assets/video",
+        "assets/audio",
+        "assets/music",
+        "renders",
+    ):
+        (project_dir / sub).mkdir(parents=True, exist_ok=True)
+
+    marker_path = project_dir / PROJECT_MARKER_FILENAME
+    marker: dict[str, Any] = {}
+    if marker_path.exists():
+        try:
+            with open(marker_path, encoding="utf-8") as f:
+                marker = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            marker = {}
+
+    marker.setdefault("version", "1.0")
+    marker.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+    marker["project_id"] = project_id
+    marker["title"] = title
+    marker["pipeline_type"] = pipeline_type
+    if style_playbook is not None:
+        marker["style_playbook"] = style_playbook
+
+    with open(marker_path, "w", encoding="utf-8") as f:
+        json.dump(marker, f, indent=2)
+
+    return project_dir
+
+
+def _stage_requires_approval(pipeline_type: Optional[str], stage: str) -> Optional[bool]:
+    """Read human_approval_default for a stage from its pipeline manifest.
+
+    Returns None when the stage isn't declared in the manifest or no
+    pipeline_type was given — the caller then falls back to the value the
+    agent passed in.
+
+    A *provided but unknown* pipeline_type raises: a typo must not silently
+    disable gate enforcement (fail-closed, not fail-open). Other manifest
+    load failures are logged and fall back — a corrupt manifest shouldn't
+    strand an otherwise-valid run, but the degradation must be visible.
+    """
+    if not pipeline_type or pipeline_type == "unknown":
+        return None
+    from lib.pipeline_loader import get_stage_human_approval_default, load_pipeline_readonly
+    try:
+        manifest = load_pipeline_readonly(pipeline_type)
+    except FileNotFoundError:
+        raise CheckpointValidationError(
+            f"Unknown pipeline_type {pipeline_type!r} — cannot resolve gate "
+            f"policy for stage {stage!r}. Check the spelling against "
+            f"pipeline_defs/*.yaml."
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Gate policy unavailable for pipeline %r (%s) — falling back to "
+            "the caller's human_approval_required flag.", pipeline_type, exc,
+        )
+        return None
+    return get_stage_human_approval_default(manifest, stage)
+
+
+def _enforce_stage_prerequisites(
+    pipeline_dir: Path,
+    project_id: str,
+    pipeline_type: str | None,
+    stage: str,
+    status: str,
+) -> None:
+    """Require completed, approved predecessors before advancing a stage.
+
+    ``in_progress`` and failure heartbeats remain writable so an operator can
+    inspect or resume a broken run. Only lifecycle advancement
+    (``awaiting_human``/``completed``) is gated.
+    """
+
+    if status not in {"awaiting_human", "completed"}:
+        return
+    if not pipeline_type or pipeline_type == "unknown":
+        return
+
+    stages = get_pipeline_stages(pipeline_type)
+    if stage not in stages:
+        return
+
+    incomplete: list[str] = []
+    unapproved: list[str] = []
+    for predecessor in stages[: stages.index(stage)]:
+        path = _checkpoint_path(pipeline_dir, project_id, predecessor)
+        if not path.exists():
+            incomplete.append(predecessor)
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                checkpoint = json.load(handle)
+            validate_checkpoint(checkpoint)
+        except (OSError, json.JSONDecodeError, CheckpointValidationError):
+            incomplete.append(predecessor)
+            continue
+        if (
+            checkpoint.get("project_id") != project_id
+            or checkpoint.get("pipeline_type") != pipeline_type
+            or checkpoint.get("stage") != predecessor
+        ):
+            incomplete.append(predecessor)
+            continue
+        if checkpoint.get("status") != "completed":
+            incomplete.append(predecessor)
+            continue
+        if _stage_requires_approval(pipeline_type, predecessor) and not checkpoint.get(
+            "human_approved"
+        ):
+            unapproved.append(predecessor)
+
+    if incomplete or unapproved:
+        details = []
+        if incomplete:
+            details.append(f"incomplete or missing: {incomplete}")
+        if unapproved:
+            details.append(f"completed without required approval: {unapproved}")
+        raise CheckpointValidationError(
+            f"PREREQUISITE VIOLATION: stage {stage!r} cannot advance; "
+            + "; ".join(details)
+            + f". Pipeline order: {stages}."
+        )
+
+
+def _archive_superseded_checkpoint(path: Path, stage: str) -> None:
+    """Copy an existing checkpoint into history/ before it is overwritten.
+
+    Preserves the full run record: stage re-runs (script v1 → v2) and gate
+    transitions (awaiting_human → completed) remain reconstructable. Repeated
+    in_progress refreshes are NOT archived — they are partial-progress
+    heartbeats, not versions.
+
+    Archiving is best-effort and must never crash a checkpoint write: the
+    Backlot watcher may hold the file open (Windows denies renames of open
+    files), so we copy rather than move, and swallow archival I/O failures.
+    """
+    if not path.exists():
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        existing = {}
+    if existing.get("status") == "in_progress":
+        return
+
+    try:
+        import shutil
+        stamp = str(existing.get("timestamp", ""))
+        safe_stamp = "".join(c for c in stamp if c.isalnum()) or f"{path.stat().st_mtime_ns}"
+        history_dir = path.parent / HISTORY_DIRNAME
+        history_dir.mkdir(parents=True, exist_ok=True)
+        target = history_dir / f"checkpoint_{stage}_{safe_stamp}.json"
+        if target.exists():
+            target = history_dir / f"checkpoint_{stage}_{safe_stamp}_{path.stat().st_mtime_ns}.json"
+        shutil.copyfile(path, target)
+    except OSError:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not archive superseded checkpoint %s to history/", path
+        )
+
+
 def _decision_log_path(pipeline_dir: Path, project_id: str) -> Path:
     return pipeline_dir / project_id / "decision_log.json"
 
@@ -239,7 +463,7 @@ def _merge_decision_log(
             existing["decisions"].append(decision)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2)
 
 
@@ -261,6 +485,23 @@ def write_checkpoint(
     metadata: Optional[dict] = None,
 ) -> Path:
     """Write a checkpoint file for a pipeline stage."""
+    # Backfill identity fields from the project marker so omitted kwargs
+    # cannot bypass either gate enforcement or style validation.
+    marker = None
+    marker_path = pipeline_dir / project_id / PROJECT_MARKER_FILENAME
+    if marker_path.exists() and (not pipeline_type or not style_playbook):
+        try:
+            with open(marker_path, encoding="utf-8") as f:
+                marker = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            marker = None
+    if isinstance(marker, dict):
+        if not pipeline_type and marker.get("pipeline_type"):
+            pipeline_type = marker["pipeline_type"]
+        if not style_playbook and marker.get("style_playbook"):
+            style_playbook = marker["style_playbook"]
+    _validate_style_playbook(style_playbook)
+
     valid_stages = (
         set(get_pipeline_stages(pipeline_type)) if pipeline_type
         else ALL_KNOWN_STAGES
@@ -270,6 +511,43 @@ def write_checkpoint(
             f"Invalid stage: {stage!r} for pipeline {pipeline_type!r}. "
             f"Valid stages: {sorted(valid_stages)}"
         )
+
+    # --- Gate enforcement (GI-4) ---
+    # The pipeline manifest is the binding source of truth for whether a stage
+    # gates on human approval; a caller may gate MORE strictly (e.g. a
+    # manual_all checkpoint policy) but never less. A gated stage can only be
+    # written "completed" with explicit evidence of approval
+    # (human_approved=True). Skipping a gate is a hard error.
+    #
+    # Enforcement happens at write time only: pre-existing checkpoints written
+    # before gating (or by hand) still read as completed — deliberate
+    # back-compat so in-flight and legacy projects keep resuming.
+    manifest_gate = _stage_requires_approval(pipeline_type, stage)
+    gated = bool(manifest_gate) or human_approval_required
+    if gated:
+        human_approval_required = True
+        if status == "completed" and not human_approved:
+            gate_source = (
+                f"human_approval_default: true in the {pipeline_type!r} manifest"
+                if manifest_gate
+                else "human_approval_required=True was passed by the caller"
+            )
+            raise CheckpointValidationError(
+                f"GATE VIOLATION: stage {stage!r} requires human approval "
+                f"({gate_source}) but status='completed' was written without "
+                f"human_approved=True. Correct protocol: write "
+                f"status='awaiting_human', present the artifact summary to the "
+                f"user, END YOUR TURN, and only after the user approves "
+                f"re-write with status='completed', human_approved=True."
+            )
+
+    _enforce_stage_prerequisites(
+        pipeline_dir,
+        project_id,
+        pipeline_type,
+        stage,
+        status,
+    )
 
     checkpoint = {
         "version": "1.0",
@@ -298,7 +576,6 @@ def write_checkpoint(
     # append them to the project-level decision log file, then write the
     # reference back into relevant artifacts so downstream consumers can find it.
     if "decision_log" in artifacts and isinstance(artifacts["decision_log"], dict):
-        _merge_decision_log(pipeline_dir, project_id, artifacts["decision_log"])
         log_ref = str(_decision_log_path(pipeline_dir, project_id))
 
         # Write decision_log_ref into proposal_packet and render_report
@@ -316,10 +593,24 @@ def write_checkpoint(
 
     validate_checkpoint(checkpoint)
 
+    # Reject invalid stage/artifact payloads before persisting their decisions.
+    if "decision_log" in artifacts and isinstance(artifacts["decision_log"], dict):
+        _merge_decision_log(pipeline_dir, project_id, artifacts["decision_log"])
+
     path = _checkpoint_path(pipeline_dir, project_id, stage)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    # Serialize to a temp file first so a mid-write failure (disk full,
+    # unserializable metadata) can never leave the stage with a truncated
+    # current checkpoint; then archive the superseded file and swap in the
+    # new one atomically.
+    tmp_path = path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(checkpoint, f, indent=2)
+    # Preserve run history: a superseded completed/awaiting_human checkpoint
+    # is copied to history/ (stage versioning, gate audit trail, replay).
+    _archive_superseded_checkpoint(path, stage)
+    import os
+    os.replace(tmp_path, path)
 
     return path
 
@@ -393,7 +684,7 @@ def get_latest_checkpoint(
     if not checkpoints:
         return None
 
-    with open(checkpoints[0]) as f:
+    with open(checkpoints[0], encoding="utf-8") as f:
         checkpoint = json.load(f)
     validate_checkpoint(checkpoint)
     return checkpoint
@@ -405,14 +696,18 @@ def get_completed_stages(
     """Return list of stages that have a completed checkpoint.
 
     When pipeline_type is provided, only checks stages defined in that
-    pipeline's manifest 鈥?preventing false positives from leftover
-    checkpoints of a different pipeline type.
+    pipeline's manifest and requires their recorded pipeline_type to match —
+    preventing false positives from a previous pipeline's shared stages.
     """
     stages_to_check = get_pipeline_stages(pipeline_type)
     completed = []
     for stage in stages_to_check:
         cp = read_checkpoint(pipeline_dir, project_id, stage)
-        if cp and cp.get("status") == "completed":
+        if (
+            cp
+            and cp.get("status") == "completed"
+            and (pipeline_type is None or cp.get("pipeline_type") == pipeline_type)
+        ):
             completed.append(stage)
     return completed
 

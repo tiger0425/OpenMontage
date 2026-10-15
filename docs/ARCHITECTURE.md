@@ -56,7 +56,7 @@ OpenMontage/
 │   ├── tool_registry.py    # Auto-discovery singleton registry
 │   ├── cost_tracker.py     # Budget governance (estimate → reserve → reconcile)
 │   ├── analysis/           # Transcription, scene detection, frame sampling, video understanding
-│   ├── audio/              # TTS (ElevenLabs, OpenAI, Piper, MiniMax, Doubao, VoxCPM), music, mixing, enhancement
+│   ├── audio/              # TTS (ElevenLabs, OpenAI, Piper, Azure, Google, MiniMax, Doubao, VoxCPM), music, mixing, enhancement
 │   ├── avatar/             # Talking head animation, lip sync
 │   ├── capture/            # Screen recording, capture selector
 │   ├── character/          # SVG rigs, pose libraries, action timelines (cartoon animation pipeline)
@@ -159,15 +159,16 @@ Three selector tools abstract multi-provider capabilities:
 | `tts_selector` | Text-to-speech | Ranks discovered providers by task fit, quality, control, reliability, cost, latency, and continuity |
 | `image_selector` | Image generation | Ranks discovered providers from the live registry; no hardcoded provider order |
 | `video_selector` | Video generation | Ranks discovered providers from the live registry; user preference is respected when explicitly provided |
+| `atlas_image` / `atlas_video` | Atlas Cloud generation | Exposes exact per-model route catalogs for image generation/editing and text/image/reference/video-edit generation |
 
 Selectors route based on: user preference when explicitly set, then scored ranking across available providers. They adapt input schemas between providers transparently.
 
 ### Tool Inventory by Category
 
-**Analysis (11):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand, video_analyzer, visual_qa, composition_validator, face_tracker, audio_energy, audio_probe, transcript_fetcher
+**Analysis (12):** transcriber (WhisperX), azure_stt, scene_detect, frame_sampler, video_understand, video_analyzer, visual_qa, composition_validator, face_tracker, audio_energy, audio_probe, transcript_fetcher
 
-**Audio (16):**
-- *TTS (8):* elevenlabs_tts, google_tts, openai_tts, piper_tts, doubao_tts, voxcpm_tts, minimax_tts, tts_selector
+**Audio (17):**
+- *TTS (9):* elevenlabs_tts, google_tts, openai_tts, piper_tts, doubao_tts, voxcpm_tts, minimax_tts, azure_tts, tts_selector
 - *Music (6):* music_gen, suno_music, minimax_music, freesound_music, pixabay_music, music_library
 - *Processing (2):* audio_mixer, audio_enhance
 
@@ -414,9 +415,12 @@ All config is validated via Pydantic models in `lib/config_model.py`.
 | Variable | Used By | Purpose |
 |----------|---------|---------|
 | `ELEVENLABS_API_KEY` | elevenlabs_tts, music_gen | TTS, music, sound effects |
+| `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION` | azure_stt, azure_tts | Azure AI Speech cloud transcription + neural TTS (one resource, both directions) |
 | `OPENAI_API_KEY` | openai_tts, openai_image | TTS fallback, GPT Image 2 |
 | `XAI_API_KEY` | grok_image, grok_video | Grok image editing/generation, Grok video generation |
 | `FAL_KEY` | flux_image, kling_video, veo_video, minimax_video, recraft_image, seedance_video | fal.ai hosted models (FLUX, Veo, Kling, MiniMax, Recraft, Seedance) |
+| `KLING_API_KEY` | kling_official_video, kling_official_image, kling_tts, kling_avatar, kling_lip_sync | Official Kling direct API for video, image, TTS, avatar, and lip sync |
+| `KLING_API_BASE_URL` | kling_official_video, kling_official_image, kling_tts, kling_avatar, kling_lip_sync | Optional official Kling API endpoint override |
 | `MINIMAX_API_KEY` | minimax_tts, minimax_music, minimax_image, minimax_video_direct | MiniMax direct API (TTS, music, image, video) |
 | `HEYGEN_API_KEY` | heygen_video | Multi-provider video generation gateway |
 | `PEXELS_API_KEY` | pexels_image, pexels_video | Stock media |
@@ -438,6 +442,18 @@ All config is validated via Pydantic models in `lib/config_model.py`.
 | `WAV2LIP_PATH` | lip_sync | Path to cloned Wav2Lip repo |
 | `SADTALKER_PATH` | talking_head | Path to cloned SadTalker repo |
 | `VOXCPM_MODEL` | voxcpm_tts | Optional VoxCPM model override (default: openbmb/VoxCPM2) |
+
+Kling Official support stays inside the existing provider and capability model.
+`kling_official_video` and `kling_official_image` handle Classic, Turbo, and Omni
+request shapes, while Elements and Account Usage live under `tools/_kling/` as
+internal helpers for element ID references and low-frequency account diagnostics;
+they are not separate pipeline stages, selectors, or generated-asset capabilities.
+
+Kling Official also adds provider tools only where OpenMontage already has a
+matching capability slot: `kling_tts` for `tts`, plus `kling_avatar` and
+`kling_lip_sync` for `avatar`. Official Kling audio effects and video effects are
+not registered as tools because current pipelines do not define stable
+`sound_effects` or `video_effects` capability routing.
 
 ---
 
