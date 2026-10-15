@@ -39,7 +39,7 @@ TEMPLATE_DIR = Path(__file__).resolve().parent
 CJK_CPS = 4.6          # 中文口播速度（字/秒）——仅无配音估算用
 ELEMENT_TYPES = {"frame", "grid", "pill", "hairline", "bignum", "arrow", "leader", "bracket", "slot",
                  "paper", "toast", "panel", "text", "source", "seal",
-                 "win", "term", "rows", "repocard", "mark", "bars", "shape", "image"}
+                 "win", "term", "rows", "repocard", "mark", "bars", "shape", "image", "mascot"}
 
 
 # ---------------------------------------------------------------- helpers
@@ -306,6 +306,15 @@ def _resolve_at(line_text: str, words: list, at: str):
             full += _ch
             idx_map.append(wi)
     pos = full.find(at)
+    if pos < 0:
+        # ASR 常把中文写成繁体、把数字改写成阿拉伯（"七亿四千万" → "7億4000萬"），
+        # 整词匹配会落空。退一步用「最长前缀命中」取回真实词级时间戳，
+        # 仍找不到才落到字符比例估计（既有行为不变）。
+        for _L in range(len(at) - 1, 0, -1):
+            _p = full.find(at[:_L])
+            if _p >= 0:
+                pos = _p
+                break
     if pos >= 0:
         return round(float(words[idx_map[pos]]["s"]) + 0.05, 3)
     raw = line_text.find(at)
@@ -352,6 +361,10 @@ def build_html(project: Path, episode: dict, timing: dict, bake: dict, scenes_su
                 for e in ln.get("elements", []):
                     if e.get("type") == "image" and e.get("src"):
                         names.append(Path(e["src"]).name)
+                    elif e.get("type") == "mascot":
+                        _p = e.get("pose") if e.get("pose") in (
+                            "land", "idle", "point", "inspect", "gate", "wave") else "idle"
+                        names.append("mascot_%s.png" % _p)
             for _sn, sdef in ((sc.get("registry") or {}).get("slots") or {}).items():
                 if (sdef or {}).get("img"):
                     names.append(Path(sdef["img"]).name)

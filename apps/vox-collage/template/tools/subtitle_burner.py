@@ -93,7 +93,9 @@ def build_ass(episode_data: dict, voice_manifest: dict, out_ass: Path):
         res_x, res_y = 1080, 1920
         font_size = 56
         max_chars = 15
-        front_y = 1600
+        # 9:16 底部安全区 360px；画面拼贴大字实测落在 1238~1537，
+        # 字幕基线压到 1720，使 3 行字幕完整落在 1440~1720 的空纸区。
+        front_y = 1720
         extrude = (18, 12, 6)
 
     font_name = "SimHei"

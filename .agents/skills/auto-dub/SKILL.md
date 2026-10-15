@@ -398,7 +398,7 @@ pipeline:
 
 ⚠️ 库中可能有历史遗留的 `processing` 状态视频（中断产物），`process` 不会碰它们，无需处理。
 
-> 📌 用户要求"去推广/广告"时：转录后关键词扫 utterances 定位 → 定界到 utterance 边界 → 三选一让用户确认范围 → 按 `skills/pipelines/localization-dub/lessons-learned.md → 前置剪辑 Pre-Render Surgery` 执行（五文件一致+删下游 checkpoint，术后禁跑 approve-review）。纯片尾广告才可用成品后处理。实战：`auto-dub-tp29Fl0EK1w`。
+> 📌 用户要求"去推广/广告"时：转录后关键词扫 utterances 定位 → 定界到 utterance 边界 → 三选一让用户确认范围 → 按 `skills/pipelines/localization-dub/lessons-learned.md → 前置剪辑 Pre-Render Surgery` 执行（五文件一致+删下游 checkpoint，术后禁跑 approve-review）。纯片尾广告才可用成品后处理。实战：`auto-dub-tp29Fl0EK1w`、`auto-dub-09GB4LtXUok`（后者另含"尾部修复 atempo 缓存必删 + 重跑新标题文件夹清理 + 简介章节重映射"收尾清单，见 lessons「尾部修复重跑的两个隐藏坑」）。
 
 ---
 

@@ -41,7 +41,7 @@
         "desc": { "type": "string", "description": "画面内容中文关键词短语（画面里能看到什么）" },
         "asset_path": { "type": ["string", "null"], "description": "抽帧/截片产物文件名（#64 产出后回填，如 scene0_grid.jpg）" },
         "source_hint": { "type": ["string", "null"], "description": "源视频时间戳/段落提示，如 '~4:20 附近'" },
-        "clip_duration_s": { "type": ["integer", "null"], "minimum": 6, "maximum": 10, "description": "clip 时长 6~10s（type=clip 时用，默认 8）" },
+        "clip_duration_s": { "type": ["integer", "null"], "minimum": 6, "maximum": 30, "description": "clip 时长 6~30s（type=clip 时用；必须 ≥ 该幕可见窗口，否则画面播完会冻在末帧——见 LESSONS §2.2 与 template/README 坑 #7）" },
         "offset_hint": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "幕内切换时机 0~100（默认按 visuals 顺序等分幕长）" }
       }
     },

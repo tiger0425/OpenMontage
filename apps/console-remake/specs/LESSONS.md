@@ -7,16 +7,28 @@
 
 ## 0. 全流程事实基线（用于估时/估成本）
 
-| 环节 | 实测 | 备注 |
-|---|---|---|
-| 单集全片规模 | 40 幕 / 121 句 / 234 零件 | 一个 agent 会话内分 3 批写入 episode.json |
-| 中文文案量 | 2285 字 → 配音音频 481.2s | 实测语速 ≈ **4.75 字/秒**（估时长用 4.6 保守） |
-| 含停顿成片 | 565s（9:25） | 音频 481s + 句间/幕间呼吸 ≈ 84s |
-| GPU 配音 | 121 句 ≈ **12.7 分钟**（含模型加载） | 单次会话串行，seed=42+i |
-| 渲染 | 565s 成片 ≈ **8.5-10 分钟**（0.9× 实时） | lint 先行，本机无 GPU 加速浏览器 |
-| 发布/归档 | package、archive 均 <10s | 纯本地拷贝 |
+> 两轮实测对照。第二轮（console-local-multimodal-rag，2026-10-09）含吉祥物零件与多规格封面，
+> 是当前**最新的口径**（估时请用它）。
 
-**成本**：TTS/渲染本地免费；生图仅封面（minimax $0.005/张 或 imagen），单集 < ¥0.5。
+| 环节 | 第一轮（v1 精讲片） | **第二轮（含角色 + 多规格封面）** | 备注 |
+|---|---|---|---|
+| 单集规模 | 40 幕 / 121 句 / 234 零件 | **29 幕 / 112 句 / 217 零件** | 分 3 批写入 episode.json |
+| 中文旁白字数 | 2285 字 | **2454 字** | 数字汉字化后偏长 |
+| 配音音频 | 481.2 s | **471.2 s**（112 句） | 语速 ≈ **5.2 字/秒**（术语多时更快，4.6~5.7 波动） |
+| 成片时长 | 565 s（9:25） | **540.8 s（9:01）** | 音频 + 句间/幕间呼吸 ≈ 70 s |
+| **GPU 配音** | 121 句 ≈ 12.7 min | **112 句 = 648 s ≈ 10.8 min** | 含模型冷启动；seed 42；GPU 锁串行 |
+| **词级对齐 align** | ≈3 min | **255 s ≈ 4.3 min** | 产出 line_words.json（`at` 锚定依据） |
+| **渲染 1080P** | 565 s ≈ 8.5~10 min | **540.8 s → 1239 s ≈ 20.7 min** | 0.44× 实时；元素数/吉祥物会显著拉长 |
+| 子集渲染（2 幕） | — | **≈4 min**（271 s 时间轴） | 快速迭代用，见 SKILL §7 |
+| snapshot 抽帧 | 秒级/批 | **≈1 min/10 帧**（含字体编译） | 一批 ≤10 个时间戳 |
+| 封面（7 规格） | AI 底稿 2 张 + 排版 | **PIL 程序化合成，< 5 s / 7 张** | 零生图 |
+| package / archive | < 10 s | < 10 s | 纯本地拷贝 |
+| 空屏扫描 | 20 组帧差分 | **58 帧特征色/墨迹统计** | 见 §16 |
+
+**成本**：TTS / 渲染 / 封面**全部本地免费**。第二轮 AI 生图只用了 3 张**已弃用**的封面底稿
+（≈$0.015）；最终封面为程序化合成，**API 成本 0 元**。
+
+**估时公式（下预算用）**：`成片秒数 ≈ 字数 / 5.2`；`渲染秒数 ≈ 成片秒数 × 2.3`（元素密、含角色时取 2.3~2.5）。
 
 ---
 
@@ -113,7 +125,12 @@
   答案不清 = 偷懒，返工。
 - 这一条优先级高于所有视觉规范：宁可元素简单，不可音画脱钩。
 
-## 6. 封面（两步法，勿退回"截帧+标题"）
+## 6. 封面（两步法，勿退回"截帧+标题"）——**已被 §16.4/16.5 取代，看新法**
+
+> ⚠️ 本节是 v2.2 时代的"AI 无字底稿 + 排版叠字"两步法，**已降级为备用路径**。
+> 2026-10-09（v3）确立的主路径是 **PIL 程序化多规格合成**（`make_cover_series.py`，一次 7 个规格、
+> 含吉祥物姿态、零生图）——见 `design-system.md` §11.3 与本文件 §16.4/§16.5。除非需要照片级底图，
+> 否则不要走本节。AI 底稿若用，必须先用视觉模型确认<u>无伪文字</u>（§15.6）。
 
 1. **无字底稿**：`image_selector` 生成（prompt 明确 "absolutely no text/letters/numbers/glyphs/logos/watermarks"，
    构图预留左侧暗部）；**16:9 与 4:3 各出 2 张候选择优**。
@@ -310,7 +327,7 @@
   ③ 把动画全部暂停后，这一帧像不像成品？
 - 成片 compose 后必跑**空屏扫描**（≥1s 连续无内容帧计数），数量 > 0 不允许进 render。
 
-## 14. Registry 视频槽位两个新坑（2026-09-16，console-qwen-27b-stack）
+## 14b. Registry 视频槽位两个新坑（2026-09-16，console-qwen-27b-stack）
 
 **坑 3 · 槽位 `<video>` 缺 `data-start`（装配器已修复）**：注册表槽位模板里的 `<video>` 之前没有
 `data-start`，`hyperframes lint` 报 `media_missing_data_start`，render 直接失败。
@@ -329,3 +346,245 @@ snapshot 不能作为视频槽位的验收依据（与 §2 箭头塌缩同类：
 已验证的替代路径：改用**幕级 `footage`**（`opencode-repos` 九幕先例，装配器原生支持
 `data-start="0"` + 时长对齐），本集 s03 即此方案。结论：**footage 一律走幕级，注册表槽位只挂
 静态 img**；若必须用槽位视频，验收方式是整片 render 后抽帧，不接受 snapshot 放行。
+
+## 15. 真实素材截图 + 划线标注实战（2026-10-09，console-local-multimodal-rag）
+
+> 本集为「技术发布解说」题材：真实实体多、依赖官方页面与基准表。用户明确要求
+> 「要有项目的截屏 / 能用真实图片就用真实图片 / 最好能用划线的动态」。以下为可复用结论。
+
+**15.1 · 真实截图采集（Playwright）**
+- 采集脚本沉淀在 `apps/console-remake/tools/capture/`（`capture_screens.mjs` + `fetch_logos.mjs`；
+  Windows 下必须 `executablePath` 指系统 Chrome，双次导航避开首屏白）。品牌 logo 走
+  Simple Icons（CC0）→ `cdn.simpleicons.org/<slug>/white`，SVG→256px PNG；`llamacpp`/`mlx`
+  等 slug 不存在，**不要用别的品牌顶替**，登记进 manifest 的 `failed` 即可。
+- **截图的 provenance 必须写"实际抓到的 URL"**，不是"打算抓的 URL"：本集
+  `huggingface.co/google/embeddinggemma` 实际 404，真值是 `…/embeddinggemma-300m`；
+  MTEB 榜单在 `huggingface.co/spaces/mteb/leaderboard` 只是 iframe 外壳，真值是
+  `mteb-leaderboard.hf.space/benchmark/MTEB(Multilingual, v2)`。发布文案的【素材来源】会照抄，
+  写错等于署名造假。
+- **截图别整页铺满**：官方页面在 1920×1080 里缩到 30~40% 就只是"有张图"。正确做法是
+  **裁到信息区**（本轮用视觉模型先定位表格包围盒 2%~55% × 11%~86%，再用 PIL 裁 896×784），
+  卡片尺寸按裁剪后的长宽比给（`cover` 才不会二次裁切）。
+
+**15.2 · 划线标注（用户点名要的"动态划线"）**
+- 可用族：`mark` 的 `ul`（下划线从左划到右，`draw_dur`）/ `hl`（高亮扫过）/ `ring`（圈选）/
+  `cross`（按框对角线拟合的划叉）；`leader`/`bracket`（stroke-dashoffset 抽出）；
+  `hairline tick:true`（尺寸线两端刻度）；`arrow`（抽出）；`text strike + strike_at`（红线划过）。
+- 纪律不变：全部用 `at` 锚定到旁白词，**说到那个词的时候线正在画**。本轮实测：5 枚胶囊下方的
+  橙色下划线、"文字查询 ↔ 一张照片"之间的大号橙色划叉、基准表的划叉，都在成片抽帧里可见。
+
+**15.3 · `align` 的繁体/数字改写（本轮实测 + 已修）**
+- Whisper 对中文常输出繁体（"剛"/"一個"）并把数字改写成阿拉伯数字，导致 `at` 锚词
+  **整词匹配命中率只有 32%**（对照 `opencode-repos` 为 50%，属常态而非异常）。
+- 已在装配器 `_resolve_at` 增加「最长前缀命中」回退（整词失配 → 退到 `at[:L]` 最长可匹配前缀），
+  本集命中率 32% → **65%**；仍失配才落回字符比例估计（原行为不变，向后兼容）。
+- 经验：写 `at` 时优先用**句中被真正念出的短语**，避免过长数字串（"七亿四千万"会被念成数字）；
+  一个 `at` 若既不在 `line_text` 里、也不在 ASR 词表里（如给图片锚"官方文档"而台词只有"文档"），
+  会彻底解析失败（返回 None → 立即入场）——`script` 后建议自查一遍这类锚词。
+
+**15.4 · snapshot 批量上限（会静默出全黑帧）**
+- `npx hyperframes snapshot --at` 一次传 **58 个时间戳会全部输出纯 #0C0C0C 空帧**（不报错），
+  单点或 10 点一批则完全正常。**大批量 QA 必须分批（≤10/批）**，且 `--output` 目录
+  **每批会被清空**，要分批写各自子目录。遇到"全黑帧"先做对照实验（拿已渲染成功的老项目跑同一
+  条命令），不要急着改画面。
+
+**15.5 · `image` 零件不支持子目录**
+- 装配器按 `Path(src).name` 取**basename**、并从 `assets/images/` 平铺拷贝；`src: "logos/x.png"`
+  会判为缺失（警告）且网页路径也对不上。logo 一律平铺命名（`logo_<name>.png`）。
+
+**15.6 · AI 封面底稿要先验"无字"**
+- minimax 生图很容易在"控制台/HUD 场景"里画出**伪文字**（一堆看不懂的字母与数字），
+  放到封面 B 位就是硬伤。本轮用 `.agents/skills/minimax-m3-vision` 脚本读图验证，
+  第一版 4 张全部有伪文字 → 改 prompt 为"**纯抽象材质面**（明确无任何面板/屏幕/标签/符号）"
+  后重出的 3 张全部 NONE。**验收标准：视觉模型报 NONE 才可用**。
+- `image_selector` 的 provider 偏好键是 `preferred_provider`（不是 `provider`）；不传会按发现顺序
+  落到 `google_imagen`（返回 1376×768，忽略 aspect_ratio）。4:3 封面可由 16:9 底稿裁切（纯材质面
+  裁切无损语义）。
+
+## 16. 主角尺度律 + 吉祥物贯穿 + 多规格封面（2026-10-09，console-local-multimodal-rag v3）
+
+> 用户评审：「怎么没有放吉祥物」＋「前面画面中的视觉元素都很小，不吸引人看下去」＋
+> 「封面也参考 pi-agent-harness-cn」＋「要有不同规格的」。
+> 四条已全部写进世界宪法（design-system §11，v2.3），这里只记**可复用操作经验**。
+
+**16.1 · 这个世界原本没有角色，别自己造**
+- `console-remake` 的规格里**从来没有吉祥物**；`brand_assets/` 里只有 gitradar 头像 banner。
+- 系列角色其实在**别的项目**里并且已跨 6 次实战复用：`projects/pi-agent-harness-cn` 的
+  **「小挽」迷你机械小马**（哑光深炭灰 + 荧光绿发光挽具环 + 橙发光鬃尾 + 方形屏幕眼），
+  **6 姿态透明 PNG**：`mascot_{land,idle,point,inspect,gate,wave}_crop_alpha.png`。
+  做法：**直接拷贝并改名**为 `mascot_<pose>.png`（去掉 `_crop_alpha` 后缀），零成本、视觉连续。
+- **先验四角 alpha=0**（`visible_h_ratio` 应 = 1.000，说明已裁到内容边界）；黑底版会在强背景上
+  切出一个矩形。本轮 6 张全部 1.000。
+- 落地动作照 `projects/onchain-agent-promo/skills/hyperframes-arc-motion-promo.md` §三：
+  **跃入(预备) → 过冲 1.06 → 压缩 0.14s → 回落 `back.out(2.2)`**，四段共约 1.04s；
+  待机用**有限次 yoyo**（禁 `repeat:-1`），次数由幕长算出。
+- **朝向决定机位（视线引导）**：6 姿态里除 `point` 朝右外，其余都是 3/4-朝左。
+  → 3/4-朝左的姿态放**右侧**（朝左看内容）；`point` 放**左侧**，若必须放右侧就 `flip:true`。
+  本轮实测抽帧确认：左侧的 point 朝右、右侧的 idle/gate 朝左，全部指向内容。
+- **别信视觉模型报的尺寸**：它把 320px 的吉祥物报成"~160px"。**用特征色量像素**才对——
+  按荧光绿+橙的遮罩量垂直跨度，本轮实测 306/307/346px，与设定相符。
+
+**16.2 · `at` 锚词必须取句中前段**
+- 锚在句尾 = 主角在"这句话快说完时"才出现、停留极短（本轮 s12/s17/s20/s24 全部踩到，
+  抽帧看到"幕内是空的"）。**统一改成句子前中段的短语**（如"一次输入""文字输入""六十一"）。
+- 顺带：`script` 只校验 `at` 是否出现在**本句台词**里；带数字的锚词（"七亿四千万"）会被 ASR
+  改写而失配（详见 §15.3）。写完 `at` 建议跑一遍自查：既要在 `line_text` 里，也尽量短。
+
+**16.3 · 主角尺度律的落地自查（可脚本化）**
+- 每幕算"最大元素视觉高度"：`bignum = size*1.24`、`text = size*1.35`、`rows = 行数*row_h`、
+  `bars = 行数*(bar_h+gap)`、`mascot = h`。**任何一幕 < 200px 就是"清单幕"**，本轮据此抓出
+  s09/s15/s17/s20/s23/s24 六幕并逐幕补了主角（+0.2 / -13.5 / 巨型 NaN / 8 组前缀 / 1 个向量）。
+- 补主角优先用**该句真正在讲的数字**（"基本没动"配 `+0.2`、"跳水"配 `-13.5`），
+  而不是随便加个装饰件——否则违反 §10.6 语义一致性纪律。
+
+**16.4 · 多规格封面（程序化合成，别再走 AI 底图）**
+- 系列真做法见 `projects/pi-agent-harness-cn`：**PIL 程序化合成**（网格底 + 大字 + 小挽姿态 +
+  四角角标），零生图。本轮已固化为 `apps/console-remake/template/make_cover_series.py`，
+  **一次出 7 个规格**（1920×1080 / 1280×720 / 1146×717 / 1440×1080 / 1080×1080 / 1080×1440 / 1080×1920）。
+- 两个必踩的坑（本轮实测）：
+  1. **Cascadia Mono 画中文 = 整行方框**（LESSONS #12/#38 第三次复发）。混排行必须**逐段换字体**
+     （`_runs()` 切段 → CJK 走 Noto、其余走 Cascadia）；URL/meta 行是最容易漏的地方。
+  2. **竖版/方版吉祥物踩住页脚**。正确顺序：先算 URL/meta 的 `footer_top` → 吉祥物
+     `my = footer_top - mh`，并把 `mh` 夹在"副题底 ~ footer_top"之间。
+- 验收：**视觉模型逐规格读一遍**——要求"零方框、零出框、吉祥物不压字、主标题缩略图可读"。
+  本轮第一版 7 张全部有方框（meta 行）＋2 张竖版压字，修完复验通过。
+- 归档：`archive` 原本只拷 `cover_16x9/4x3/cover_frame`，已改为**归档全部 `cover*.png`**。
+
+### 16.5 · 封面 v2 三个真坑（2026-10-09 用户二次反馈「B站模板有压字 / 吉祥物也很小 / 背景全黑」）
+
+1. **"压字"的根因是 PIL 的绘制原点在 ascender**：`draw.text((x,y))` 的墨迹范围是
+   `[y+bbox[1], y+bbox[3]]`，**`bbox[3]-bbox[1]` 是墨迹高度、不是墨迹底边**。
+   用"高度"推进下一行 → 下一行会压进上一行的下半部分（Noto CJK 的 `bbox[1]` 常有 0.2em 量级，
+   所以偏差正好是一两行的下缘）。**推进一律用 `ink_bottom() = bbox[3]`**，并留 3~4.4%H 行距。
+   这条对任何 PIL 排版都成立，不限封面。
+2. **"吉祥物很小"的根因是横版也套用了"给页脚让位"的夹取**：竖版的吉祥物在文字块下方、必须
+   夹到 `footer_top` 之间；横版/方版的吉祥物在**右列通高**，只受"右列宽 + 边距"约束。
+   混用会把 1146×717 的吉祥物夹成 **65px**（占画面高 6%）。
+   正确做法：按 `tall = H/W >= 1.2` 分模式；横版 `mh = min(0.72H, H-2m, col_w/ar)`，
+   `mx = W - m - mh*ar`；修完实测 68~80% 画面高。
+3. **"背景全黑"的根因是暗角用了整幅 composite**：把近黑底连网格一起压掉了。
+   改为 numpy 径向、`edge = clip((r-0.62)/0.60,0,1)**1.6` 只压边缘；同时把网格提到 7%（带一点系列绿）、
+   交点 12.5%、加 4px 扫描线 2.8%、加**巨型底纹数字**（0.52H、亮度 8.5%、右下压边）。
+   修完实测 mean luma 27~32、`pct>25` 33~47%（原来几乎是纯黑）。
+
+### 16.6 · 归档 metadata 的硬编码署名（严重事实错误，已修）
+
+- **症状**：本项目归档的 `metadata.json` 里写着
+  `"credit": "改编自 Kai《Agent Harness explained in 8min..》"`——**是第一个 console 项目
+  （console-agent-harness）的署名**，从没改过；`ai_disclosure` 也是那句不含吉祥物与封面的旧文案。
+- **根因**：`stage_archive` 把署名/AI 声明**硬编码成了初版项目的值**，后续每个项目都会继承，
+  属"署名造假"级别的问题（比画面缺陷严重：它对外声明了错误的原作者）。
+- **修法**：`metadata.json` 的 `ai_disclosure` / `credit` 一律**从本项目的
+  `artifacts/publish_copy.json` 读取**，缺失时才回落到由 `episode.source` 拼出的通用句式；
+  同时把 `covers`（封面清单）写进 metadata。
+- **纪律**：**归档/发布类字段禁止硬编码**。凡是"对外声明"的内容（署名、来源、AI 声明、素材出处）
+  都必须从本项目的创作契约里取；新增归档字段时先问一句"这个值是不是上个项目的残留？"。
+- 顺带：`archive` 现在归档**全部 `cover*.png`**（原来只拷 16x9/4x3/cover_frame）。
+
+## 17. 下次开工清单（照抄即可）
+
+### 17.1 开工（动笔前）
+- [ ] 拷系列资产：小挽 6 姿态（改名 `mascot_<pose>.png`）+ `NotoSansSC-Black.ttf` / `CascadiaMono.ttf`；
+      **验 `visible_h_ratio == 1.000` 且四角 alpha = 0**
+- [ ] 列全片**真实实体清单**（人/产品/项目/界面/地点）→ 按 SKILL §9 路由表采集 + 登记 provenance
+      （截图先定位再裁到信息区；别整页缩小成"有张图"）
+- [ ] 能力侦察四连 → `artifacts/capability_recon.json`（每条 mapping 写"这幕为什么需要它"）
+- [ ] 读 `projects/onchain-agent-promo/skills/hyperframes-arc-motion-promo.md`（角色贯穿 / 三层密度 / 句级时间表）
+
+### 17.2 写作（episode.json）
+- [ ] 分批写入；每幕过**空盒三问**（视觉主角是什么 / 容器里有什么 / 暂停动画后像素不像成品）
+- [ ] 每幕过**主角尺度自查**（最大元素视觉高度 ≥ 200px），< 200px 的幕必须补主角
+- [ ] 规划 **8~13 个角色 beat**：相邻**机位与姿态不同**；3/4-朝左放右侧、`point` 放左侧或镜像
+- [ ] `at` 锚词：出现在 `line_text` 里、**取句中前段**、避开会被 ASR 改写的长数字串
+- [ ] 划线标注（`mark` ul/hl/ring/cross、`leader`、`bracket`、`hairline tick`、`strike`）都挂 `at`
+
+### 17.3 重活分工
+- [ ] 派 Compute Worker：`synth --json` → `align`（单行 JSON 回报）
+- [ ] 主 Agent 自己 `compose`（轻）→ `hyperframes lint` → 抽帧目检
+- [ ] 小改动用**子集循环**：`compose --scenes sNN,sMM` + `render`（分钟级）验证后再全片 compose + 派 Worker render
+- [ ] 再派 Worker：`render --json` → `package`
+
+### 17.4 交付前 13 门（一门都不能跳）
+1. `script` → **0 warning** 且 `redline` = pass
+2. **主角尺度**：没有任何一幕的最大元素 < 200px
+3. **`at` 自查**：全部命中本句 `line_text`，且无长数字串锚词
+4. `capability_recon.json` 存在，mapping 逐条有理由
+5. `compose` → 0 warning、`images_missing` 为空
+6. `npx hyperframes lint` → **0 error 0 warning**
+7. **空屏扫描**：58 帧左右采样，无"HUD + 字幕条"帧
+8. **吉祥物 beat 像素验收**：特征色（荧光绿 `G>200 & B<90`）在每个 beat 都能定位到，且**朝向内容**
+9. **成片抽帧**：真实截图、连接件、划线、吉祥物在 render 后都在（不信快照）
+10. **音频**：逐句 ≥ 0.2s；成片 ≈ **−16 LUFS**、TP ≤ −1 dB、无 > 1.5 s 意外空档
+11. **封面 7 规格**：逐张过"零方框 / 零出框 / 文字互不压 / 吉祥物 ≥ 45% 画高 / 背景 textured"
+12. **metadata 署名与 AI 声明**来自本项目 `publish_copy.json`（不是上个项目的残留）
+13. `archive` 完整：成片 + 全部 `cover*.png` + 4 份 metadata + 自述 README
+
+### 17.5 复盘纪律
+- 用户的设计类反馈（"元素小 / 没角色 / 封面压字"）一律**提炼进世界宪法**（design-system）
+  或本文件，**不写单集补丁**；同一条反馈只改一次。
+- 跨管线通病（Cascadia 画中文、layout 豁免不继承、`data-color-grading` 挂死、组件时长截断）
+  修完回写到 SKILL.md + 本文件，让下一个 agent 不必重踩。
+
+---
+
+## 18. console-opencode-20 实战（2026-10-15）—— 五个"世界级"坑 + 一次注册表组件判否
+
+> 本轮首次接入 `agent-cursor` / `notification-stack`，首次把 `hyperframes check` 的
+> Runtime / Motion / Contrast 三段都用起来。以下每条都不是单集补丁，已修在管线/模板层。
+
+### 18.1 `bracket` 括线的坐标字段是 `x1/y1/x2/y2`（不是 `y`）
+
+- **症状**：`check` 的 Runtime 段报 `<path> attribute d: Expected number, "M272 undefinedL760 un…"`，画面里括线整条消失（s03/s08 各一处）。
+- **根因**：`buildConnector()` 对 bracket 取 `p1={x:e.x1, y:e.y1}`、`p2={x:e.x2, y:e.y2 ?? e.y}`；只写 `y` 时 `p1.y` = undefined。
+- **修法**：bracket 一律写全 `x1,y1,x2,y2`（y1===y2 即横括线）。
+- **纪律**：连接件三者字段不同（arrow 用 `from/to` 或四点；bracket 必须四点；leader 用 `from/to` + `tick`）。写完跑 `check` 的 **Runtime** 段验证，不要只看 Lint。
+
+### 18.2 `rows` 必须给 `w`，否则文字逐字竖排
+
+- **症状**：rows 面板里"上下文用量 / 已花费 / 待办清单"等行被压成**竖条**（s17/s19/s22/s24/s25 共 7 处）。
+- **根因**：`buildRows()` 用 `px(e.w)` 设宽；只给 x/y 时 `width:0` → 中文逐字换行（与 §13.1 toast 同源的"静默奇观"）。
+- **修法**：rows 一律给 `w`（本轮统一 700~824）。
+- **自查**：所有容器类零件（toast / rows / paper / panel / win / term）必须有宽或高。
+
+### 18.3 `bignum` 的 `x` 决定"可用宽度"——x 太大会换行
+
+- **症状**：`1000+` 渲染成 `1000` 一行、`+` 掉到下一行；`214K` 同理（s16/s20）。
+- **根因**：bignum 用 `left:x` + `translate(-50%,-50%)` 且**无 width**；绝对定位元素 auto 宽度受"从 left 到容器右边"的约束 → 可用宽度 ≈ 1920−x。x=1408 时仅 512px，装不下 240px 字号 × 4 字符。
+- **修法**：大字号 bignum 的 `x ≤ 1320`（可用 ≥600px）；估算式 `字数 × size × 0.6 + 60 ≤ 1920 − x`。
+- **顺带**：`1000+` / `214K` 会被正则拆成 `val` + `suffix`（上标小字），是**预期行为**，不是 bug。
+
+### 18.4 `frame` 是空心框，但框里必须有内容
+
+- **症状**：s06/s15/s21 的对比框（旧 vs 新、串行 vs 脚本、Plan vs Build）全是**空盒子**（§14.2「容器空壳」复发，且 check 看不出来）。
+- **修法**：每个 frame 至少配一条框内 `text`（如"关窗 = 任务终止"/"一段脚本 → 一次取回"/"只看不动 · 先讲清楚"）。
+- **纪律**：凡容器（frame/panel/win/rows）必须携带可见内容；抽帧时暂停动画自问"这一帧像不像成品"。
+
+### 18.5 `agent-cursor` 注册表组件在本管线宿主契约下不渲染（附可复用诊断）
+
+- **症状**：s11 整幕（17s）snapshot **全程空屏**（mean_luma 14~15、bright_ratio 0.006~0.015，只有 HUD+字幕），4 个时间点（189.5/192.5/199.5/202.5s）无一帧有内容。
+- **诊断三步**：① 该幕抽 4~5 个时间点；② PIL 统计 `mean_luma` 与 `bright_ratio`；③ **同批次另一个注册表组件作对照**（本轮 `notification-stack` 正常）→ 排除"幕/时间轴"问题，锁定组件。
+- **根因假设**：该组件走 `tl.to(clock,…).onUpdate(render)` **手动渲染**模式，并用 `root.clientWidth` 取尺寸；在本管线的子合成宿主结构下拿不到有效尺寸/未触发 onUpdate，停在 `render(0)`（元素 opacity 0）。
+- **处置**：s11 改用 console 零件（text + term + rows + toast），语义不变；`capability_recon.json` 的 `adopted` 移除该组件并写明判否理由。
+- **纪律**：**注册表组件接入后必须抽帧验收**——`add` 成功、lint 通过、文档描述都不构成可用证据。已验证可用：`browser-device-stage`（s05，槽位挂真实截图 + swap）、`notification-stack`（s13）。
+
+### 18.6 世界级小修：HUD 分隔符对比度（a11y）
+
+- `check` 的 Contrast 段报 `#hud-brand .hb-sep` / `#hud-chapter .hb-sep`（中点 "·"）对比度 2.21:1 < WCAG AA 4.5:1（每章出现一次）。
+- 修法：`template/console.css` 的 `.hb-sep` 由 `rgba(255,255,255,0.25)` → `0.5`（**已修在模板层，后续项目自动继承**）；修后 62/62 文本检查全过。
+- **纪律**：`check` 的 **Runtime / Motion / Contrast 三段都要看**；"Lint 0 error"不等于"可以渲染"。
+
+### 18.7 快照环境的僵尸进程（snapshot 卡住的头号原因）
+
+- 一次 `snapshot` 被外部中断后，留下一批**挂起的 node/browser 进程**；此后所有 snapshot 表现为"命令在跑、目录为空、10+ 分钟不产帧"。
+- 处置：按启动时间过滤清理（`Get-Process node | Where-Object StartTime -gt <cut> | Stop-Process -Force`，保留 OpenCode 自身进程），清理后 snapshot 立刻恢复正常。
+- **纪律**：snapshot 异常先查残留进程，再怀疑画面；清理时**按启动时间**筛，不要 `-Name node` 一把梭（会杀掉 agent 自己的进程）。
+
+### 18.8 本轮新增可复用素材路径（真实素材，零生图）
+
+- **官方演示录像**：`opencode.ai` 首页 hero 的 `<video src="/_build/assets/opencode-min-*.mp4">`（1920×1080/60fps，36.5s）——**官网 hero 常内嵌官方产品录屏**，是比截图更硬的素材来源，值得作为通用套路（先 parse 首页 HTML 找 `<video>`，再 curl 下载）。
+- **多规格封面**：`make_cover_series.py` 一次 7 规格，本轮参数备忘 —— `--hero "关窗不再终止"`、`--mascot .../mascot_gate.png --mascot-aspect 0.7357`、`--watermark "2.0"`；横版与竖版验收均通过（吉祥物占 45%~75% 画高、零方框、文字不互压）。
+- **系列资产复用**：小挽 6 姿态从 `projects/pi-agent-harness-cn/assets/images/mascot_*_crop_alpha.png` 直接拷贝改名（四角 alpha=0、visible_h_ratio=1.000 全部通过），第 7 次复用。
+
+
+
+

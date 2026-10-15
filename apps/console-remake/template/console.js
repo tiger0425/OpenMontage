@@ -526,6 +526,36 @@
     return n;
   }
 
+  /* console-v2.3 · 吉祥物「小挽」：系列自有角色，6 姿态透明 PNG（跨项目复用）
+     姿态：land（跃入落地）/ idle（待机）/ point（指点）/ inspect（凑近看）
+           / gate（守着/拦着）/ wave（致意） */
+  var MASCOT_POSES = { land: 1, idle: 1, point: 1, inspect: 1, gate: 1, wave: 1 };
+  /* 姿态宽高比（实测内容边界，勿凭感觉改）：决定像素尺寸，避免百分比解析不确定 */
+  var MASCOT_ASPECT = { land: 0.883, idle: 0.830, point: 0.702, inspect: 1.143, gate: 0.736, wave: 0.671 };
+
+  function buildMascot(e) {
+    var pose = MASCOT_POSES[e.pose] ? e.pose : 'idle';
+    var h = e.h || 320;
+    var w = Math.round(h * (MASCOT_ASPECT[pose] || 0.83));
+    var cls = 'p p-mascot-wrap' + (e.flip ? ' p-mascot-wrap--flip' : '') +
+      (e.ground === false ? '' : ' p-mascot-wrap--ground');
+    var n = E('div', cls);
+    /* 宽高都用像素写死：百分比/auto 在子合成里解析不稳（实测会整只错位到内容区外） */
+    var box = 'top:' + px(e.y) + ';width:' + px(w) + ';height:' + px(h) + ';transform-origin:50% 100%;';
+    n.style.cssText = (e.right != null ? 'right:' + px(e.right) + ';left:auto;' : 'left:' + px(e.x) + ';') + box;
+    /* 布局审计不继承豁免（arc-motion 教训 #34）：加在被点名的元素本体上 */
+    n.setAttribute('data-layout-allow-overflow', '1');
+    n.setAttribute('data-layout-allow-overlap', '1');
+    var img = E('img', 'p-mascot__img');
+    img.src = 'assets/images/mascot_' + pose + '.png';
+    img.alt = '';
+    img.style.cssText = 'display:block;width:' + px(w) + ';height:' + px(h) +
+      ';transform-origin:50% 100%;';   /* 旋转以脚为轴，落地才不飘 */
+    n.appendChild(img);
+    n._animTarget = img;
+    return n;
+  }
+
   function buildConnector(e) {
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     var cls = 'p p-arrow p-arrow--' + (e.color || (e.type === 'leader' ? 'ink' : 'red')) +
@@ -644,7 +674,7 @@
   }
 
   /* ---------------- animation per element ---------------- */
-  function animElement(tl, node, e, t) {
+  function animElement(tl, node, e, t, sceneDur) {
     var inner = node._animTarget;
     var target = inner || node;
 
@@ -907,6 +937,40 @@
         { opacity: 1, scale: 1, y: 0, duration: e.in_dur || 0.5, ease: 'power3.out' }, t);
       return;
     }
+    if (e.type === 'mascot') {
+      /* 吉祥物「小挽」：姿态阶梯入场 + 持续呼吸待机（arc-motion §三 / §12.2）
+         - land：跃入(预备)→过冲 1.06→压缩 0.14s→回落 back.out(2.2)
+         - 其余姿态：上浮落定 back.out(1.9)
+         - 待机呼吸用有限次 yoyo（禁 repeat:-1，seek-safe） */
+      var mpose = MASCOT_POSES[e.pose] ? e.pose : 'idle';
+      var sdur = sceneDur || 10;
+      if (mpose === 'land') {
+        tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: 0.16, ease: 'power1.out' }, t);
+        tl.fromTo(target,
+          { x: e.mdx == null ? -300 : e.mdx, y: e.mdy == null ? -200 : e.mdy,
+            scale: 0.46, rotation: e.rot_from == null ? -13 : e.rot_from },
+          { x: 0, y: 0, scale: 1.06, rotation: 0, duration: 0.62, ease: 'power2.in',
+            immediateRender: false }, t + 0.06);
+        tl.to(target, { scale: 0.985, y: 9, duration: 0.14, ease: 'power2.out',
+          immediateRender: false, overwrite: 'auto' }, t + 0.68);
+        tl.to(target, { scale: 1, y: 0, duration: 0.34, ease: 'back.out(2.2)',
+          immediateRender: false, overwrite: 'auto' }, t + 0.82);
+      } else {
+        tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' }, t);
+        tl.fromTo(target, { y: 20, scale: 0.955 },
+          { y: 0, scale: 1, duration: 0.5, ease: 'back.out(1.9)', immediateRender: false }, t);
+      }
+      var amp = e.bob == null ? 8 : e.bob;
+      var period = e.bob_period == null ? 2.0 : e.bob_period;
+      var s0 = t + (mpose === 'land' ? 1.24 : 0.54);
+      var reps = Math.floor((sdur - s0 - 0.3) / period);
+      if (amp > 0 && reps > 0) {
+        tl.to(target, { y: -amp, duration: period / 2, ease: 'sine.inOut', overwrite: 'auto' }, s0);
+        tl.to(target, { y: 0, duration: period / 2, ease: 'sine.inOut',
+          repeat: reps - 1, yoyo: true, overwrite: 'auto' }, s0 + period / 2);
+      }
+      return;
+    }
     /* text / source / fallback */
     if (inner) {
       tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: 0.38, ease: 'power2.out' }, t);
@@ -1003,6 +1067,7 @@
           case 'bars': node = buildBars(e); break;
           case 'shape': node = buildShape(e); break;
           case 'image': node = buildImage(e); break;
+          case 'mascot': node = buildMascot(e); break;
           case 'leader': node = buildConnector(e); break;
           case 'bracket': node = buildConnector(e); break;
           case 'arrow': node = buildConnector(e); break;
@@ -1013,7 +1078,7 @@
         byId[node.id] = node;
         inner.appendChild(node);
         if (e.type === 'arrow' || e.type === 'leader' || e.type === 'bracket') arrows.push(node);
-        animElement(tl, node, e, t0 + (e.enter_offset || 0) + 0.02);
+        animElement(tl, node, e, t0 + (e.enter_offset || 0) + 0.02, dur);
       });
     });
 

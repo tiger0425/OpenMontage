@@ -265,6 +265,35 @@ LLM 对"贴近 X 字"的软约束遵守度不稳定。三层保障：
 
 **简介兜底**：原简介被 bot 拦截抓不到时管线只出标题骨架。用户要简介就按转录全文手写一版（开头两行+要点+标签），同步写 `_简介.txt` 与 `_meta.json`，且**不得把已剪掉的推广写进去**。
 
+## 🎬 片尾末句截断：混音底轨裁剪坑 (Tail-Audio Truncation, 2026-10-14)
+
+> 来源：`auto-dub-dAzs_rU6080`（Nick Saraev，前置剪辑 21s 后出片）。首版成品末句「咱们下期见。」结尾被裁，属混音层系统性问题（reviewer 的 audio_spotcheck 测不出）。
+
+**症状**：语义/SRT 上末句应播到 626.66s，成品尾部实际只到 625.28s——最后 1.381s 语音消失（可听出断句）。
+
+**根因**：`_do_assets_stage` 混音 `full_track = base_track`（no_vocals，长度=原片），pydub `overlay()` 不扩展底轨 → 超出底轨长度的段落尾部被**静默裁剪**。且 `segment_timings.metadata.mixed_audio_duration_seconds` 记录的是逻辑终点（previous_end），导出文件却只有底轨长——compose 的 tpad 按逻辑值延展视频、全链路校验均不报警。
+
+**三层核验升级（加"物理长度校验"）**：
+1. `ffprobe dub_zh(.master).wav` 物理时长 **必须 ≥** `segment_timings` 末段 `end_time`（容忍 ~0.1s）；小于 = 尾部已截断。
+2. 成品最后 ~20s 用 whisper 转录，确认末句完整（比 RMS 强——RMS 测不出"少半句"）。
+3. 凡 drift > 0 的片子必做第 1 条（drift 是逻辑推挤量，不代表音频物理存在）。
+
+**修复手法（已验证）**：`dub`/`seg_last` 载入 pydub → `tail = seg_last[len(dub)-int(last_start*1000):]` → `new = (dub + silent(len(tail))).overlay(tail, len(dub))` → 复刻 `_master_de_ai` 链重生成 master → 删 compose/publish checkpoint → 重跑 run-heavy。备份与细节见 `auto-dub-dAzs_rU6080/SURGERY_RECORD.md`。
+
+**建议（管线级，待实施）**：混音前按 `max(len(base), previous_end)` 预垫静音再 overlay，从根上杜绝静默截断。
+
+### 尾部修复重跑的两个隐藏坑 + 去推广收尾清单 (2026-10-15 补充)
+
+> 来源：`auto-dub-09GB4LtXUok`（前置剪辑 59.2s 后出片，末句尾 2.207s 被裁，修复重跑一轮收敛）。
+
+**坑 1：全局 atempo 缓存无失效校验（必删）**。`_apply_global_atempo`（pipeline_automator.py）的缓存 `renders/dub_adjusted_{factor:.3f}.wav` 只判存在、不判 mtime/来源；修复母带后重跑，因子相同必然命中旧（截断版）缓存 → 修复白做。**重跑前必须手删该文件**（本次 `dub_adjusted_1.002.wav`）。`renders/subtitles_scaled_*.srt` 若源 SRT 与缩放因子均未变可保留。管线级建议：该缓存判断应加 mtime guard（参照 `_master_de_ai` 的 `mtime >= source.mtime`）。
+
+**坑 2：重跑归档会产生「新标题文件夹」**。publish 阶段标题翻译为 LLM 生成，两次运行可能得到不同中文标题（本次 run1「本地部署LLM实测：…到底行不行？」→ run2「本地LLM部署实测：…翻车还是真香？」）→ review 下并存两个文件夹，旧的含缺陷成品。**重跑后必须人工核对并移走旧文件夹**（本次移至 `<频道>/_obsolete/…（run1截断版·勿用）`）。
+
+**去推广收尾清单（简介/meta 同步）**：除赞助商链接外，还要删翻译简介中的「欢迎订阅」类 CTA 行与 `Patreon:` 行；**章节时间戳必须按切除量重映射**（本次三刀：t≤42.61 不变；(42.61,302.71] −14.16；(302.71,321.35] 钳到 288.55；>321.35 −32.80）。同步写 `_简介.txt` 与 `_meta.json.translated_description`。
+
+**修复重跑标准序列**：pydub 补尾（`(dub+silent).overlay(tail, len(dub))`，tail=末句 seg 超界部分）→ 复刻 `_master_de_ai` 链重生成 master → **删 `dub_adjusted_*.wav` 缓存** → 删 compose/publish checkpoint → run-heavy → 核验（母带物理≥末段 end；main 音频流≈片长；成品末 12s whisper 听到收尾词）→ 清理旧标题文件夹与简介残留。
+
 ## 🖼️ 封面模板动态布局 — 实战经验 (Cover Dynamic Layout, 2026-08-26)
 
 > 来源：`auto-dub-xBByvFrqmWU` 封面重构（默认模板 cover.html / cover_4_3.html / cover_vertical.html）。

@@ -64,13 +64,21 @@ body{font-family:"PingFang SC","Microsoft YaHei",sans-serif}
 """
 
 # ---------------------------------------------------------------- media
-def media_el(vis, asset_dir, hid, mid=None, opacity0=False, vstart=0.0, vdur=8.0):
+def media_el(vis, asset_dir, hid, mid=None, opacity0=False, vstart=0.0, vdur=8.0,
+             wrap_w=None, wrap_h=None):
     """visual -> 铺满媒体盒的 img/video（center/ending 布局用）；非首张 opacity:0 以便交叉淡化"""
     src = f"assets/{vis.get('asset_path','')}"
+    if vis.get("scroll"):
+        # 滚动长图：wrap_w/wrap_h 由调用方给出（媒体盒内尺寸）
+        w = wrap_w or 968
+        h = wrap_h or 600
+        mid_id = mid or f"{hid}-img"
+        node, travel = scroll_el(vis, asset_dir, hid, mid_id, w, h, opacity0)
+        return node.replace("<div ", f'<div data-scroll-travel="{travel:.1f}" ', 1)
     attrs = {"src": src, "data-hf-id": hid}
     if mid:
         attrs["id"] = mid
-    style = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0a0e1a;'
+    style = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0a0e1a;'
     if opacity0:
         style += 'opacity:0;'
     if vis.get("type") == "clip":
@@ -95,7 +103,15 @@ def split_media(vis, asset_dir, mid, opacity0=False, vstart=0.0, vdur=8.0):
                   "border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.6);z-index:4;")
     if opacity0:
         card_style += "opacity:0;"
-    inner_style = "width:100%;height:auto;display:block;object-fit:contain;"
+    if vis.get("scroll"):
+        # 滚动长图：卡片固定 700px 高，图等比铺满宽度后上滚，行内文字保持可读
+        node, travel = scroll_el(vis, asset_dir, f"hf-{mid}", mid, 1076, 700, opacity0)
+        card_style = card_style.replace("height:auto;max-height:700px;", "height:700px;")
+        card = el("div", {"id": mid + "-card", "class": "split-card", "data-hf-id": f"hf-{mid}",
+                          "data-scroll-travel": str(round(travel, 2))},
+                  card_style, node)
+        return card
+    inner_style = "width:100%;height:100%;display:block;object-fit:cover;"
     attrs = {"src": src}
     if vis.get("type") == "clip":
         # 场景内媒体片段：播完即停（不带 loop，避免循环压到下一幕）；背景循环视频的 loop 在 bgv 处单独处理
@@ -125,6 +141,53 @@ def crossfade_times(scene, dur):
             t = dur * i / n
         out.append(t)
     return out
+
+
+def media_windows(n, sstart, sdur):
+    """把 n 个 visual 的播放时间窗排满整幕：等分切点，最后一个窗口延伸到幕尾。
+
+    修复（用户报「中间有空白」）：原先每个窗口被 clip_duration_s 硬顶 8 秒，
+    而幕长由 audio_s 决定（15~25 秒）。当幕长 > 8×n 时末尾必然留空，
+    媒体盒只剩边框、卡片内一片黑。现在窗口按幕长等分且最后一个铺到幕尾。
+    """
+    if n <= 0:
+        return []
+    out = []
+    for i in range(n):
+        off = sdur * i / n if i > 0 else 0.0
+        end = sdur * (i + 1) / n if i < n - 1 else sdur
+        out.append((sstart + off, max(1.0, end - off)))
+    return out
+
+
+def _img_aspect(asset_dir, asset_path, default=(1080.0, 1920.0)):
+    """读图片真实宽高比（失败回退 9:16），用于计算滚动距离"""
+    try:
+        from PIL import Image
+        p = os.path.join(asset_dir, asset_path)
+        with Image.open(p) as im:
+            return float(im.width), float(im.height)
+    except Exception:
+        return default
+
+
+def scroll_el(vis, asset_dir, hid, mid, wrap_w, wrap_h, opacity0=False):
+    """滚动展示长图（如 15 站赛历表）：等比铺满宽度后纵向匀速上滚，
+    保证每一行都在卡片尺寸下可读，而不是把整张竖图 contain 缩到看不清。"""
+    src = f"assets/{vis.get('asset_path','')}"
+    iw, ih = _img_aspect(asset_dir, vis.get("asset_path", ""))
+    scale = wrap_w / iw
+    render_h = ih * scale
+    travel = max(0.0, render_h - wrap_h)
+    wrap_style = "position:absolute;inset:0;overflow:hidden;background:transparent;"
+    img_style = f"position:absolute;top:0;left:0;width:{wrap_w}px;height:{render_h:.1f}px;display:block;"
+    # opacity 必须落在 img 上（id 与 crossfade 的 target 一致）；放在 wrap 上会导致
+    # GSAP 淡入打不到目标，wrap 永远透明 —— 表现为「卡片里什么都没有」。
+    if opacity0:
+        img_style += "opacity:0;"
+    inner = el("img", {"src": src, "id": mid, "data-hf-id": hid}, img_style)
+    wrap = el("div", {"id": mid + "-wrap", "data-hf-id": hid + "-wrap"}, wrap_style, inner)
+    return wrap, travel
 
 # ---------------------------------------------------------------- layouts
 def render_split(scene, si, sstart, sdur, asset_dir, ctx):
@@ -231,12 +294,13 @@ def render_center(scene, si, sstart, sdur, asset_dir, ctx):
     if scene.get("visuals"):
         vs_all = scene.get("visuals", [])
         n_all = len(vs_all)
+        wins = media_windows(n_all, ctx["sstart"], ctx["sdur"])
         parts.append(el("div", {"id": f"{ctx['sid']}-media"},
                         "position:relative;z-index:5;width:100%;height:600px;margin-top:44px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.85);box-shadow:0 14px 36px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
-                        "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}", opacity0=(i > 0),
-                                     vstart=ctx["sstart"] + (ctx["sdur"] * i / n_all if i > 0 else 0.0),
-                                     vdur=min(v.get("clip_duration_s") or 8,
-                                              max(1.0, ctx["sdur"] - (ctx["sdur"] * i / n_all if i > 0 else 0.0))))
+                        "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}",
+                                         opacity0=(i > 0),
+                                         vstart=wins[i][0], vdur=wins[i][1],
+                                         wrap_w=968, wrap_h=600)
                                 for i, v in enumerate(vs_all)),
                         hid=f"hf-{ctx['sid']}-media"))
     if d.get("list"):
@@ -278,13 +342,15 @@ def render_ending(scene, si, sstart, sdur, asset_dir, ctx):
     d = scene.get("display", {})
     parts = []
     if scene.get("visuals"):
+        vs_all = scene.get("visuals", [])
+        wins = media_windows(len(vs_all), ctx["sstart"], ctx["sdur"])
         parts.append(el("div", {"id": f"{ctx['sid']}-media"},
                         "position:relative;z-index:5;width:100%;height:620px;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,0.9);box-shadow:0 16px 40px rgba(0,0,0,0.5);background:rgba(0,0,0,0.45);",
-                        "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}", opacity0=(i > 0),
-                                     vstart=ctx["sstart"] + (ctx["sdur"] * i / max(1, len(scene.get("visuals", []))) if i > 0 else 0.0),
-                                     vdur=min(v.get("clip_duration_s") or 8,
-                                              max(1.0, ctx["sdur"] - (ctx["sdur"] * i / max(1, len(scene.get("visuals", []))) if i > 0 else 0.0))))
-                                for i, v in enumerate(scene.get("visuals", []))),
+                        "".join(media_el(v, asset_dir, f"hf-{ctx['sid']}-v{i}", f"{ctx['sid']}-v{i}",
+                                         opacity0=(i > 0),
+                                         vstart=wins[i][0], vdur=wins[i][1],
+                                         wrap_w=968, wrap_h=620)
+                                for i, v in enumerate(vs_all)),
                         hid=f"hf-{ctx['sid']}-media"))
     if d.get("title"):
         t = d["title"]
@@ -323,8 +389,39 @@ def tl_entries(scene, si, sstart, sdur, asset_dir):
     if scene.get("visuals"):
         add(f'tl.from("#{sid}-media",{{scale:0.8,opacity:0,duration:0.6,ease:"back.out(1.5)"}},{sstart+0.8});')
     # visual 交叉淡入淡出
-    for i, t in enumerate(crossfade_times(scene, sdur), start=1):
+    # 关键：淡入下一层的同时必须把上一层淡出。16:9 片段在 968x620 卡片里
+    # object-fit:contain 会留上下黑边，若下层不淡出，滚动图的残影会从黑边透出
+    # （实测 s6 尾段「RALLY DEL PARAGUAY」半行冻结在卡片上沿约 5 秒）。
+    cf = crossfade_times(scene, sdur)
+    for i, t in enumerate(cf, start=1):
         add(f'tl.to("#{sid}-v{i}",{{opacity:1,duration:0.6,ease:"power2.out"}},{round(sstart+t,2)});')
+        add(f'tl.to("#{sid}-v{i-1}",{{opacity:0,duration:0.6,ease:"power2.inOut"}},{round(sstart+t,2)});')
+    # 滚动长图：visible 起滚到幕尾，匀速 ease:none（匀速最好读，不晕）
+    vs = scene.get("visuals", [])
+    bounds = [0.0] + list(cf) + [sdur]
+    layout = scene.get("display", {}).get("layout")
+    for i, v in enumerate(vs):
+        if not v.get("scroll"):
+            continue
+        vis_start = sstart + bounds[i]
+        vis_dur = max(0.5, bounds[i + 1] - bounds[i])
+        iw, ih = _img_aspect(asset_dir, v.get("asset_path", ""))
+        wrap_w = 1076 if layout == "split" else 968
+        wrap_h = 700 if layout == "split" else 620
+        render_h = ih * (wrap_w / iw)
+        travel = max(0.0, render_h - wrap_h)
+        if travel <= 1:
+            continue
+        # 非首张要先淡入（0.6s）再起滚，否则滚动内容在 opacity:0 期间发生，
+        # 等可见时已经错过开头——表现为「卡片里是空的/跳过一段」。
+        lead = 0.7 if i > 0 else 0.3
+        scroll_start = vis_start + lead
+        scroll_dur = max(0.6, vis_dur - lead - 0.2)
+        # 末端留 60px 余量再停：否则滚动到底时最后一行会被卡片下边缘切出半行残影
+        overshoot = min(60.0, travel * 0.06)
+        add(f'tl.fromTo("#{sid}-v{i}",{{y:0}},'
+            f'{{y:-{max(0.0, travel - overshoot):.1f},duration:{scroll_dur:.2f},ease:"none"}},'
+            f'{round(scroll_start, 2)});')
     if d.get("tag"):
         add(f'tl.from("#{sid}-tag",{{scale:0.8,opacity:0,duration:0.4,ease:"back.out(1.4)"}},{sstart+1.0});')
     if d.get("title"):

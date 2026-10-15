@@ -707,10 +707,15 @@ def stage_archive(pid: str, args) -> dict:
         (exp / d).mkdir(parents=True, exist_ok=True)
     shutil.copy2(final, exp / "video" / "final.mp4")
 
-    for name in ("cover_16x9.png", "cover_4x3.png", "cover_frame.png"):
-        src = proj / "package" / name
-        if src.exists():
-            shutil.copy2(src, exp / "thumbnails" / name)
+    # 封面：多规格（cover_16x9 / cover_9x16 / cover_1x1 / cover_3x4 / cover_bili_* …）全部归档
+    covers = sorted((proj / "package").glob("cover*.png")) or []
+    for src in covers:
+        shutil.copy2(src, exp / "thumbnails" / src.name)
+    if not covers:
+        for name in ("cover_frame.png",):
+            src = proj / "package" / name
+            if src.exists():
+                shutil.copy2(src, exp / "thumbnails" / name)
 
     # 发布文案：单文档 txt（package 产物优先；缺失则由 json 现场渲染）
     txt_src = proj / "package" / "publish_copy.txt"
@@ -723,6 +728,14 @@ def stage_archive(pid: str, args) -> dict:
 
     # 制作档案（可追溯）
     ep = load_episode(pid) or {}
+    src = ep.get("source", {}) or {}
+    pcm = {}
+    _pcp = proj / "artifacts" / "publish_copy.json"
+    if _pcp.exists():
+        try:
+            pcm = json.loads(_pcp.read_text(encoding="utf-8"))
+        except Exception:
+            pcm = {}
     timing = {}
     tp = proj / "artifacts" / "timings.json"
     if tp.exists():
@@ -740,8 +753,14 @@ def stage_archive(pid: str, args) -> dict:
         ],
         "lines": len(timing.get("lines", [])),
         "render": {"file": "video/final.mp4", "width": 1920, "height": 1080, "fps": 30},
-        "ai_disclosure": "本视频由 AI 辅助制作：AI 语音合成 + AI 辅助画面（程序化动态图形 + 真实素材，无 AI 生图）。",
-        "credit": "改编自 Kai《Agent Harness explained in 8min..》· 中文重述与视觉重制",
+        # 署名与 AI 声明一律来自本项目的 publish_copy.json——
+        # 严禁硬编码别的项目的署名（曾把 Kai《Agent Harness》写进本项目归档，属事实错误）
+        "ai_disclosure": pcm.get("ai_disclosure")
+        or "本视频由 AI 辅助制作：AI 语音合成 + AI 辅助画面。发布时请勾选「AI 生成」声明。",
+        "credit": pcm.get("credit") or (
+            "参考片：%s — %s（结构借鉴 + 独立重写）" % (src.get("title"), src.get("author"))
+            if src.get("title") else ""),
+        "covers": sorted(p.name for p in (proj / "package").glob("cover*.png")),
         "credits": collect_credits(ep),
         "archived_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
