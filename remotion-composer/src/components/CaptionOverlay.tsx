@@ -1,3 +1,4 @@
+import React, { Fragment } from "react";
 import {
   AbsoluteFill,
   Sequence,
@@ -12,9 +13,12 @@ export interface WordCaption {
   word: string;
   startMs: number;
   endMs: number;
+  // Force a page break after this word (e.g. sentence or scene boundaries).
+  // Useful for CJK captions where pages should align with clause boundaries.
+  pageBreakAfter?: boolean;
 }
 
-interface CaptionOverlayProps {
+type CaptionOverlayProps = {
   words: WordCaption[];
   // How many words to show at once in a "page"
   wordsPerPage?: number;
@@ -23,7 +27,10 @@ interface CaptionOverlayProps {
   highlightColor?: string;
   backgroundColor?: string;
   fontFamily?: string;
-}
+  // Separator rendered between words. Space-delimited languages want the
+  // default " "; CJK languages (no inter-word spacing) should pass "".
+  wordSeparator?: string;
+};
 
 interface CaptionPage {
   words: WordCaption[];
@@ -33,15 +40,21 @@ interface CaptionPage {
 
 function buildPages(words: WordCaption[], wordsPerPage: number): CaptionPage[] {
   const pages: CaptionPage[] = [];
-  for (let i = 0; i < words.length; i += wordsPerPage) {
-    const pageWords = words.slice(i, i + wordsPerPage);
-    if (pageWords.length === 0) continue;
+  let pageWords: WordCaption[] = [];
+  const flush = () => {
+    if (pageWords.length === 0) return;
     pages.push({
       words: pageWords,
       startMs: pageWords[0].startMs,
       endMs: pageWords[pageWords.length - 1].endMs,
     });
+    pageWords = [];
+  };
+  for (const w of words) {
+    pageWords.push(w);
+    if (pageWords.length >= wordsPerPage || w.pageBreakAfter) flush();
   }
+  flush();
   return pages;
 }
 
@@ -52,7 +65,8 @@ const PageRenderer: React.FC<{
   highlightColor: string;
   backgroundColor: string;
   fontFamily: string;
-}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily }) => {
+  wordSeparator: string;
+}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily, wordSeparator }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -97,18 +111,25 @@ const PageRenderer: React.FC<{
             const isActive = w.startMs <= currentMs && w.endMs > currentMs;
             const isPast = w.endMs <= currentMs;
             return (
-              <span
-                key={`${w.startMs}-${i}`}
-                style={{
-                  color: isActive ? highlightColor : isPast ? color : `${color}99`,
-                  transition: "none", // CSS transitions forbidden in Remotion
-                  textShadow: isActive
-                    ? `0 0 20px ${highlightColor}66, 0 2px 4px rgba(0,0,0,0.5)`
-                    : "0 2px 4px rgba(0,0,0,0.5)",
-                }}
-              >
-                {w.word}{i < page.words.length - 1 ? " " : ""}
-              </span>
+              <Fragment key={`${w.startMs}-${i}`}>
+                <span
+                  style={{
+                    // Keep each word unbroken so lines wrap only at word
+                    // boundaries. For space-delimited text this matches the
+                    // previous behavior; for CJK it prevents mid-word breaks.
+                    display: "inline-block",
+                    whiteSpace: "nowrap",
+                    color: isActive ? highlightColor : isPast ? color : `${color}99`,
+                    transition: "none", // CSS transitions forbidden in Remotion
+                    textShadow: isActive
+                      ? `0 0 20px ${highlightColor}66, 0 2px 4px rgba(0,0,0,0.5)`
+                      : "0 2px 4px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {w.word}
+                </span>
+                {i < page.words.length - 1 ? wordSeparator : ""}
+              </Fragment>
             );
           })}
         </span>
@@ -125,6 +146,7 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   highlightColor = "#22D3EE",
   backgroundColor = "rgba(15, 23, 42, 0.75)",
   fontFamily = "Space Grotesk, Inter, system-ui, sans-serif",
+  wordSeparator = " ",
 }) => {
   const { fps } = useVideoConfig();
   const pages = buildPages(words, wordsPerPage);
@@ -148,6 +170,7 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
               highlightColor={highlightColor}
               backgroundColor={backgroundColor}
               fontFamily={fontFamily}
+              wordSeparator={wordSeparator}
             />
           </Sequence>
         );

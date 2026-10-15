@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from tools.provider_pricing import PriceQuoteRequired
+
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -22,8 +24,10 @@ from tools.base_tool import (
 )
 from tools.google_credentials import (
     get_access_token,
+    resolve_google_location,
     resolve_project_id,
     service_account_configured,
+    has_google_credentials,
 )
 
 # Aspect ratio to approximate pixel dimensions (for cost/reporting only)
@@ -69,16 +73,15 @@ class GoogleImagen(BaseTool):
         "  GOOGLE_CLOUD_PROJECT and optionally GOOGLE_CLOUD_LOCATION (default us-central1).\n"
         "  Requires the Vertex AI API enabled and billing on the project."
     )
-    agent_skills = []
+    agent_skills = ["provider-model-refresh"]
 
-    capabilities = ["generate_image", "generate_illustration", "text_to_image", "image_to_image"]
+    capabilities = ["generate_image", "generate_illustration", "text_to_image"]
     supports = {
         "negative_prompt": False,
         "seed": False,
         "custom_size": False,
         "aspect_ratio": True,
         "image_edit": True,
-        "gemini_flash_image": True,
     }
     best_for = [
         "high-quality photorealistic images",
@@ -95,7 +98,10 @@ class GoogleImagen(BaseTool):
         "type": "object",
         "required": ["prompt"],
         "properties": {
-            "prompt": {"type": "string", "description": "Image description (max 480 tokens)"},
+            "prompt": {
+                "type": "string",
+                "description": "Image description (max 480 tokens)",
+            },
             "aspect_ratio": {
                 "type": "string",
                 "enum": ["1:1", "3:4", "4:3", "9:16", "16:9"],
@@ -116,11 +122,17 @@ class GoogleImagen(BaseTool):
                     "imagen-4.0-generate-001",
                     "imagen-4.0-fast-generate-001",
                     "imagen-4.0-ultra-generate-001",
-                    "gemini-3.1-flash-lite-image",
+                    "gemini-2.5-flash-image",
+                    "gemini-3-pro-image",
                     "gemini-3.1-flash-image",
+                    "gemini-3.1-flash-lite-image",
                 ],
                 "default": "gemini-3.1-flash-lite-image",
-                "description": "Imagen model variant or Gemini flash image models. Default is gemini-3.1-flash-lite-image (imagen-4.0-* endpoints return 404 as of 2026-08).",
+                "description": "Imagen model variant, or a Gemini image model "
+                "(gemini-*) routed through generate_content. Use "
+                "gemini-2.5-flash-image when the project has no Imagen access. "
+                "This fork defaults to gemini-3.1-flash-lite-image "
+                "(imagen-4.0-* endpoints return 404 on AI Studio as of 2026-08).",
             },
             "number_of_images": {
                 "type": "integer",
@@ -129,183 +141,322 @@ class GoogleImagen(BaseTool):
                 "maximum": 4,
             },
             "output_path": {"type": "string"},
-            "image_path": {
-                "type": "string",
-                "description": "Local path to a reference image for img2img (image-to-image) generation. The model will generate a new image based on both the prompt and the reference image.",
+            "generation_mode": {"type": "string", "enum": ["generate", "edit"]},
+            "image_path": {"type": "string"},
+            "image_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 14,
             },
-            "image_strength": {
-                "type": "number",
-                "default": 0.7,
-                "minimum": 0.0,
-                "maximum": 1.0,
-                "description": "How much the reference image influences the output (0.0=ignore, 1.0=exact). Only used when image_path is provided.",
-            },
+            "resolution": {"type": "string", "enum": ["1K", "2K", "4K"]},
         },
     }
 
     resource_profile = ResourceProfile(
         cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
     )
-    retry_policy = RetryPolicy(max_retries=2, retryable_errors=["rate_limit", "timeout"])
-    idempotency_key_fields = ["prompt", "aspect_ratio", "model"]
-    side_effects = ["writes image file to output_path", "calls Google Generative AI API"]
+    retry_policy = RetryPolicy(
+        max_retries=2, retryable_errors=["rate_limit", "timeout"]
+    )
+    idempotency_key_fields = ["prompt", "aspect_ratio", "model"] + [
+        "generation_mode",
+        "image_path",
+        "image_paths",
+        "resolution",
+        "number_of_images",
+    ]
+    side_effects = [
+        "writes image file to output_path",
+        "calls Google Generative AI API",
+    ]
     user_visible_verification = ["Inspect generated image for relevance and quality"]
+
+    @staticmethod
+    def _output_paths(output_path: str | None, count: int) -> list[Path]:
+        """Derive one output path per generated image.
+
+        With a single image, honor the requested path as-is. With several,
+        suffix each with `_1`, `_2`, … so no image overwrites another.
+        """
+        ext = ".png"
+        if not output_path:
+            return [Path(f"generated_image_{idx + 1}{ext}") for idx in range(count)]
+
+        path = Path(output_path)
+        suffix = path.suffix or ext
+        if count == 1:
+            return [path if path.suffix else path.with_suffix(suffix)]
+
+        base = path.with_suffix("") if path.suffix else path
+        return [base.parent / f"{base.name}_{idx + 1}{suffix}" for idx in range(count)]
 
     def _get_api_key(self) -> str | None:
         return os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
 
     def get_status(self) -> ToolStatus:
         # API key -> AI Studio endpoint; service-account JSON -> Vertex AI.
-        if self._get_api_key() or service_account_configured():
+        if has_google_credentials():
             return ToolStatus.AVAILABLE
         return ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        model = inputs.get("model", "gemini-3.1-flash-lite-image")
+        model = inputs.get("model", "imagen-4.0-generate-001")
         n = inputs.get("number_of_images", 1)
+        if model in {"gemini-3-pro-image", "gemini-3.1-flash-image"}:
+            raise PriceQuoteRequired(
+                "Gemini image pricing depends on input and output tokens/resolution; obtain a current quote"
+            )
+        if model.startswith("gemini-"):
+            # ~1290 output tokens per image at $30/1M tokens
+            return 0.039 * n
         if "ultra" in model:
             return 0.06 * n
         if "fast" in model:
             return 0.02 * n
-        if "gemini-3.1-flash-lite-image" in model or "gemini-3.1-flash-image" in model:
-            return 0.00 * n  # Free tier available
         return 0.04 * n
 
-    def execute(self, inputs: dict[str, Any]) -> ToolResult:
-        import logging
-        logger = logging.getLogger(__name__)
+    def _resolve_aspect_ratio(self, inputs: dict[str, Any]) -> str:
+        """Explicit aspect_ratio > derived from width/height > default 1:1."""
+        if "aspect_ratio" in inputs:
+            return inputs["aspect_ratio"]
+        if "width" in inputs and "height" in inputs:
+            import logging
+
+            aspect_ratio = _dims_to_aspect_ratio(inputs["width"], inputs["height"])
+            logging.getLogger(__name__).info(
+                "google_imagen: remapped %sx%s to nearest supported aspect ratio %s",
+                inputs["width"],
+                inputs["height"],
+                aspect_ratio,
+            )
+            return aspect_ratio
+        return "1:1"
+
+    def _execute_gemini(self, inputs: dict[str, Any], model: str) -> ToolResult:
+        """Generate via a Gemini image model (e.g. gemini-2.5-flash-image).
+
+        These models use generate_content with an image_config instead of the
+        Imagen :predict endpoint, and work on both auth paths (API key and
+        Vertex service account) through the shared genai client.
+        """
         start = time.time()
-
-        model = inputs.get("model", "gemini-3.1-flash-lite-image")
-        prompt = inputs["prompt"]
-        image_path = inputs.get("image_path")
-        output_path = Path(inputs.get("output_path", "generated_image.png"))
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Check if this is a Gemini flash image model (uses google.genai client)
-        is_gemini_model = "gemini" in model.lower() and "image" in model.lower()
-
         try:
-            if is_gemini_model:
-                # Use new google.genai client (v2+) for Gemini flash image models
-                from google import genai
-                from google.genai import types
+            from google.genai import types
+            from tools.google_credentials import get_genai_client
 
-                api_key = self._get_api_key()
-                if not api_key:
-                    return ToolResult(
-                        success=False,
-                        error="No Google API key found. Set GOOGLE_API_KEY in .env"
-                    )
+            client = get_genai_client()
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"Failed to initialize Google GenAI client: {e}",
+            )
 
-                client = genai.Client(api_key=api_key)
+        if (
+            inputs.get("image_url")
+            or inputs.get("image_urls")
+            or inputs.get("mask_url")
+        ):
+            return ToolResult(
+                success=False,
+                error="This direct Gemini adapter accepts local image_path/image_paths, not image URLs or masks",
+            )
+        prompt = inputs["prompt"]
+        aspect_ratio = self._resolve_aspect_ratio(inputs)
+        number_of_images = inputs.get("number_of_images", 1)
+        image_config = {"aspect_ratio": aspect_ratio}
+        if inputs.get("resolution"):
+            if model == "gemini-2.5-flash-image":
+                return ToolResult(
+                    success=False,
+                    error="Resolution control requires Gemini 3 image models",
+                )
+            image_config["image_size"] = inputs["resolution"]
+        config = types.GenerateContentConfig(
+            image_config=types.ImageConfig(**image_config)
+        )
+        contents = [prompt]
+        try:
+            import mimetypes
 
-                # Build content: text + optional image
-                parts = [types.Part(text=prompt)]
-                if image_path:
-                    image_file = Path(image_path)
-                    if image_file.exists():
-                        image_bytes = image_file.read_bytes()
-                        ext = image_file.suffix.lower()
-                        mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-                        mime_type = mime_map.get(ext, "image/png")
-                        parts.append(
-                            types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-                        )
-                        logger.info("google_imagen: img2img mode with reference image %s", image_path)
+            paths = list(inputs.get("image_paths") or [])
+            if inputs.get("image_path"):
+                paths.insert(0, inputs["image_path"])
+            if len(paths) > 14:
+                raise ValueError("At most 14 reference images")
+            if inputs.get("generation_mode") == "edit" and not paths:
+                raise ValueError("Edit requires source images")
+            if inputs.get("generation_mode") == "generate" and paths:
+                raise ValueError("Use edit for source images")
+            contents.extend(
+                types.Part.from_bytes(
+                    data=Path(p).read_bytes(),
+                    mime_type=mimetypes.guess_type(p)[0] or "image/png",
+                )
+                for p in paths
+            )
+        except Exception as exc:
+            return ToolResult(success=False, error=str(exc))
 
-                contents = [types.Content(role="user", parts=parts)]
-
-                # Use generate_content API (v2+)
+        image_bytes: list[bytes] = []
+        try:
+            for _ in range(number_of_images):
                 response = client.models.generate_content(
                     model=model,
-                    contents=contents,  # type: ignore[arg-type]
+                    contents=contents if len(contents) > 1 else prompt,
+                    config=config,
                 )
-
-                # Extract image from response
-                image_bytes = None
-                for candidate in response.candidates or []:
-                    if not candidate.content or not candidate.content.parts:
-                        continue
-                    for part in candidate.content.parts:
-                        if part.inline_data:
-                            image_bytes = part.inline_data.data
-                            break
-                    if image_bytes:
+                for part in response.candidates[0].content.parts or []:
+                    inline = getattr(part, "inline_data", None)
+                    if inline and inline.data:
+                        image_bytes.append(inline.data)
                         break
+        except Exception as e:
+            return ToolResult(
+                success=False, error=f"Gemini image generation failed: {e}"
+            )
 
-                if not image_bytes:
-                    return ToolResult(success=False, error="No image in Gemini response")
+        if not image_bytes:
+            return ToolResult(
+                success=False,
+                error=f"No image data returned by {model} (text-only response).",
+            )
 
-                output_path.write_bytes(image_bytes)
-                logger.info("google_imagen: Generated image via Gemini, saved to %s", output_path)
+        output_paths = self._output_paths(inputs.get("output_path"), len(image_bytes))
+        outputs: list[str] = []
+        for data, out_path in zip(image_bytes, output_paths):
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(data)
+            outputs.append(str(out_path))
 
-            else:
-                # Standard Imagen API (predict endpoint) - existing code
-                import requests
+        return ToolResult(
+            success=True,
+            data={
+                "provider": "google_imagen",
+                "model": model,
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "output": outputs[0],
+                "outputs": outputs,
+                "images_generated": len(outputs),
+                "cost_status": "unquoted"
+                if model in {"gemini-3-pro-image", "gemini-3.1-flash-image"}
+                else "estimated",
+            },
+            artifacts=outputs,
+            cost_usd=self.estimate_cost(inputs)
+            if model not in {"gemini-3-pro-image", "gemini-3.1-flash-image"}
+            else None,
+            duration_seconds=round(time.time() - start, 2),
+            model=model,
+        )
 
-                api_key = self._get_api_key()
-                if not api_key and not service_account_configured():
-                    return ToolResult(
-                        success=False,
-                        error="No Google credentials found. " + self.install_instructions,
-                    )
+    def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        # Gemini image models go through generate_content via the shared genai
+        # client, which resolves auth (API key or Vertex service account) itself.
+        model = inputs.get("model", "imagen-4.0-generate-001")
+        if model not in self.input_schema["properties"]["model"]["enum"]:
+            return ToolResult(
+                success=False, error=f"Unsupported Google image model: {model}"
+            )
+        if model.startswith("gemini-"):
+            return self._execute_gemini(inputs, model)
+        if (
+            inputs.get("image_path")
+            or inputs.get("image_paths")
+            or inputs.get("generation_mode") == "edit"
+        ):
+            return ToolResult(
+                success=False,
+                error="Imagen generation does not accept source images; choose a Gemini image model",
+            )
 
-                # Resolve aspect ratio
-                if "aspect_ratio" in inputs:
-                    aspect_ratio = inputs["aspect_ratio"]
-                elif "width" in inputs and "height" in inputs:
-                    aspect_ratio = _dims_to_aspect_ratio(inputs["width"], inputs["height"])
-                else:
-                    aspect_ratio = "1:1"
-
-                number_of_images = inputs.get("number_of_images", 1)
-
-                parameters: dict[str, Any] = {
-                    "sampleCount": number_of_images,
-                    "aspectRatio": aspect_ratio,
-                }
-
-                # Build instance with optional image
-                instance: dict[str, Any] = {"prompt": prompt}
-                if image_path:
-                    image_file = Path(image_path)
-                    if image_file.exists():
-                        image_bytes = image_file.read_bytes()
-                        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-                        ext = image_file.suffix.lower()
-                        mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-                        mime_type = mime_map.get(ext, "image/png")
-                        instance["image"] = {"bytesBase64Encoded": image_b64, "mimeType": mime_type}
-                        logger.info("google_imagen: img2img mode with reference image %s", image_path)
-
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{model}:predict"
+        # Two auth paths: an AI Studio API key, or a service-account JSON that
+        # routes to Vertex AI (the AI Studio endpoint does not accept service
+        # accounts). API key wins when both are present.
+        api_key = self._get_api_key()
+        bearer_token: str | None = None
+        project_id: str | None = None
+        if not api_key:
+            if not service_account_configured():
+                return ToolResult(
+                    success=False,
+                    error="No Google credentials found. " + self.install_instructions,
                 )
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": api_key,
-                }
-
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    json={
-                        "instances": [instance],
-                        "parameters": parameters,
-                    },
-                    timeout=120,
+            try:
+                bearer_token, creds_project = get_access_token()
+            except RuntimeError as exc:
+                return ToolResult(success=False, error=str(exc))
+            project_id = resolve_project_id(creds_project)
+            if not project_id:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "Vertex AI needs a project id. Set GOOGLE_CLOUD_PROJECT "
+                        "(or include project_id in the service-account key)."
+                    ),
                 )
-                response.raise_for_status()
-                data = response.json()
 
-                predictions = data.get("predictions", [])
-                if not predictions:
-                    return ToolResult(success=False, error="No images returned from Imagen API")
+        import requests
 
-                image_bytes = base64.b64decode(predictions[0]["bytesBase64Encoded"])
-                output_path.write_bytes(image_bytes)
+        start = time.time()
+        prompt = inputs["prompt"]
+
+        aspect_ratio = self._resolve_aspect_ratio(inputs)
+        number_of_images = inputs.get("number_of_images", 1)
+
+        parameters: dict[str, Any] = {
+            "sampleCount": number_of_images,
+            "aspectRatio": aspect_ratio,
+        }
+
+        if bearer_token:
+            location = resolve_google_location()
+            url = (
+                f"https://{location}-aiplatform.googleapis.com/v1/projects/"
+                f"{project_id}/locations/{location}/publishers/google/models/"
+                f"{model}:predict"
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {bearer_token}",
+            }
+        else:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:predict"
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key or "",
+            }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json={
+                    "instances": [{"prompt": prompt}],
+                    "parameters": parameters,
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            predictions = data.get("predictions", [])
+            if not predictions:
+                return ToolResult(
+                    success=False, error="No images returned from Imagen API"
+                )
+
+            output_paths = self._output_paths(
+                inputs.get("output_path"), len(predictions)
+            )
+            outputs: list[str] = []
+            for prediction, out_path in zip(predictions, output_paths):
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(base64.b64decode(prediction["bytesBase64Encoded"]))
+                outputs.append(str(out_path))
 
         except Exception as e:
             return ToolResult(success=False, error=f"Imagen generation failed: {e}")
@@ -316,11 +467,18 @@ class GoogleImagen(BaseTool):
                 "provider": "google_imagen",
                 "model": model,
                 "prompt": prompt,
-                "output": str(output_path),
-                "images_generated": 1,
+                "aspect_ratio": aspect_ratio,
+                "output": outputs[0],
+                "outputs": outputs,
+                "images_generated": len(outputs),
+                "cost_status": "unquoted"
+                if model in {"gemini-3-pro-image", "gemini-3.1-flash-image"}
+                else "estimated",
             },
-            artifacts=[str(output_path)],
-            cost_usd=self.estimate_cost(inputs),
+            artifacts=outputs,
+            cost_usd=self.estimate_cost(inputs)
+            if model not in {"gemini-3-pro-image", "gemini-3.1-flash-image"}
+            else None,
             duration_seconds=round(time.time() - start, 2),
             model=model,
         )

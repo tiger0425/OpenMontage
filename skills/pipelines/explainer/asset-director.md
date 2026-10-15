@@ -93,6 +93,7 @@ For each script section:
    - OpenAI: `instructions` only with `model: "gpt-4o-mini-tts"`; use `response_format` for output format
    - Google TTS: `input_type: "ssml"` when using `<break>` tags, plus `speaking_rate` in `0.25..2.0` and `pitch` in `-20..20`
    - ElevenLabs: `stability`, `similarity_boost`, `style`, `speed`, and `use_speaker_boost`
+   - Azure: voice aliases (`andrew`, `brandon`, `ava`, `guy`, `jenny`) or any Azure short name, SSML `rate` (e.g. `"-4%"`), `pitch` (e.g. `"+1st"`), and `style` (e.g. `"narration-professional"`) — see the `azure-text-to-speech` skill
 7. Generate using `tts_selector` — it auto-routes to the best available TTS provider based on user preference and availability. Check the registry's `best_for` fields to understand each provider's strengths.
 8. Record the applied `voice_performance` metadata on each narration asset
 9. Verify the audio file exists and duration matches expected timing (±15%)
@@ -278,3 +279,12 @@ This is especially important for:
 - **Remotion component patterns** — new composition techniques emerge as the framework evolves
 
 Do not rely on stale knowledge. When in doubt, search first.
+
+---
+
+## Gate Reminder (Binding)
+
+This stage gates on human approval (`human_approval_default: true`). After review passes:
+checkpoint with `status="awaiting_human"`, present the summary (the Backlot board renders
+the artifact), and **END YOUR TURN**. Do not start the next stage in the same response.
+Approval is per-gate — an earlier "go ahead" does not cover this gate.

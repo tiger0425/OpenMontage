@@ -183,10 +183,10 @@ remotion-composer/public/demo-props/caption-burn-*
 /silk_*/
 *.silk/
 
-# series-adapt ����״̬���ݿ�
+# series-adapt 运行状态数据库
 tracking.db
 
-# ���⣺series-adapt ��ʽ���ߣ����� gen_*.py ���ˣ�
+# 例外：series-adapt 正式工具（不被 gen_*.py 误伤）
 !skills/pipelines/series-adapt/tools/gen_voice_windows.py
 
 # Local pyannote model cache (downloaded once, reused offline — not source)
@@ -268,3 +268,13 @@ snap_*/
 !apps/ref-remake/scripts/gen_tts.py
 .hf-tmp/
 .hf-cache/
+
+# Backlot local cache (thumbnails)
+.backlot/
+
+# Workspace-local third-party runtimes (for example the portable Blender LTS
+# used by blender_world). These are checksum-verified but never committed.
+.runtime/
+
+# Local Wan / diffusers GPU environment
+.venv-wan/

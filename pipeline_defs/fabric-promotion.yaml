@@ -6,7 +6,7 @@ description: >
   generate social media covers → write platform publish copy.
   Key constraint: ALL image and video generation must use img2img (image-to-image)
   to preserve fabric texture and pattern characteristics.
-category: product-promotion
+category: product_promo
 stability: production
 default_checkpoint_policy: guided
 

@@ -1,7 +1,8 @@
-"""MiniMax Image generation via native API (https://api.minimaxi.com)."""
+"""MiniMax image generation through the first-party API."""
 
 from __future__ import annotations
 
+import base64
 import os
 import time
 from pathlib import Path
@@ -16,9 +17,24 @@ from tools.base_tool import (
     ToolResult,
     ToolRuntime,
     ToolStability,
-    ToolStatus,
     ToolTier,
 )
+
+
+MODELS = ["image-01", "image-01-live"]
+DEFAULT_MODEL = "image-01"
+DEFAULT_REGION = "global"
+# Official global list rate for image-01/image-01-live is ~$0.0035/image;
+# measured mainland (cn) runs came in at ~$0.005/image (see
+# issues/wayfinder-ref-remake/findings/03-minimax-tool-reference-image.md).
+# Use the higher figure so budget reservations don't understate cost.
+PRICE_PER_IMAGE_USD = 0.005
+REGION_BASE_URLS = {
+    "global": "https://api.minimax.io",
+    "global_en": "https://api.minimax.io",
+    "cn": "https://api.minimaxi.com",
+    "cn_zh": "https://api.minimaxi.com",
+}
 
 
 class MiniMaxImage(BaseTool):
@@ -27,89 +43,59 @@ class MiniMaxImage(BaseTool):
     tier = ToolTier.GENERATE
     capability = "image_generation"
     provider = "minimax"
-    stability = ToolStability.EXPERIMENTAL
+    stability = ToolStability.BETA
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.SEEDED
     runtime = ToolRuntime.API
 
-    dependencies = []  # checked dynamically via env var
+    dependencies = ["env:MINIMAX_API_KEY"]
     install_instructions = (
-        "Set MINIMAX_API_KEY to your MiniMax API key.\n"
-        "  Get one from https://platform.minimaxi.com/user-center/basic-information/interface-key\n"
-        "  (Token Plan key; create in User Center → Interface Keys)"
+        "Set MINIMAX_API_KEY to your MiniMax API key. "
+        "Optionally set MINIMAX_REGION to global or cn."
     )
-    agent_skills = ["flux-best-practices"]
+    # MiniMax is not a FLUX model. Use the provider-neutral visual direction
+    # skill until a dedicated MiniMax prompting skill is available.
+    agent_skills = ["visual-style"]
 
     capabilities = ["generate_image", "generate_illustration", "text_to_image", "image_to_image"]
     supports = {
-        "seed": True,
+        "multiple_outputs": True,
         "aspect_ratio": True,
+        "custom_dimensions": True,
+        "seed": True,
         "prompt_optimizer": True,
-        "custom_size": True,
-        "batch_generation": True,
         "reference_image": True,
+        "subject_reference": True,
+        "url_response": True,
+        "base64_response": True,
     }
     best_for = [
-        "cost-effective image generation",
-        "large batch image generation",
-        "prompt-optimized results",
+        "first-party MiniMax image generation",
+        "seeded multi-image generation",
+        "global and mainland China API routing",
     ]
-    not_good_for = ["complex text rendering in images", "offline generation"]
+    not_good_for = ["offline generation"]
 
     input_schema = {
         "type": "object",
         "required": ["prompt"],
         "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "Text description of image to generate (max 1500 chars)",
-            },
+            "prompt": {"type": "string", "maxLength": 1500},
             "model": {
                 "type": "string",
-                "enum": ["image-01", "image-01-live"],
-                "default": "image-01",
+                "enum": MODELS,
+                "default": DEFAULT_MODEL,
             },
-            "aspect_ratio": {
-                "type": "string",
-                "enum": ["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
-                "default": "1:1",
-            },
-            "width": {
-                "type": "integer",
-                "description": "Image width (512-2048, divisible by 8). Overrides aspect_ratio resolution.",
-                "minimum": 512,
-                "maximum": 2048,
-            },
-            "height": {
-                "type": "integer",
-                "description": "Image height (512-2048, divisible by 8). Overrides aspect_ratio resolution.",
-                "minimum": 512,
-                "maximum": 2048,
-            },
-            "n": {
-                "type": "integer",
-                "description": "Number of images to generate (1-9)",
-                "default": 1,
-                "minimum": 1,
-                "maximum": 9,
-            },
-            "seed": {
-                "type": "integer",
-                "description": "Seed for reproducibility",
-            },
-            "response_format": {
-                "type": "string",
-                "enum": ["url", "base64"],
-                "default": "url",
-            },
-            "prompt_optimizer": {
-                "type": "boolean",
-                "description": "Enable prompt optimization",
-                "default": True,
-            },
-            "style": {
-                "type": "string",
-                "description": "Style hint for image generation",
+            "subject_reference": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["type", "image_file"],
+                    "properties": {
+                        "type": {"type": "string", "enum": ["character"]},
+                        "image_file": {"type": "string"},
+                    },
+                },
             },
             "reference_image": {
                 "type": "string",
@@ -127,6 +113,29 @@ class MiniMaxImage(BaseTool):
                     "(default: 'Copy this character design and 2D cartoon art style exactly.')"
                 ),
             },
+            "aspect_ratio": {
+                "type": "string",
+                "enum": ["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
+                "default": "1:1",
+            },
+            "width": {"type": "integer", "minimum": 512, "maximum": 2048, "multipleOf": 8},
+            "height": {"type": "integer", "minimum": 512, "maximum": 2048, "multipleOf": 8},
+            "response_format": {
+                "type": "string",
+                "enum": ["url", "base64"],
+                "default": "url",
+            },
+            "seed": {"type": "integer"},
+            "n": {"type": "integer", "minimum": 1, "maximum": 9, "default": 1},
+            "prompt_optimizer": {
+                "type": "boolean",
+                "description": (
+                    "Enable prompt optimization. Default ON in plain text-to-image mode; "
+                    "reference-image mode defaults OFF unless explicitly set (verified "
+                    "ref-remake behavior)."
+                ),
+                "default": True,
+            },
             "output_path": {"type": "string"},
         },
     }
@@ -134,170 +143,232 @@ class MiniMaxImage(BaseTool):
     resource_profile = ResourceProfile(
         cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
     )
-    retry_policy = RetryPolicy(max_retries=2, retryable_errors=["rate_limit", "timeout"])
-    idempotency_key_fields = ["prompt", "model", "aspect_ratio", "seed", "reference_image"]
-    side_effects = ["writes image file to output_path", "calls MiniMax API"]
+    retry_policy = RetryPolicy(
+        max_retries=2, retryable_errors=["rate_limit", "timeout"]
+    )
+    idempotency_key_fields = [
+        "prompt",
+        "model",
+        "subject_reference",
+        "reference_image",
+        "reference_instruction",
+        "aspect_ratio",
+        "width",
+        "height",
+        "response_format",
+        "seed",
+        "n",
+        "prompt_optimizer",
+    ]
+    side_effects = [
+        "writes image files to output_path",
+        "calls the MiniMax image generation API",
+    ]
     fallback_tools = ["flux_image", "openai_image", "google_imagen"]
-    user_visible_verification = ["Inspect generated image for relevance and quality"]
+    user_visible_verification = [
+        "Inspect generated images for prompt adherence and visual quality"
+    ]
 
-    # ---- Key management ----
+    @staticmethod
+    def _region() -> str:
+        region = os.environ.get("MINIMAX_REGION", DEFAULT_REGION).strip().lower()
+        return region if region in REGION_BASE_URLS else DEFAULT_REGION
 
-    def _get_api_key(self) -> str | None:
-        return os.environ.get("MINIMAX_API_KEY")
+    def _base_url(self) -> str:
+        override = os.environ.get("MINIMAX_BASE_URL")
+        if override:
+            return override.rstrip("/")
+        return REGION_BASE_URLS[self._region()]
 
-    def get_status(self) -> ToolStatus:
-        if self._get_api_key():
-            return ToolStatus.AVAILABLE
-        return ToolStatus.UNAVAILABLE
+    @staticmethod
+    def _base_resp_error(data: dict[str, Any]) -> str | None:
+        base_resp = data.get("base_resp") or {}
+        status_code = base_resp.get("status_code")
+        if status_code in (None, 0):
+            return None
+        status_msg = base_resp.get("status_msg") or "unknown error"
+        return f"MiniMax API error {status_code}: {status_msg}"
 
-    # ---- Cost estimation ----
+    @staticmethod
+    def _output_paths(output_path: str | None, count: int) -> list[Path]:
+        path = Path(output_path or "minimax_image.png")
+        if not path.suffix:
+            path = path.with_suffix(".png")
+        if count == 1:
+            return [path]
+        return [
+            path.with_name(f"{path.stem}_{index}{path.suffix}")
+            for index in range(1, count + 1)
+        ]
+
+    @staticmethod
+    def _reference_messages(
+        reference_image: str, instruction: str | None
+    ) -> list[dict[str, Any]]:
+        """Build the `messages` payload for anchor-image (reference) mode.
+
+        Local paths are inlined as base64 data URLs, matching the verified
+        ref-remake pipeline call shape (issues/wayfinder-ref-remake).
+        """
+        if reference_image.startswith(("http://", "https://")):
+            ref_url = reference_image
+        else:
+            ref_path = Path(reference_image)
+            if not ref_path.exists():
+                raise ValueError(f"reference_image file not found: {reference_image}")
+            mime = "image/png" if ref_path.suffix.lower() == ".png" else "image/jpeg"
+            ref_b64 = base64.b64encode(ref_path.read_bytes()).decode()
+            ref_url = f"data:{mime};base64,{ref_b64}"
+        text = instruction or (
+            "Copy this character design and 2D cartoon art style exactly."
+        )
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": ref_url}},
+                    {"type": "text", "text": text},
+                ],
+            }
+        ]
+
+    @staticmethod
+    def _build_payload(inputs: dict[str, Any]) -> dict[str, Any]:
+        model = inputs.get("model", DEFAULT_MODEL)
+        if model not in MODELS:
+            raise ValueError(f"Unsupported MiniMax image model '{model}'.")
+
+        prompt = inputs.get("prompt")
+        if not isinstance(prompt, str) or not prompt:
+            raise ValueError("MiniMax image generation requires 'prompt'.")
+        if len(prompt) > 1500:
+            raise ValueError("MiniMax image prompt must not exceed 1500 characters.")
+
+        width = inputs.get("width")
+        height = inputs.get("height")
+        if (width is None) != (height is None):
+            raise ValueError("MiniMax image width and height must be set together.")
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "response_format": inputs.get("response_format", "url"),
+            "n": inputs.get("n", 1),
+        }
+
+        reference_image = inputs.get("reference_image")
+        if reference_image:
+            payload["messages"] = MiniMaxImage._reference_messages(
+                reference_image, inputs.get("reference_instruction")
+            )
+            # Reference-image mode: prompt_optimizer defaults OFF (verified
+            # pipeline behavior — the optimizer rewrites the anchor
+            # instruction); non-reference mode keeps the original default ON.
+            if inputs.get("prompt_optimizer"):
+                payload["prompt_optimizer"] = True
+        else:
+            payload["prompt_optimizer"] = inputs.get("prompt_optimizer", True)
+
+        for field in (
+            "subject_reference",
+            "aspect_ratio",
+            "width",
+            "height",
+            "seed",
+        ):
+            if inputs.get(field) is not None:
+                payload[field] = inputs[field]
+        return payload
+
+    @staticmethod
+    def _decode_base64_image(value: str) -> bytes:
+        encoded = value.split(",", 1)[1] if value.startswith("data:") else value
+        return base64.b64decode(encoded)
+
+    @staticmethod
+    def _safe_error(exc: Exception, api_key: str) -> str:
+        return str(exc).replace(api_key, "[redacted]") if api_key else str(exc)
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        # MiniMax image-01 pricing: ~$0.005 per image (approximate)
-        n = int(inputs.get("n", 1))
-        model = inputs.get("model", "image-01")
-        per_image = 0.005 if model == "image-01" else 0.005
-        return round(per_image * n, 4)
-
-    # ---- Execution ----
+        return PRICE_PER_IMAGE_USD * int(inputs.get("n", 1))
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
-        api_key = self._get_api_key()
+        api_key = os.environ.get("MINIMAX_API_KEY", "")
         if not api_key:
             return ToolResult(
                 success=False,
-                error=(
-                    "MINIMAX_API_KEY environment variable not set. "
-                    + self.install_instructions
-                ),
+                error="MINIMAX_API_KEY not set. " + self.install_instructions,
             )
 
         import requests
 
         start = time.time()
-        model = inputs.get("model", "image-01")
-        prompt = inputs["prompt"]
-        n = int(inputs.get("n", 1))
-        response_format = inputs.get("response_format", "url")
-
-        # Build payload
-        payload: dict[str, Any] = {
-            "model": model,
-            "prompt": prompt,
-            "n": n,
-            "response_format": response_format,
-        }
-
-        # Optional parameters
-        reference_image = inputs.get("reference_image")
-        if reference_image:
-            import base64
-
-            if reference_image.startswith(("http://", "https://")):
-                ref_url = reference_image
-            else:
-                ref_path = Path(reference_image)
-                if not ref_path.exists():
-                    return ToolResult(
-                        success=False,
-                        error=f"reference_image file not found: {reference_image}",
-                    )
-                mime = "image/png" if ref_path.suffix.lower() == ".png" else "image/jpeg"
-                ref_b64 = base64.b64encode(ref_path.read_bytes()).decode()
-                ref_url = f"data:{mime};base64,{ref_b64}"
-            instruction = inputs.get(
-                "reference_instruction",
-                "Copy this character design and 2D cartoon art style exactly.",
-            )
-            payload["messages"] = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": ref_url}},
-                        {"type": "text", "text": instruction},
-                    ],
-                }
-            ]
-            # Reference-image mode: prompt_optimizer defaults OFF (verified pipeline
-            # behavior — see projects/outsmart-cn/scripts/gen_all_frames.py);
-            # non-reference mode keeps the original default of ON.
-            if inputs.get("prompt_optimizer", False):
-                payload["prompt_optimizer"] = True
-        elif inputs.get("prompt_optimizer", True):
-            payload["prompt_optimizer"] = True
-
-        if inputs.get("aspect_ratio"):
-            payload["aspect_ratio"] = inputs["aspect_ratio"]
-
-        if inputs.get("width") and inputs.get("height"):
-            payload["width"] = int(inputs["width"])
-            payload["height"] = int(inputs["height"])
-
-        if inputs.get("seed") is not None:
-            payload["seed"] = int(inputs["seed"])
-
-        if inputs.get("style"):
-            payload["style"] = inputs["style"]
-
         try:
+            payload = self._build_payload(inputs)
             response = requests.post(
-                "https://api.minimaxi.com/v1/image_generation",
+                f"{self._base_url()}/v1/image_generation",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
-                timeout=300,
+                timeout=180,
             )
             response.raise_for_status()
             data = response.json()
 
-            # Check API-level error
-            base_resp = data.get("base_resp", {})
-            if base_resp.get("status_code", 0) != 0:
+            base_error = self._base_resp_error(data)
+            if base_error:
+                return ToolResult(success=False, error=base_error)
+
+            response_format = payload["response_format"]
+            data_object = data.get("data") or {}
+            image_values = data_object.get(
+                "image_base64" if response_format == "base64" else "image_urls"
+            ) or []
+            if not image_values:
                 return ToolResult(
                     success=False,
-                    error=f"MiniMax API error: {base_resp.get('status_msg', 'unknown')}",
+                    error=f"MiniMax returned no {response_format} image outputs.",
                 )
 
-            # Extract image URLs
-            image_urls: list[str] = data.get("data", {}).get("image_urls", [])
-            if not image_urls:
-                return ToolResult(
-                    success=False,
-                    error="MiniMax returned no images",
-                )
-
-            # Download first image to output_path
-            output_path_str = inputs.get("output_path", "generated_image.png")
-            output_path = Path(output_path_str)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            image_url = image_urls[0]
-            image_response = requests.get(image_url, timeout=120)
-            image_response.raise_for_status()
-            output_path.write_bytes(image_response.content)
-
-        except Exception as e:
+            output_paths = self._output_paths(
+                inputs.get("output_path"), len(image_values)
+            )
+            for path, value in zip(output_paths, image_values):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if response_format == "base64":
+                    path.write_bytes(self._decode_base64_image(value))
+                else:
+                    download = requests.get(value, timeout=120)
+                    download.raise_for_status()
+                    path.write_bytes(download.content)
+        except Exception as exc:
             return ToolResult(
                 success=False,
-                error=f"MiniMax image generation failed: {e}",
+                error=(
+                    "MiniMax image generation failed: "
+                    f"{self._safe_error(exc, api_key)}"
+                ),
             )
 
+        outputs = [str(path) for path in output_paths]
         return ToolResult(
             success=True,
             data={
                 "provider": "minimax",
-                "model": model,
-                "prompt": prompt,
-                "output": str(output_path),
-                "seed": inputs.get("seed"),
-                "image_url": image_url,
-                "image_count": n,
+                "model": payload["model"],
+                "prompt": payload["prompt"],
+                "region": self._region(),
+                "response_format": payload["response_format"],
+                "output": outputs[0],
+                "outputs": outputs,
+                "images_generated": len(outputs),
+                "metadata": data.get("metadata") or {},
+                "request_id": data.get("id"),
             },
-            artifacts=[str(output_path)],
+            artifacts=outputs,
             cost_usd=self.estimate_cost(inputs),
             duration_seconds=round(time.time() - start, 2),
-            seed=inputs.get("seed"),
-            model=model,
+            model=payload["model"],
         )
