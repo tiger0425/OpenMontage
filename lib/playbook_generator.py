@@ -165,8 +165,10 @@ def _create_minimal_playbook(name: str, context: dict[str, Any]) -> dict[str, An
             "texture": "clean digital",
         },
         "typography": {
-            "headings": {"font": "Inter", "weight": 700},
-            "body": {"font": "Inter", "weight": 400},
+            # Rule 1: never generate a playbook on the Inter / JetBrains Mono
+            # default stack. These two families are CJK-safe and editorial.
+            "headings": {"font": "Noto Serif CJK SC", "weight": 700},
+            "body": {"font": "Noto Sans CJK SC", "weight": 400},
         },
         "motion": {
             "transitions": ["crossfade", "cut"],

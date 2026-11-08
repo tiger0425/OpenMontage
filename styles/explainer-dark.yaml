@@ -1,0 +1,132 @@
+identity:
+  name: explainer-dark
+  category: motion-graphics
+  mood: "focused, cinematic, evidence-led"
+  pace: moderate
+  best_for: "Dark-screen explainers and investigative breakdowns that need legible evidence, one idea per frame and a controlled camera."
+
+visual_language:
+  color_palette:
+    primary:
+      - "#2F6BFF"
+    accent:
+      - "#FFB020"
+    background: "#0B0F1A"
+    text: "#F5F5F5"
+    muted: "#8A93A6"
+  composition: "One idea per frame, three depth layers, a single motivated light source. Evidence sits on a surface or in a frame, never as a floating flat panel. Asymmetric grid with deliberate negative space."
+  texture: "Fine film grain, matte surfaces, subtle vignette. No glossy plastic, no neon glow, no procedural noise."
+
+typography:
+  headings:
+    font: "Noto Sans CJK SC"
+    weight: 900
+    tracking: "-0.02em"
+    line_height: 1.05
+  body:
+    font: "Noto Serif CJK SC"
+    weight: 400
+    tracking: "0"
+    line_height: 1.5
+  code:
+    font: "Noto Sans Mono"
+    weight: 400
+  cjk:
+    font: "Noto Sans CJK SC"
+    note: "标题用思源黑体 Heavy，正文用思源宋体。禁止等宽字幕、点分隔符、装饰编号。"
+    baseline: 0.88
+  scale_system: perfect_fourth
+  weight_matrix:
+    title: 900
+    heading: 700
+    body: 400
+    caption: 500
+
+motion:
+  transitions:
+    - cut
+    - match_cut
+    - mask_reveal
+  animation_style: "Motion is motivated: a push-in to reveal, a tracking move to follow evidence, a hard cut on a beat. No idle drift, no floaty easing, no camera move left half-finished."
+  pacing_rules:
+    min_scene_hold_seconds: 1.5
+    max_scene_hold_seconds: 7.0
+    simple_beat_seconds: "3-5"
+    standard_beat_seconds: "5-8"
+    complex_beat_seconds: "8-10"
+    max_beat_seconds: "10"
+    total_tolerance_percent: 10
+    text_card_hold_seconds: 3.0
+    stat_card_hold_seconds: 4.0
+    transition_duration_seconds: 0.3
+  entrance: "cut on the voice, or a short 0.3s mask reveal"
+  exit: "cut, never a slow fade"
+
+audio:
+  voice_style: "clear, controlled, investigative narration"
+  music_mood: "tense minimal score, low pulse, sparse percussion"
+  music_volume: 0.10
+  sfx_style: "soft whoosh, paper tap, low thud, subtle typewriter click"
+  ducking_threshold_db: -18
+  voice_variation_allowed: true
+  hero_moment_voice_shift: "slower, lower, one beat of silence before the reveal"
+  transition_voice_shift: "brief pause, then resume with a touch more energy"
+
+asset_generation:
+  image_prompt_prefix: "cinematic dark explainer still, matte surfaces, single motivated light source, fine film grain, restrained palette"
+  image_negative_prompt: "flat vector icon, glossy 3D render, neon glow, generic corporate illustration, text, watermark, extra fingers"
+  diagram_style: "evidence laid on a real surface: paper, desk, screen, map, ledger"
+  consistency_anchors:
+    - "same near-black background (#0B0F1A)"
+    - "same single motivated light source"
+    - "same restrained blue + amber accent pair"
+    - "real evidence and real objects only; no icon substitutes"
+  scene_type: generated
+  multi_image_per_scene: true
+  images_per_scene: 3
+  image_variation_guidance: "vary the camera angle and crop on the same subject; keep light direction and palette identical so the crossfade reads as a camera move."
+  default_particles: dust
+  default_particle_color: "#8A93A6"
+  default_vignette: true
+
+quality_rules:
+  - "Use only two fonts: Noto Sans CJK SC for titles and Noto Serif CJK SC for text. Any other font is an error."
+  - "Never use monospaced captions, dot separators or decorative reference codes. Titles are five words or fewer."
+  - "Three layers of depth in every scene; one motivated light source; one idea per frame."
+  - "Camera moves never stop halfway. No idle drift."
+  - "Real evidence and real objects only. Never substitute a flat icon or a generic panel for a number."
+  - "No procedural textures. Reuse real surfaces and archive imagery with logged licences."
+  - "Text must be at least 4.5% of frame height (49 px at 1080p)."
+
+chart_palette:
+  - "#2F6BFF"
+  - "#FFB020"
+  - "#3DDC97"
+  - "#FF5C7A"
+  - "#8A93A6"
+  - "#7C5CFF"
+
+color_rules:
+  harmony_type: complementary
+  contrast_validation: true
+  colorblind_safe: true
+
+taste_profile:
+  design_read: "A controlled investigative film: near-black field, one motivated light, evidence on real surfaces. It should feel edited by a person with a point of view, not assembled by a template."
+  visual_variance: 7
+  motion_intensity: 6
+  information_density: 5
+  palette_discipline: "Near-black field + one blue + one amber accent. No fourth hue."
+  layout_variation: "Alternate full-bleed evidence, subject-on-surface, and single-line text compositions."
+  reference_strategy: "Study Vox, Johnny Harris, Magnates Media and Lemmino frame by frame; copy composition and light, not surface style."
+  anti_patterns:
+    - "flat vector icons standing in for real evidence"
+    - "monospaced captions and dot separators"
+    - "procedural noise textures"
+    - "endless floaty camera drift"
+    - "text cards with no object anchor"
+  quality_gates:
+    - "every scene has three depth layers"
+    - "every number sits on a real surface"
+    - "no scene uses a banned font"
+    - "every camera move completes"

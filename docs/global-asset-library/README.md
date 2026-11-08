@@ -28,7 +28,11 @@ assets/shared_library/
   "source_url": "https://example.com/photo.jpg",
   "source_description": "Historical photo of D.B. Cooper from FBI archives",
   "tags": ["real_content", "person", "crime", "fbi", "1971"],
-  "license": "public_domain | cc0 | cc_by | commercial | unknown",
+  "source_provider": "wikimedia",
+  "license": "public_domain | cc0 | cc_by | cc_by_sa | no_known_restrictions | rights_managed | commercial | unknown",
+  "license_url": "https://commons.wikimedia.org/wiki/File:...",
+  "license_checked": true,
+  "creator": "Author / photographer / institution",
   "usage_count": 0,
   "first_used_project": "vox-paper-collage-db-cooper-2026-08",
   "date_added": "2026-08-05",
@@ -36,6 +40,50 @@ assets/shared_library/
   "dimensions": [1024, 1024]
 }
 ```
+
+## 真实素材源（asset_sources）
+
+`tools/graphics/asset_sources.py` 提供四个真实素材源，搜索、下载、许可日志一条龙：
+
+| 源 | 内容 | 许可 |
+|---|---|---|
+| Poly Haven | 纹理、HDRI、3D 模型 | CC0 |
+| ambientCG | PBR 材质 | CC0 |
+| Wikimedia Commons | 真实档案图片 | 逐文件（PD / CC BY / CC BY-SA） |
+| Library of Congress | 真实档案图片 | 逐项（PD / 无已知限制 / 需核查） |
+
+Mixamo（人物动画）和 ActionVFX（火焰/烟雾/粉尘包）需要账号且逐包许可，不自动下载；按需人工归档并填写 `.meta.json`。
+
+### CLI
+
+```bash
+# 搜索
+python bin/asset.py search --provider polyhaven --category texture --query "old paper"
+python bin/asset.py search --provider wikimedia --category image --query "1946 map"
+
+# 下载并归档（默认写入 assets/shared_library，自动写 .meta.json）
+python bin/asset.py download \
+  --provider polyhaven --asset-id brick_4 \
+  --license cc0 --license-url https://polyhaven.com/license \
+  --source-url https://polyhaven.com/a/brick_4 \
+  --title "Brick 4" --tags brick,paper-collage --creator "Rob Tuytel"
+```
+
+### Python
+
+```python
+from tools.graphics.asset_sources import AssetSources
+tool = AssetSources()
+tool.execute({"operation": "search", "provider": "any", "category": "texture", "query": "paper"})
+tool.execute({
+    "operation": "download", "provider": "polyhaven", "asset_id": "brick_4",
+    "kind": "texture", "resolution": "1k", "license": "cc0",
+    "license_url": "https://polyhaven.com/license",
+    "source_url": "https://polyhaven.com/a/brick_4", "title": "Brick 4",
+})
+```
+
+下载归档时会记录 `source_provider`、`license`、`license_url`、`license_checked`、`creator`，便于审计。LoC 的 `rights` 经常为空，工具会如实标 `license=unknown` 并保留 item 页面链接，需要人工核查。
 
 ## 使用流程
 

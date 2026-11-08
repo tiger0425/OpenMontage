@@ -45,6 +45,7 @@ if str(OMO_ROOT) not in sys.path:
     sys.path.insert(0, str(OMO_ROOT))
 
 from lib import checkpoint
+from lib import critic
 from tools.analysis.transcriber import (
     Transcriber,
     assign_utterance_speakers,
@@ -237,6 +238,26 @@ class PipelineAutomator:
         # 字幕模式：bottom=烧底部（默认）；caption_overlay=画面标注遮盖+原位替换；
         #           none=不烧字幕（只生成 SRT 字幕文件留档）
         self.subtitle_mode = config.get("pipeline", {}).get("subtitle_mode", "bottom")
+        # 字幕字体（规则 1：禁用 Inter / Space Grotesk / IBM Plex Mono /
+        # JetBrains Mono 等 AI 味默认字体）。SRT 走 libass 默认 288 单位脚本
+        # 分辨率，FontSize=16 在 1080p 下约 60px（5.55% 帧高）；caption_overlay
+        # 的 ASS 用画布像素，按画布高度的 5% 兜底，保证竖屏也不低于 4.5%。
+        _pipe_cfg = config.get("pipeline", {}) or {}
+        self.subtitle_font = str(_pipe_cfg.get("subtitle_font", "Noto Sans CJK SC"))
+        self.subtitle_font_size = int(_pipe_cfg.get("subtitle_font_size", 16))
+        self.subtitle_margin_v = int(_pipe_cfg.get("subtitle_margin_v", 20))
+        self.subtitle_ass_font_size = int(_pipe_cfg.get("subtitle_ass_font_size", 56))
+        self.subtitle_ass_margin_v = int(_pipe_cfg.get("subtitle_ass_margin_v", 10))
+        # 成片 critic（规则 6）：默认开启；block_on_fail=false 时只记录真实
+        # 状态并告警，不阻断自动管线。需要严格拦截时设为 true。
+        _critic_cfg = _pipe_cfg.get("critic", {}) or {}
+        self.critic_enabled = bool(_critic_cfg.get("enabled", True))
+        self.critic_block_on_fail = bool(_critic_cfg.get("block_on_fail", False))
+        self.critic_banned_fonts = tuple(_critic_cfg.get("banned_fonts", ()) or ())
+        self.critic_text_height_ratio_min = float(
+            _critic_cfg.get("text_height_ratio_min", 0.045)
+        )
+        self.critic_reading_cps = float(_critic_cfg.get("reading_cps", 15.0))
         # 开头 disclaimer 横条（ticket #77）：仅 health_biology 域 + glossary 含 disclaimer_text 时启用；
         # intro_disclaimer_seconds 缺省 3.0s，向后兼容 tech/interview 等其他域（保持零行为）。
         self.intro_disclaimer_text = self._load_intro_disclaimer_text(config)
@@ -1607,6 +1628,21 @@ class PipelineAutomator:
         # 透传：画布即源
         return src_w, src_h, 0, 0, src_w, src_h
 
+    def _subtitle_force_style(self) -> str:
+        """ASS force_style for the burned SRT track.
+
+        Rule 1: pin the font instead of letting libass fall back to a
+        generic default. Rule 6: keep the effective size at or above 4.5%
+        of frame height (FontSize=16 at the 288-unit SRT script resolution
+        is ~5.55% at 1080p).
+        """
+        return (
+            f"FontName={self.subtitle_font},FontSize={self.subtitle_font_size},"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "BorderStyle=1,Outline=2,Shadow=0,"
+            f"MarginV={self.subtitle_margin_v},Alignment=2"
+        )
+
     def _write_caption_ass(self, overlays: list[dict], output_path: Path, W: int, H: int):
         """把画面标注写成 ASS 字幕文件（带位置与半透明底框）。
 
@@ -1619,6 +1655,9 @@ class PipelineAutomator:
             return f"{cs // 360000}:{(cs // 6000) % 60:02d}:{(cs // 100) % 60:02d}.{cs % 100:02d}"
 
         canvas_w, canvas_h, fg_x0, fg_y0, fg_w, fg_h = self._caption_canvas_geometry()
+        # Rule 6: ASS font size is in canvas pixels here (PlayResY=canvas_h),
+        # so scale with the canvas to stay above 4.5% of frame height.
+        ass_font_size = max(self.subtitle_ass_font_size, int(round(canvas_h * 0.05)))
         lines = [
             "[Script Info]",
             "ScriptType: v4.00+",
@@ -1627,7 +1666,7 @@ class PipelineAutomator:
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            "Style: Cap,Microsoft YaHei,56,&H00FFFFFF,&H000000FF,&H00202020,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,5,20,20,10,1",
+            f"Style: Cap,{self.subtitle_font},{ass_font_size},&H00FFFFFF,&H000000FF,&H00202020,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,5,20,20,{self.subtitle_ass_margin_v},1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -4810,11 +4849,13 @@ class PipelineAutomator:
         # caption_overlay 模式：若有检测出的画面标注 ASS，则用它替代 SRT 烧录，
         # 并为每条标注画半透明底框（drawbox）遮盖英文原文。
         caption_drawbox = ""
+        using_caption_ass = False
         if self.subtitle_mode == "caption_overlay" and caption_ass_path and caption_ass_path.exists():
             try:
                 overlays = self._load_caption_overlays()
                 caption_drawbox = self._build_caption_drawbox(overlays)
                 srt_path = caption_ass_path  # 用 ASS 替代 SRT（带位置）
+                using_caption_ass = True
                 print(f"    🏷️ caption_overlay：使用画面标注 ASS（{caption_ass_path.name}）")
             except Exception as e:
                 logging.warning(f"caption_overlay 应用失败，回退标准 SRT: {e}")
@@ -4916,11 +4957,17 @@ class PipelineAutomator:
         if self.subtitle_mode == "none":
             print("    🚫 subtitle_mode=none：不烧录字幕到画面（SRT 字幕文件已保留在 assets/）")
         else:
+            # caption_overlay 的 ASS 自带字体与定位，不能再套 force_style；
+            # 标准 SRT 必须套，否则 libass 会用默认字体（规则 1）。
+            style_opt = (
+                "" if using_caption_ass
+                else f":force_style='{self._subtitle_force_style()}'"
+            )
             if caption_drawbox:
                 # drawbox 在前（遮盖英文原文），subtitles 在后（中文烧在底框之上）
-                video_filter = f"{caption_drawbox},subtitles='{srt_filter_path}'"
+                video_filter = f"{caption_drawbox},subtitles='{srt_filter_path}'{style_opt}"
             else:
-                video_filter = f"subtitles='{srt_filter_path}'"
+                video_filter = f"subtitles='{srt_filter_path}'{style_opt}"
 
         # 开头 disclaimer 横条（ticket #77）：仅 health_biology 域启用；
         # 与字幕烧录链正交（追加在 video_filter 后），不破坏现有 caption_overlay 行为。
@@ -5135,67 +5182,186 @@ class PipelineAutomator:
         self._last_output_path = str(final_video.relative_to(OMO_ROOT)).replace('\\', '/')
         self._last_error = None
 
-        final_review = {
-            "version": "1.0",
-            "output_path": str(final_video.relative_to(self.project_dir)).replace('\\', '/'),
-            "status": "pass",
-            "checks": {
-                "technical_probe": {
-                    "valid_container": True,
-                    "duration_seconds": actual_duration if actual_duration > 0 else video_duration,
-                    "resolution": f"{width}x{height}",
-                    "fps": 30.0,
-                    "has_audio": True,
-                    "codec": "h264",
-                    "file_size_bytes": final_video.stat().st_size if final_video.exists() else 0
-                },
-                "visual_spotcheck": {
-                    "frames_sampled": 4,
-                    "frame_paths": [],
-                    "black_frames_detected": False,
-                    "broken_overlays": False,
-                    "missing_assets": False,
-                    "unreadable_text": False
-                },
-                "audio_spotcheck": {
-                    "narration_present": True,
-                    "music_present": False,
-                    "unexpected_silence": False,
-                    "clipping_detected": False,
-                    "mix_intelligible": True
-                },
-                "promise_preservation": {
-                    "delivery_promise_honored": True,
-                    "renderer_family_used": "localization-dub",
-                    "render_runtime_used": "ffmpeg",
-                    "runtime_swap_detected": False,
-                    "runtime_swap_check": "ok — ffmpeg",
-                    "motion_ratio_actual": 0.0,
-                    "silent_downgrade_detected": False
-                },
-                "subtitle_check": {
-                    "subtitles_expected": True,
-                    "subtitles_present": True,
-                    "coverage_ratio": 1.0,
-                    "timing_drift_detected": False
+        # === 成片 critic（规则 6）===
+        # 只读最终渲染文件 + 字幕轨，不看项目；返回 final_review 形状的 dict。
+        # 关闭时保留最小结构，但 status 不再硬编码 pass。
+        if self.critic_enabled:
+            try:
+                if self.subtitle_mode == "caption_overlay":
+                    # _write_caption_ass uses max(config, canvas_h * 5%); mirror
+                    # that here and rescale to the final frame height.
+                    _, canvas_h, *_ = self._caption_canvas_geometry()
+                    ass_px = max(
+                        self.subtitle_ass_font_size,
+                        int(round(canvas_h * 0.05)),
+                    )
+                    subtitle_font_px = (
+                        round(ass_px * height / canvas_h) if canvas_h else ass_px
+                    )
+                else:
+                    subtitle_font_px = round(self.subtitle_font_size / 288.0 * height)
+                final_review = critic.review_render(
+                    final_video,
+                    subtitle_path=(None if self.subtitle_mode == "none" else effective_srt),
+                    subtitle_font=self.subtitle_font,
+                    subtitle_font_px=(
+                        None if self.subtitle_mode == "none" else subtitle_font_px
+                    ),
+                    expected_duration=(
+                        actual_duration if actual_duration > 0
+                        else video_duration + outro_duration
+                    ),
+                    output_dir=self.renders_dir / "critic_frames",
+                    banned_fonts=self.critic_banned_fonts or critic.DEFAULT_BANNED_FONTS,
+                    renderer_family="localization-dub",
+                    render_runtime="ffmpeg",
+                    check_edges=False,
+                    check_camera=False,
+                    text_height_ratio_min=self.critic_text_height_ratio_min,
+                    reading_cps=self.critic_reading_cps,
+                )
+            except Exception as e:
+                logging.warning(f"成片 critic 执行失败，回退最小 final_review: {e}")
+                final_review = {
+                    "version": "1.0",
+                    "output_path": str(final_video.relative_to(self.project_dir)).replace('\\', '/'),
+                    "status": "revise",
+                    "checks": {
+                        "technical_probe": {
+                            "valid_container": final_video.exists(),
+                            "duration_seconds": actual_duration if actual_duration > 0 else video_duration,
+                            "resolution": f"{width}x{height}",
+                            "fps": 30.0,
+                            "has_audio": True,
+                            "codec": "h264",
+                            "file_size_bytes": final_video.stat().st_size if final_video.exists() else 0,
+                            "issues": [f"critic failed: {e}"],
+                        },
+                        "visual_spotcheck": {
+                            "frames_sampled": 4,
+                            "frame_paths": [],
+                            "black_frames_detected": False,
+                            "broken_overlays": False,
+                            "missing_assets": False,
+                            "unreadable_text": False,
+                            "issues": [],
+                        },
+                        "audio_spotcheck": {
+                            "narration_present": True,
+                            "music_present": False,
+                            "unexpected_silence": False,
+                            "clipping_detected": False,
+                            "mix_intelligible": True,
+                            "issues": [],
+                        },
+                        "promise_preservation": {
+                            "delivery_promise_honored": True,
+                            "renderer_family_used": "localization-dub",
+                            "render_runtime_used": "ffmpeg",
+                            "runtime_swap_detected": False,
+                            "runtime_swap_check": "ok — ffmpeg",
+                            "motion_ratio_actual": 0.0,
+                            "silent_downgrade_detected": False,
+                            "issues": [],
+                        },
+                        "subtitle_check": {
+                            "subtitles_expected": True,
+                            "subtitles_present": effective_srt.exists(),
+                            "coverage_ratio": 0.0,
+                            "timing_drift_detected": False,
+                            "issues": [],
+                        },
+                    },
+                    "issues_found": [f"critic failed: {e}"],
+                    "recommended_action": "revise_edit",
                 }
-            },
-            "issues_found": [],
-            "recommended_action": "present_to_user"
-        }
+        else:
+            final_review = {
+                "version": "1.0",
+                "output_path": str(final_video.relative_to(self.project_dir)).replace('\\', '/'),
+                "status": "pass",
+                "checks": {
+                    "technical_probe": {
+                        "valid_container": True,
+                        "duration_seconds": actual_duration if actual_duration > 0 else video_duration,
+                        "resolution": f"{width}x{height}",
+                        "fps": 30.0,
+                        "has_audio": True,
+                        "codec": "h264",
+                        "file_size_bytes": final_video.stat().st_size if final_video.exists() else 0,
+                        "issues": [],
+                    },
+                    "visual_spotcheck": {
+                        "frames_sampled": 4,
+                        "frame_paths": [],
+                        "black_frames_detected": False,
+                        "broken_overlays": False,
+                        "missing_assets": False,
+                        "unreadable_text": False,
+                        "issues": [],
+                    },
+                    "audio_spotcheck": {
+                        "narration_present": True,
+                        "music_present": False,
+                        "unexpected_silence": False,
+                        "clipping_detected": False,
+                        "mix_intelligible": True,
+                        "issues": [],
+                    },
+                    "promise_preservation": {
+                        "delivery_promise_honored": True,
+                        "renderer_family_used": "localization-dub",
+                        "render_runtime_used": "ffmpeg",
+                        "runtime_swap_detected": False,
+                        "runtime_swap_check": "ok — ffmpeg",
+                        "motion_ratio_actual": 0.0,
+                        "silent_downgrade_detected": False,
+                        "issues": [],
+                    },
+                    "subtitle_check": {
+                        "subtitles_expected": True,
+                        "subtitles_present": effective_srt.exists(),
+                        "coverage_ratio": 0.0,
+                        "timing_drift_detected": False,
+                        "issues": [],
+                    },
+                },
+                "issues_found": [],
+                "recommended_action": "present_to_user",
+                "metadata": {"critic": "disabled"},
+            }
+
+        if final_review.get("status") != "pass":
+            print(
+                f"    ⚠️ 成片 critic: {final_review['status']} — "
+                f"{len(final_review.get('issues_found', []))} 个问题"
+            )
+            for issue in final_review.get("issues_found", [])[:8]:
+                print(f"       - {issue}")
+        else:
+            print("    ✅ 成片 critic: pass")
+
+        stage_status = "completed"
+        if final_review.get("status") != "pass" and self.critic_block_on_fail:
+            stage_status = "awaiting_human"
+            print("    ⛔ critic 非 pass 且 block_on_fail=true，compose 挂起等人审")
 
         checkpoint.write_checkpoint(
             pipeline_dir=self.project_dir.parent,
             project_id=self.project_id,
             stage="compose",
-            status="completed",
+            status=stage_status,
             artifacts={
                 "render_report": render_report,
                 "final_review": final_review
             },
-            pipeline_type="localization-dub"
+            pipeline_type="localization-dub",
+            human_approval_required=(stage_status == "awaiting_human"),
         )
-        print("  ✅ compose 阶段自动提交成功")
+        if stage_status == "completed":
+            print("  ✅ compose 阶段自动提交成功")
+        else:
+            print("  ⏸️ compose 阶段已提交，等待人工审核")
         return render_report
 
     # ==========================================

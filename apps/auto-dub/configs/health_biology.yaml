@@ -38,6 +38,20 @@ pipeline:
   whisper_model: large-v3
   min_char_budget: 15
   subtitle_style: 中文+术语英文标注
+  # 规则 1：固定字幕字体，禁止 Inter / Space Grotesk / JetBrains Mono。
+  # 9:16 竖屏 caption_overlay 的 ASS 字号按画布高度 5% 兜底（1920 → 96px）。
+  subtitle_font: "Noto Sans CJK SC"
+  subtitle_font_size: 16
+  subtitle_margin_v: 20
+  subtitle_ass_font_size: 56
+  subtitle_ass_margin_v: 10
+  # 规则 6：成片 critic 只读最终渲染 + 字幕轨。
+  critic:
+    enabled: true
+    block_on_fail: false
+    text_height_ratio_min: 0.045
+    reading_cps: 15
+    banned_fonts: [inter, space grotesk, ibm plex mono, jetbrains mono]
   output_format: '9:16'
   render_runtime: ffmpeg
   diarize: auto

@@ -53,6 +53,17 @@
         "body": { "$ref": "#/$defs/font_spec" },
         "code": { "$ref": "#/$defs/font_spec" },
         "stat_card": { "$ref": "#/$defs/font_spec" },
+        "cjk": {
+          "description": "CJK typography rules: how Chinese/Japanese/Korean glyphs are produced and sized (stroke-order handwriting vs typeset, em metrics, nib width).",
+          "type": "object",
+          "properties": {
+            "font": { "type": "string" },
+            "note": { "type": "string" },
+            "nib_width_ratio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "baseline": { "type": "number" }
+          },
+          "additionalProperties": false
+        },
         "scale_system": {
           "description": "Modular type scale ratio. Named ratio or custom number.",
           "oneOf": [

@@ -81,6 +81,26 @@ pipeline:
   #           在原位置烧录中文标注翻译）；
   #           none=不烧字幕到画面（只生成 SRT 字幕文件留档，供外部挂载/上传）
   subtitle_mode: bottom
+  # 字幕字体（规则 1）：固定字体，禁止 Inter / Space Grotesk / IBM Plex Mono /
+  # JetBrains Mono 等 AI 味默认字体。SRT 走 libass 默认 288 单位脚本分辨率，
+  # FontSize=16 在 1080p 下约 60px（5.55% 帧高，高于 4.5% 下限）。
+  subtitle_font: "Noto Sans CJK SC"
+  subtitle_font_size: 16
+  subtitle_margin_v: 20
+  # caption_overlay 的 ASS 用画布像素；实际取 max(此值, 画布高度 5%)。
+  subtitle_ass_font_size: 56
+  subtitle_ass_margin_v: 10
+  # 成片 critic（规则 6）：只读最终渲染文件 + 字幕轨，不看项目。
+  critic:
+    enabled: true
+    block_on_fail: false          # true = critic 非 pass 时 compose 挂起等人审
+    text_height_ratio_min: 0.045  # 文本至少占帧高 4.5%（1080p ≈ 49px）
+    reading_cps: 15               # 每行停留 = 字符数 / 15 秒
+    banned_fonts:
+      - inter
+      - space grotesk
+      - ibm plex mono
+      - jetbrains mono
   subtitle_driven: off           # 画面字幕驱动分段：实测 OCR/帧差分不稳（漏字、条不准），默认关闭；仅画面字幕清晰时手动开启
   whisper_model: large-v3         # 转录模型（准确率优先）：base(快) < small < medium < large-v3(最准，慢)
   min_char_budget: 15            # 中文字符预算下限，避免短句预算过小导致过度拆分

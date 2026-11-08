@@ -1409,8 +1409,10 @@ class HyperFramesCompose(BaseTool):
         fg = _first(palette.get("text"), "#F5F5F5")
         accent = _first(palette.get("accent"), "#F59E0B")
         primary = _first(palette.get("primary"), "#2563EB")
-        heading = typo.get("heading", {}).get("font") or typo.get("heading", {}).get("family") or "Inter"
-        body = typo.get("body", {}).get("font") or typo.get("body", {}).get("family") or "Inter"
+        heading_spec = typo.get("headings") or typo.get("heading") or {}
+        body_spec = typo.get("body") or {}
+        heading = heading_spec.get("font") or heading_spec.get("family") or "Noto Serif CJK SC"
+        body = body_spec.get("font") or body_spec.get("family") or "Noto Sans CJK SC"
 
         css_vars = {
             "--color-bg": bg,

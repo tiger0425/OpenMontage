@@ -13,14 +13,36 @@
     },
     "source_url": { "type": "string" },
     "source_description": { "type": "string" },
+    "source_provider": {
+      "type": "string",
+      "description": "Provider slug, e.g. polyhaven / ambientcg / wikimedia / loc."
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" }
     },
     "license": {
       "type": "string",
-      "enum": ["public_domain", "cc0", "cc_by", "commercial", "unknown"]
+      "enum": [
+        "public_domain",
+        "cc0",
+        "cc_by",
+        "cc_by_sa",
+        "no_known_restrictions",
+        "rights_managed",
+        "commercial",
+        "unknown"
+      ]
     },
+    "license_url": {
+      "type": "string",
+      "description": "Link to the licence text or the item page where rights are stated."
+    },
+    "license_checked": {
+      "type": "boolean",
+      "description": "True when a human or the source API explicitly confirmed the licence."
+    },
+    "creator": { "type": "string" },
     "usage_count": { "type": "integer", "minimum": 0 },
     "first_used_project": { "type": "string" },
     "date_added": { "type": "string", "format": "date" },

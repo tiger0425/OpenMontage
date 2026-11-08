@@ -27,9 +27,11 @@ _FALLBACK_CSS_VARS = {
     "--color-secondary": "#10B981",
     "--color-surface": "#111827",
     "--color-muted": "#6B7280",
-    "--font-heading": "Inter",
-    "--font-body": "Inter",
-    "--font-mono": "JetBrains Mono",
+    # Rule 1 of the motion doctrine: never fall back to Inter / Space Grotesk /
+    # JetBrains Mono. These defaults are intentionally editorial and CJK-safe.
+    "--font-heading": "Noto Serif CJK SC",
+    "--font-body": "Noto Sans CJK SC",
+    "--font-mono": "Noto Sans Mono",
     "--ease-primary": "cubic-bezier(0.65, 0, 0.35, 1)",
     "--ease-entrance": "cubic-bezier(0.33, 1, 0.68, 1)",
     "--ease-exit": "cubic-bezier(0.32, 0, 0.67, 0)",
@@ -49,7 +51,11 @@ def _first(raw: Any, default: str) -> str:
 
 def _font(typo: dict[str, Any], key: str, default: str) -> str:
     """Extract a font family string from a typography block."""
-    node = typo.get(key) or {}
+    node = typo.get(key)
+    if node is None and key == "headings":
+        # Older playbooks used the singular `heading`; accept both.
+        node = typo.get("heading")
+    node = node or {}
     if isinstance(node, dict):
         return str(node.get("font") or node.get("family") or default)
     if isinstance(node, str):
@@ -115,7 +121,7 @@ def style_bridge(
                 "--color-secondary": secondary,
                 "--color-surface": surface,
                 "--color-muted": muted,
-                "--font-heading": _font(typo, "heading", css["--font-heading"]),
+                "--font-heading": _font(typo, "headings", css["--font-heading"]),
                 "--font-body": _font(typo, "body", css["--font-body"]),
                 "--font-mono": _font(typo, "code", css["--font-mono"]),
                 "--ease-primary": ease,

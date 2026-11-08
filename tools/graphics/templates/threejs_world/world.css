@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, sans-serif;
+  font-family: "Noto Sans CJK SC", "Noto Sans", sans-serif;
   background: #05080d;
 }
 
@@ -46,9 +46,9 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
   text-shadow: 0 4px 36px rgba(0, 0, 0, 0.84);
 }
 
-.eyebrow { margin-bottom: 18px; font: 600 18px/1.2 "JetBrains Mono", Consolas, monospace; letter-spacing: 0.22em; color: #9fdff2; }
-.world-title-card h1 { margin: 0; max-width: 900px; font: 720 clamp(42px, 4.3vw, 82px)/0.94 Inter, sans-serif; letter-spacing: -0.055em; text-transform: uppercase; }
-.world-title-card p { margin: 22px 0 0; font: 600 16px/1.4 "JetBrains Mono", Consolas, monospace; letter-spacing: 0.16em; color: rgba(236, 245, 255, 0.72); }
+.eyebrow { margin-bottom: 18px; font: 600 18px/1.2 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: 0.08em; color: #9fdff2; }
+.world-title-card h1 { margin: 0; max-width: 900px; font: 720 clamp(42px, 4.3vw, 82px)/0.94 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: -0.055em; text-transform: uppercase; }
+.world-title-card p { margin: 22px 0 0; font: 600 16px/1.4 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: 0.06em; color: rgba(236, 245, 255, 0.72); }
 
 .world-hud {
   position: absolute;
@@ -65,13 +65,13 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 }
 
 .hud-rule { width: 54px; height: 3px; margin-bottom: 18px; background: #9fdff2; box-shadow: 0 0 16px rgba(159, 223, 242, 0.55); }
-.hud-label { font: 600 12px/1.2 "JetBrains Mono", Consolas, monospace; letter-spacing: 0.2em; color: rgba(213, 238, 248, 0.52); }
-.hud-value { margin-top: 7px; min-height: 54px; font: 680 28px/1.02 Inter, sans-serif; letter-spacing: -0.03em; text-transform: uppercase; }
-.hud-grid { display: grid; grid-template-columns: 74px 1fr; gap: 9px 16px; padding-top: 17px; border-top: 1px solid rgba(172, 224, 241, 0.16); font: 500 12px/1.1 "JetBrains Mono", Consolas, monospace; letter-spacing: 0.1em; }
+.hud-label { font: 600 12px/1.2 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: 0.08em; color: rgba(213, 238, 248, 0.52); }
+.hud-value { margin-top: 7px; min-height: 54px; font: 680 28px/1.02 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: -0.03em; text-transform: uppercase; }
+.hud-grid { display: grid; grid-template-columns: 74px 1fr; gap: 9px 16px; padding-top: 17px; border-top: 1px solid rgba(172, 224, 241, 0.16); font: 500 12px/1.1 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: 0.04em; }
 .hud-grid span { color: rgba(209, 236, 246, 0.68); }
 .hud-grid strong { text-align: right; color: rgba(235, 249, 255, 0.88); text-transform: uppercase; }
 
-#world-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 13px 18px; border: 1px solid rgba(174, 232, 249, 0.32); background: rgba(3, 9, 15, 0.72); font: 600 13px/1 "JetBrains Mono", Consolas, monospace; letter-spacing: 0.15em; color: #cceefa; }
+#world-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 13px 18px; border: 1px solid rgba(174, 232, 249, 0.32); background: rgba(3, 9, 15, 0.72); font: 600 13px/1 "Noto Sans CJK SC", "Noto Sans", sans-serif; letter-spacing: 0.06em; color: #cceefa; }
 
 [data-render-mode="semantic"] #world-vignette,
 [data-render-mode="wireframe"] #world-vignette,

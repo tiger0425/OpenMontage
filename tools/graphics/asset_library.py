@@ -110,8 +110,34 @@ class AssetLibrary(BaseTool):
             },
             "license": {
                 "type": "string",
-                "enum": ["public_domain", "cc0", "cc_by", "commercial", "unknown"],
+                "enum": [
+                    "public_domain",
+                    "cc0",
+                    "cc_by",
+                    "cc_by_sa",
+                    "no_known_restrictions",
+                    "rights_managed",
+                    "commercial",
+                    "unknown",
+                ],
                 "description": "License for operation=add.",
+            },
+            "license_url": {
+                "type": "string",
+                "description": "Link to the licence text or item page for operation=add.",
+            },
+            "license_checked": {
+                "type": "boolean",
+                "default": False,
+                "description": "True when the licence was explicitly confirmed.",
+            },
+            "source_provider": {
+                "type": "string",
+                "description": "Provider slug for operation=add (polyhaven / ambientcg / wikimedia / loc).",
+            },
+            "creator": {
+                "type": "string",
+                "description": "Author / photographer / institution for operation=add.",
             },
             "description": {
                 "type": "string",
@@ -277,8 +303,12 @@ class AssetLibrary(BaseTool):
             "source_type": inputs.get("source_type", "user_upload"),
             "source_url": inputs.get("source_url", ""),
             "source_description": inputs.get("description", ""),
+            "source_provider": inputs.get("source_provider", ""),
             "tags": inputs.get("tags", []),
             "license": license_val,
+            "license_url": inputs.get("license_url", ""),
+            "license_checked": bool(inputs.get("license_checked", False)),
+            "creator": inputs.get("creator", ""),
             "usage_count": 1,
             "first_used_project": inputs.get("project_name", "vox-paper-collage"),
             "date_added": time.strftime("%Y-%m-%d"),
@@ -291,8 +321,11 @@ class AssetLibrary(BaseTool):
             with open(META_SCHEMA, encoding="utf-8") as f:
                 schema = json.load(f)
             jsonschema.validate(meta, schema)
-        except ImportError:
-            pass  # schema validation optional
+        except (ImportError, OSError):
+            pass  # schema validation optional / schema not shipped
+        except Exception:
+            # Schema drift must not lose the asset; the sidecar is still written.
+            pass
 
         meta_path = target.with_suffix(target.suffix + ".meta.json")
         with open(meta_path, "w", encoding="utf-8") as f:

@@ -1338,9 +1338,9 @@ class VideoCompose(BaseTool):
                 "surfaceColor": surface,
                 "textColor": text,
                 "mutedTextColor": muted,
-                "headingFont": typo.get("headings", {}).get("font", "Inter"),
-                "bodyFont": typo.get("body", {}).get("font", "Inter"),
-                "monoFont": typo.get("code", {}).get("font", "JetBrains Mono"),
+                "headingFont": typo.get("headings", {}).get("font", "Noto Serif CJK SC"),
+                "bodyFont": typo.get("body", {}).get("font", "Noto Sans CJK SC"),
+                "monoFont": typo.get("code", {}).get("font", "Noto Sans Mono"),
                 "chartColors": chart_colors[:6],
                 "springConfig": {"damping": 20, "stiffness": 120, "mass": 1},
                 "transitionDuration": 0.4,
@@ -1380,9 +1380,9 @@ class VideoCompose(BaseTool):
                     "surfaceColor": meta.get("surface_color", "#F9FAFB"),
                     "textColor": meta.get("text_color", "#1F2937"),
                     "mutedTextColor": "#6B7280",
-                    "headingFont": meta.get("heading_font", "Inter"),
-                    "bodyFont": meta.get("body_font", "Inter"),
-                    "monoFont": "JetBrains Mono",
+                    "headingFont": meta.get("heading_font", "Noto Serif CJK SC"),
+                    "bodyFont": meta.get("body_font", "Noto Sans CJK SC"),
+                    "monoFont": "Noto Sans Mono",
                     "chartColors": meta.get("chart_colors", ["#2563EB", "#F59E0B", "#10B981"]),
                     "springConfig": {"damping": 20, "stiffness": 120, "mass": 1},
                     "transitionDuration": 0.4,
@@ -2893,9 +2893,10 @@ class VideoCompose(BaseTool):
         Priority: explicit_style > edit_decisions.subtitles.style > playbook > defaults.
         This prevents every video from looking identical (Arial bold white).
         """
-        # Start with minimal fallback defaults
+        # Start with minimal fallback defaults. Rule 1: never fall back to the
+        # AI-cliché Inter / Space Grotesk / JetBrains Mono stack.
         resolved = {
-            "font": "Inter",
+            "font": "Noto Sans CJK SC",
             "font_size": 28,
             "bold": True,
             "outline_width": 2,
@@ -2908,8 +2909,10 @@ class VideoCompose(BaseTool):
         if playbook:
             typo = playbook.get("typography", {})
             colors = playbook.get("visual_language", {}).get("color_palette", {})
-            if typo.get("body", {}).get("family"):
-                resolved["font"] = typo["body"]["family"]
+            body_spec = typo.get("body", {}) or {}
+            body_font = body_spec.get("font") or body_spec.get("family")
+            if body_font:
+                resolved["font"] = body_font
             if colors.get("text"):
                 resolved["primary_color"] = colors["text"]
             if colors.get("background"):
@@ -2937,7 +2940,7 @@ class VideoCompose(BaseTool):
     def _build_subtitle_style(style: dict) -> str:
         """Build ASS force_style string from style dict."""
         parts = []
-        parts.append(f"FontName={style.get('font', 'Inter')}")
+        parts.append(f"FontName={style.get('font', 'Noto Sans CJK SC')}")
         parts.append(f"FontSize={style.get('font_size', 28)}")
         parts.append(f"Bold={1 if style.get('bold', True) else 0}")
         if style.get("primary_color"):

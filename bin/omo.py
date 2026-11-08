@@ -20,9 +20,26 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from lib import checkpoint
 from lib import pipeline_loader
+from lib.scene_plan_validator import (
+    format_report,
+    validate_asset_manifest,
+    validate_scene_plan,
+)
 
 PIPELINES_DIR = PROJECT_ROOT / "pipeline_defs"
 PROJECTS_DIR = PROJECT_ROOT / "projects"
+
+
+def _load_edit_decisions(project_id: str):
+    """Best-effort load of edit_decisions for slideshow-risk scoring."""
+    try:
+        ckpt = checkpoint.read_checkpoint(PROJECTS_DIR, project_id, "edit")
+    except Exception:
+        return None
+    if not ckpt:
+        return None
+    return (ckpt.get("artifacts") or {}).get("edit_decisions")
+
 
 def cmd_status(args):
     """Check the status of a project."""
@@ -115,7 +132,33 @@ def cmd_submit_artifact(args):
         sys.exit(1)
         
     artifacts = {canonical_artifact: artifact_data}
-    
+
+    # --- Doctrine checks (rules 2/3) ---
+    # Run before schema validation so the operator sees doctrine errors
+    # first. repo-to-video uses its own artifact shapes; skip it.
+    if pipeline_type != "repo-to-video":
+        if canonical_artifact == "scene_plan":
+            doctrine = validate_scene_plan(
+                artifact_data,
+                edit_decisions=_load_edit_decisions(project_id),
+            )
+            print(format_report(doctrine, title="scene_plan"))
+            if doctrine["blockers"]:
+                print(
+                    "\nDOCTRINE BLOCK: scene_plan violates rule 2/3. "
+                    "Fix the blockers above and resubmit."
+                )
+                sys.exit(1)
+        elif canonical_artifact == "asset_manifest":
+            doctrine = validate_asset_manifest(artifact_data)
+            print(format_report(doctrine, title="asset_manifest"))
+            if doctrine["blockers"]:
+                print(
+                    "\nDOCTRINE BLOCK: asset_manifest violates rule 2 "
+                    "traceability. Fix the blockers above and resubmit."
+                )
+                sys.exit(1)
+
     # Validation logic inside checkpoint.py will handle schema validation
     try:
         # 物理检查：如果提交的是素材清单，强制检查所有登记的图片/视频/音频是否真实存在且非空
